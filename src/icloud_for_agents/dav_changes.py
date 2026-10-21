@@ -28,7 +28,8 @@ def unfold(value):
 
 
 def prop(line):
-    return line.split(":", 1)[0].split(";", 1)[0].upper()
+    # vCard groups (item1.EMAIL) qualify a property; they do not change its name.
+    return line.split(":", 1)[0].split(";", 1)[0].rsplit(".", 1)[-1].upper()
 
 
 def escaped(value):
@@ -91,6 +92,9 @@ def event_content(fields, before=None):
         raise SafetyError("Named timezone changes require explicit start and end")
     replacements = {"DTSTAMP": ["DTSTAMP:" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")]}
     if "start" in fields:
+        # RFC 5545 permits DTEND or DURATION, never both on the same VEVENT.
+        # replace_properties removes this only at event depth, preserving alarms.
+        replacements["DURATION"] = []
         try:
             values = [datetime.fromisoformat(fields[k].replace("Z", "+00:00")) for k in ("start", "end")]
             if any(v.tzinfo is None for v in values) or not 0 < (values[1]-values[0]).total_seconds() <= 366*86400:

@@ -44,7 +44,8 @@ def service():
         raise SafetyError("Mail access is disabled by owner configuration")
     global _service
     if _service is None:
-        account, password = credentials()
+        account, password = ((_dav_owner.account, _dav_owner._password)
+                             if _dav_owner is not None else credentials())
         _service = MailService(account, password)
     return _service
 
@@ -55,7 +56,8 @@ def dav_owner():
     if not (enabled("calendar") or enabled("contacts")):
         raise SafetyError("Calendar and Contacts services are disabled")
     if _dav_owner is None:
-        account, password = credentials()
+        account, password = ((_service.account, _service._password)
+                             if _service is not None else credentials())
         _dav_owner = SimpleNamespace(account=account, _password=password, store=PlanStore())
     return _dav_owner
 

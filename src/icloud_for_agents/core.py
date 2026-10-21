@@ -226,8 +226,13 @@ def set_seen(client, folder, uidvalidity, uids, seen):
     # Add/remove one flag only: never replace the retained flags or stars.
     method = client.add_flags if seen else client.remove_flags
     method(uids, ["\\Seen"], silent=True)
-    return {"uids": uids, "seen": seen, "flags_after": {str(n): [text(f) for f in fs]
-                                                        for n, fs in client.get_flags(uids).items()}}
+    observed = client.get_flags(uids)
+    if set(observed) != set(uids):
+        raise SafetyError("Read-state verification missing messages; outcome uncertain, reconcile without retry")
+    flags_after = {str(n): [text(f) for f in fs] for n, fs in observed.items()}
+    if any(("\\Seen" in fs) != seen for fs in flags_after.values()):
+        raise SafetyError("Read-state verification disagrees with requested state; reconcile without retry")
+    return {"uids": uids, "seen": seen, "flags_after": flags_after}
 
 
 def expand_uid_set(value):
