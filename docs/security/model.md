@@ -68,7 +68,7 @@ Stopping the configured foreground tunnel or login background service prevents t
 
 If credentials are exposed, the owner should revoke the specific affected credential through its issuer, then reconnect only after understanding the exposure. Secret rotation, tunnel deletion, local-data removal, and public publication are separate actions, not implied by a documentation update. There is no one-click comprehensive uninstaller in this repo.
 
-For a suspected vulnerability, contact the maintainer through an established private reporting channel when available, without sending passwords or private mail. A formal reporting/response policy and published privacy/terms pages remain release preparation work; this technical guide is not a substitute for them.
+For a suspected vulnerability, follow the [private reporting policy](../../SECURITY.md). Use GitHub private vulnerability reporting once the repository owner has enabled it; keep passwords and private mail out of reports. The release checklist requires verifying that private report form before publication. This technical guide does not set external client/provider privacy terms.
 
 ## Independent service scope
 

@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Include every test runner and fixture, plus the security policy, in source distributions; add an archive completeness check.
+- Reuse one inherited credential handoff across Mail and DAV in either initialization order.
+- Replace and clear grouped vCard properties; remove event DURATION when setting an explicit end while preserving nested alarms.
+- Verify the final read/unread state of every requested message; uncertain cleanup results block further unattended actions.
+- Allow an explicit owner-selected tunnel executable path and document installation/version checks.
+- Add verified login-service status, stop and uninstall commands without credential lookup.
+- Document GitHub private vulnerability reporting and require activation before the first public release.
+
 ## 1.1.0 — 2026-10-21
 
 - iCloud for Agents package, command-line tools and documentation.

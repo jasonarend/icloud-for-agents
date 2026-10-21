@@ -4,6 +4,8 @@
 
 Manage iCloud mail, calendars and contacts from your AI assistant while keeping your credentials private and stored locally on your Mac. Connect a local stdio client, or connect ChatGPT through your own private OpenAI Secure MCP Tunnel.
 
+An independent project, unaffiliated with Apple. The tested setup is macOS on Apple silicon with Python 3.14; see [installation requirements](docs/getting-started/installation.md) for compatibility details.
+
 ## What you can do
 
 - Review and summarize mail, filter by sender, subject or unread status, and work through older messages without marking them read.
@@ -74,6 +76,8 @@ The bridge checks exact folders, account identities, UIDVALIDITY, snapshots and 
 Want to help expand compatibility? We welcome client testing, setup improvements and contributions for additional platforms and connection methods, including Grok and Meta Muse. See the [client compatibility guide](docs/getting-started/clients.md) for current status and [contribution guidance](docs/contributing/development.md#client-and-platform-compatibility-contributions) for reporting results or proposing support.
 
 [Tool reference](docs/reference/tools.md) · [Recurring cleanup](docs/user-guide/cleanup.md) · [Troubleshooting](docs/user-guide/troubleshooting.md) · [Development](docs/contributing/development.md) · [Distribution and release checks](docs/contributing/releasing.md)
+
+Report suspected vulnerabilities through the [private security reporting process](SECURITY.md).
 
 The test suite uses synthetic accounts and credential-free stdio discovery. Claude and other stdio clients are compatible in principle but have not been tested end-to-end with this project. Public source distribution is separate from any client plugin catalog.
 

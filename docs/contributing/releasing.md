@@ -12,5 +12,7 @@ ChatGPT private custom MCP connections are distinct from public plugins. Catalog
 - Run guarded tests and credential-free discovery from a sanitized copy; build/install the package into a temporary environment with no private settings.
 - Distinguish reused installed dependencies from a fresh network dependency bootstrap and a clean OS test. Record versions, platform and limits.
 - Validate relative documentation links and all install paths after a move. Keep source/package version separate from app wrapper and tunnel-client versions.
+- Build the sdist, run `.venv/bin/python scripts/check-sdist.py dist/icloud_for_agents-VERSION.tar.gz`, then extract it into a disposable directory and run the documented offline/stdio checks there. The archive must contain every test runner and fixture, not just `test_*.py`.
+- Before the first public release, enable GitHub private vulnerability reporting in the repository's security settings and verify the **Report a vulnerability** form linked from [SECURITY.md](../../SECURITY.md). Do not describe this channel as active until the repository exists and the setting has been checked. This local checkout cannot activate the GitHub setting.
 - Review the complete relevant security surface. A partial scan or passing privacy patterns is not an exhaustive assurance.
 - Obtain explicit approval before a remote, commit, push, package upload or publication.
