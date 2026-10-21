@@ -1,0 +1,7 @@
+# Invitation replies: unsupported, separate proposed workflow
+
+The current bridge can read event resources but cannot accept/decline invitations. Its ordinary editor refuses ATTENDEE, ORGANIZER, METHOD and recurring-event edits; Schedule-Reply:F is scoped to permitted personal-event DELETE requests, not PUT. Updating a personal event is not an invitation response.
+
+A future implementation would first discover actual iCloud scheduling capabilities, inbox/outbox and owner calendar-user identities. It would read the exact invitation/occurrence, UID, SEQUENCE, organizer, owner's attendee identity, current status and concurrency tokens. A separate reviewed plan would name accept/decline/tentative and explain which organizer/attendees may be notified. Only that owner attendee's participation status could change; organizer/content/other attendees stay fixed. Conditional updates must respect relevant ETag and Schedule-Tag behavior. Verify resource state and scheduling outcome; never treat uncertain notification delivery as safe to retry. Delegation, counters, organizer cancellation and recurring-series responses require separate designs. No real invitation response or scheduling capability probe has been performed.
+
+This proposal follows [CalDAV scheduling RFC6638](https://www.rfc-editor.org/rfc/rfc6638) and [iTIP RFC5546](https://www.rfc-editor.org/rfc/rfc5546). These standards do not prove that this account exposes every operation or that the current bridge implements them.
