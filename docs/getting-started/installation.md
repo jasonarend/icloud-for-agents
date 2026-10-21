@@ -51,4 +51,6 @@ The client-neutral wrapper validates settings and strips unrelated inherited var
 
 For a new approved OpenAI tunnel, the same utility accepts optional `--tunnel-id YOUR_TUNNEL_ID`. Only this route creates a tunnel profile and requires a separate Platform runtime credential. Existing profiles are never overwritten. See [ChatGPT setup](chatgpt.md). Do not create a tunnel for a local client that already supports stdio.
 
+The [ChatGPT executable installation steps](chatgpt.md#install-and-select-the-tunnel-executable) document the reviewed client version and optional absolute `tunnel_client_path` setting. The launcher does not discover an executable from PATH or download it automatically.
+
 Verify actual read-only folder/message access first, then calendar/address-book reads if enabled. Schema discovery is not account authentication. Claude Desktop/Code and other stdio clients are compatible in principle, but only ChatGPT/private tunnel and the synthetic stdio harness have been tested with this project. HTTP/SSE-only clients are unsupported; the bridge implements stdio, not an HTTP MCP server.

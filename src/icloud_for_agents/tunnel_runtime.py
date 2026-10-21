@@ -24,8 +24,10 @@ def project_root():
 def launch_plan(root):
     root = Path(root).resolve()
     profile = root / "local/tunnel/icloud-for-agents.yaml"
-    binary = root / "tools/tunnel-client-v0.0.16/tunnel-client"
     settings = read_settings(root)
+    # Owner-selected executable, never an inherited PATH/environment override.
+    # Preserve the original installation location for existing configurations.
+    binary = Path(settings.get("tunnel_client_path", root / "tools/tunnel-client-v0.0.16/tunnel-client"))
     if not settings.get("tunnel_id") or not settings.get("runtime_keychain_service"):
         raise RuntimeSetupError("This is a direct stdio configuration; an OpenAI tunnel is optional and is not configured")
     command = shlex.join([str(root / ".venv/bin/python"), str(root / "scripts/run-stdio.py")])
@@ -50,6 +52,9 @@ def launch_plan(root):
         if set(data) != {"config_version", "control_plane", "health", "admin_ui", "log", "mcp"}:
             raise ValueError()
         if not binary.is_file() or binary.is_symlink() or not os.access(binary, os.X_OK):
+            raise ValueError()
+        info = binary.stat()
+        if info.st_uid not in {0, os.getuid()} or stat.S_IMODE(info.st_mode) & 0o022:
             raise ValueError()
         if not (root / ".venv/bin/python").exists() or not (root / "scripts/run-stdio.py").is_file():
             raise ValueError()

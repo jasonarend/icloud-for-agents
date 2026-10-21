@@ -35,6 +35,23 @@ class DurableRuntimeTests(unittest.TestCase):
     def save(self):
         self.profile.write_text(yaml.safe_dump(self.data));self.profile.chmod(0o600)
 
+    def test_explicit_owner_executable_path_and_default_compatibility(self):
+        import json
+        default = self.root/'tools/tunnel-client-v0.0.16/tunnel-client'
+        self.assertEqual(runtime.launch_plan(self.root)['binary'], default)
+        custom = self.root/'reviewed client';custom.touch();custom.chmod(0o700)
+        self.settings['tunnel_client_path'] = str(custom)
+        settings = self.root/'local/settings.json';settings.write_text(json.dumps(self.settings))
+        with patch.dict(os.environ, {'TUNNEL_CLIENT_PATH': '/untrusted/inherited/path'}):
+            self.assertEqual(runtime.launch_plan(self.root)['binary'], custom)
+        custom.chmod(0o777)
+        with self.assertRaises(runtime.RuntimeSetupError):runtime.launch_plan(self.root)
+        custom.unlink();custom.symlink_to(default)
+        with self.assertRaises(runtime.RuntimeSetupError):runtime.launch_plan(self.root)
+        self.settings['tunnel_client_path'] = 'relative/client'
+        settings.write_text(json.dumps(self.settings))
+        with self.assertRaises(ValueError):runtime.launch_plan(self.root)
+
     def test_static_preflight_has_no_secret_access(self):
         with patch.object(runtime,'project_root',return_value=self.root),patch.object(runtime,'start') as start,patch('subprocess.run') as run:
             with contextlib.redirect_stdout(io.StringIO()):runtime.main(['--check'])

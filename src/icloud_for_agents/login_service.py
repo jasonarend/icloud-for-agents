@@ -59,15 +59,60 @@ def activate(root, home=None, runner=subprocess.run):
     return {'started':result.returncode == 0, 'reason':'bootstrap_requested' if result.returncode == 0 else 'bootstrap_failed'}
 
 
+def reviewed_service(root, home=None):
+    """Inspect only the installed definition; shutdown must not need credentials/binary."""
+    home = Path.home() if home is None else Path(home)
+    directory = home/'Library/LaunchAgents'
+    target = directory/(LABEL+'.plist')
+    if directory.is_symlink() or target.is_symlink() or not target.is_file():
+        raise RuntimeSetupError('Reviewed login service not found')
+    info = target.stat()
+    if (info.st_uid != os.getuid() or info.st_mode & 0o777 != 0o600
+            or plistlib.loads(target.read_bytes()) != definition(root)):
+        raise RuntimeSetupError('Installed login service differs from the reviewed definition')
+    return target
+
+
+def status(root, home=None, runner=subprocess.run):
+    reviewed_service(root, home)
+    result = runner(['/bin/launchctl', 'print', f'gui/{os.getuid()}/{LABEL}'], capture_output=True, check=False)
+    return {'status': 'loaded' if result.returncode == 0 else
+            'not_loaded' if result.returncode == 113 else 'status_unavailable',
+            'returncode': result.returncode}
+
+
+def stop(root, home=None, runner=subprocess.run):
+    reviewed_service(root, home)
+    result = runner(['/bin/launchctl', 'bootout', f'gui/{os.getuid()}/{LABEL}'], capture_output=True, check=False)
+    if result.returncode not in {0, 113}:
+        raise RuntimeSetupError('Service stop failed; installation retained')
+    verified = status(root, home, runner)
+    if verified['status'] != 'not_loaded':
+        raise RuntimeSetupError('Service stop unconfirmed; installation retained')
+    return {'stopped': True, 'login_startup_retained': True}
+
+
+def uninstall(root, home=None, runner=subprocess.run):
+    stop(root, home, runner)
+    # Revalidate after the external operation before removing exactly one plist.
+    reviewed_service(root, home).unlink()
+    return {'stopped': True, 'uninstalled': True, 'credentials_and_records_retained': True}
+
+
 def main(root=None):
     import json
     parser = argparse.ArgumentParser(description='Install the approved user login service without credential provisioning')
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument('--install', action='store_true')
     group.add_argument('--activate', action='store_true', help='After owner stops foreground runtime')
+    group.add_argument('--status', action='store_true', help='Inspect the reviewed per-user launchd service')
+    group.add_argument('--stop', action='store_true', help='Stop now; retain startup at the next login')
+    group.add_argument('--uninstall', action='store_true', help='Stop and remove only the reviewed login plist')
     args = parser.parse_args()
     try:
         selected = project_root() if root is None else root
-        print(json.dumps(activate(selected) if args.activate else install(selected)))
+        action = (activate if args.activate else status if args.status else stop if args.stop
+                  else uninstall if args.uninstall else install)
+        print(json.dumps(action(selected)))
     except Exception:
         parser.exit(1, 'Login service setup refused; inspect private configuration and existing service. No automatic retry.\n')

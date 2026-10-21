@@ -10,6 +10,58 @@ from icloud_for_agents.local_config import read_settings, child_environment
 from icloud_for_agents.tunnel_runtime import RuntimeSetupError
 
 class LoginServiceTests(unittest.TestCase):
+    def installed(self, root):
+        target = Path(root)/'Library/LaunchAgents'/(login_service.LABEL+'.plist')
+        target.parent.mkdir(parents=True)
+        target.write_bytes(plistlib.dumps(login_service.definition(root)))
+        target.chmod(0o600)
+        return target
+
+    def test_shutdown_without_tunnel_binary_or_credentials(self):
+        with tempfile.TemporaryDirectory() as t:
+            target = self.installed(t)
+            run = Mock(side_effect=[Mock(returncode=0), Mock(returncode=113)])
+            with patch.object(login_service, 'launch_plan', side_effect=AssertionError('No startup preflight')):
+                result = login_service.stop(t, home=t, runner=run)
+            self.assertTrue(result['stopped']);self.assertTrue(target.exists())
+            self.assertEqual(run.call_args_list[0].args[0],
+                             ['/bin/launchctl', 'bootout', f'gui/{os.getuid()}/{login_service.LABEL}'])
+
+    def test_uninstall_removes_only_reviewed_plist_after_confirmed_stop(self):
+        with tempfile.TemporaryDirectory() as t:
+            target = self.installed(t)
+            retained = target.parent/'unrelated.plist';retained.write_text('retained')
+            run = Mock(side_effect=[Mock(returncode=113), Mock(returncode=113)])
+            self.assertTrue(login_service.uninstall(t, home=t, runner=run)['uninstalled'])
+            self.assertFalse(target.exists());self.assertTrue(retained.exists())
+
+    def test_failed_or_unconfirmed_stop_preserves_installation(self):
+        for codes in ((1,), (0, 0), (0, 1)):
+            with self.subTest(codes=codes), tempfile.TemporaryDirectory() as t:
+                target = self.installed(t)
+                run = Mock(side_effect=[Mock(returncode=n) for n in codes])
+                with self.assertRaises(RuntimeSetupError):
+                    login_service.uninstall(t, home=t, runner=run)
+                self.assertTrue(target.exists())
+
+    def test_status_distinguishes_unavailable_from_not_loaded(self):
+        with tempfile.TemporaryDirectory() as t:
+            self.installed(t)
+            for code, expected in ((0, 'loaded'), (113, 'not_loaded'), (1, 'status_unavailable')):
+                run = Mock(return_value=Mock(returncode=code))
+                self.assertEqual(login_service.status(t, home=t, runner=run)['status'], expected)
+
+    def test_changed_or_symlink_service_is_never_stopped_or_removed(self):
+        with tempfile.TemporaryDirectory() as t:
+            target = self.installed(t);run = Mock()
+            original = target.read_bytes()
+            target.write_bytes(plistlib.dumps(dict(login_service.definition(t), KeepAlive=True)))
+            with self.assertRaises(RuntimeSetupError):login_service.uninstall(t, home=t, runner=run)
+            target.unlink();other = target.parent/'other';other.write_bytes(original);other.chmod(0o600)
+            target.symlink_to(other)
+            with self.assertRaises(RuntimeSetupError):login_service.stop(t, home=t, runner=run)
+            run.assert_not_called();self.assertTrue(other.exists())
+
     def test_definition_no_identity_secret_or_restart_loop(self):
         d=login_service.definition('/tmp/synthetic bridge')
         self.assertEqual(d['ProgramArguments'][0],str(Path('/tmp/synthetic bridge/.venv/bin/python').resolve()))

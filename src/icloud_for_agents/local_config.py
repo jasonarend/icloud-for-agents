@@ -15,7 +15,7 @@ def read_settings(root):
         raise ValueError("Settings must be a private owned regular file")
     data = json.loads(path.read_text())
     required = {"account", "apple_keychain_service", "access_mode", "dav_reads"}
-    optional = {"folder_overrides", "cleanup_grant_id", "approval_policy", "tunnel_id", "runtime_keychain_service", "services", "policy_management_enabled", "runtime_directory"}
+    optional = {"folder_overrides", "cleanup_grant_id", "approval_policy", "tunnel_id", "runtime_keychain_service", "services", "policy_management_enabled", "runtime_directory", "tunnel_client_path"}
     if not isinstance(data, dict) or not required <= set(data) or set(data) - required - optional:
         raise ValueError("Unexpected settings fields")
     tunnel_fields = {"tunnel_id", "runtime_keychain_service"} & set(data)
@@ -44,6 +44,10 @@ def read_settings(root):
     runtime = data.get("runtime_directory")
     if runtime is not None and (not isinstance(runtime,str) or not Path(runtime).is_absolute() or any(ord(c)<32 for c in runtime)):
         raise ValueError("Runtime directory must be an explicit absolute private path")
+    binary = data.get("tunnel_client_path")
+    if binary is not None and (not isinstance(binary, str) or not Path(binary).is_absolute()
+                               or any(ord(c) < 32 or ord(c) == 127 for c in binary)):
+        raise ValueError("Tunnel client must be an explicit absolute executable path")
     from .services import configured
     configured(data)
     return data
