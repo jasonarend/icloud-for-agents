@@ -91,7 +91,16 @@
       "license_classifiers": [
         "License :: OSI Approved :: Apache Software License"
       ],
-      "license_files": [],
+      "license_files": [
+        {
+          "file": "aiofile-3.12.3.dist-info/licenses/LICENCE",
+          "sha256": "ec640150e03774d1b5264fb268f3829dc36745551109131ebf6dd0a59d5ec3eb"
+        },
+        {
+          "file": "aiofile-3.12.3.dist-info/licenses/LICENCE.md",
+          "sha256": "ec640150e03774d1b5264fb268f3829dc36745551109131ebf6dd0a59d5ec3eb"
+        }
+      ],
       "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
     },
     {
@@ -936,6 +945,10 @@
         {
           "file": "rich_rst-2.2.0.dist-info/licenses/rich_rst/_vendor/LICENSES.txt",
           "sha256": "47ddf53cbbccf3f9b175ff9212ed0e9a7e5a813996516f8816eaa14e748cee00"
+        },
+        {
+          "file": "rich_rst/_vendor/LICENSES.txt",
+          "sha256": "47ddf53cbbccf3f9b175ff9212ed0e9a7e5a813996516f8816eaa14e748cee00"
         }
       ],
       "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
@@ -1022,6 +1035,14 @@
         {
           "file": "setuptools/_vendor/zipp-3.23.0.dist-info/licenses/LICENSE",
           "sha256": "5a57cb4db85e2a2dd88c290628908add57e3451449e0a9a71fdfb38776fd759d"
+        },
+        {
+          "file": "setuptools/config/NOTICE",
+          "sha256": "2dddf08818297a3b89d43d95ff659d8da85741108c9136dfa3a4d856c0623bd8"
+        },
+        {
+          "file": "setuptools/config/_validate_pyproject/NOTICE",
+          "sha256": "09c9bcea95ca086f8bc5bed174e40bc835b297d40fb5f86bbbb570fe0a5581a7"
         }
       ],
       "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"

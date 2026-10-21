@@ -8,6 +8,7 @@ Use an isolated environment with the reviewed dependencies. From the root:
 .venv/bin/python tests/run_offline.py
 .venv/bin/python tests/stdio_smoke.py
 .venv/bin/python tests/policy_stdio_smoke.py
+.venv/bin/python scripts/check-dependency-licenses.py
 ```
 
 Reports go to ignored `build/reports/`, not the root. The offline runner isolates HOME/environment and refuses network, DNS, listeners and subprocesses. The stdio smoke test separately starts a credential-free guarded child for real initialize/tools-list and input/read-only refusal checks. Neither connects to Apple or the tunnel. Do not substitute live credentials for synthetic fixtures.
