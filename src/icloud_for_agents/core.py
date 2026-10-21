@@ -217,11 +217,13 @@ def snapshot(client, folder, uidvalidity, uids):
     return result
 
 
-def set_seen(client, folder, uidvalidity, uids, seen):
+def set_seen(client, folder, uidvalidity, uids, seen, expected_snapshot=None):
     uids = batch(uids)
     if type(seen) is not bool:
         raise SafetyError("seen must be boolean")
-    snapshot(client, folder, uidvalidity, uids)
+    current = snapshot(client, folder, uidvalidity, uids)
+    if expected_snapshot is not None and current != expected_snapshot:
+        raise SafetyError("Protected read-state batch changed; no write attempted")
     select(client, folder, uidvalidity, readonly=False)
     # Add/remove one flag only: never replace the retained flags or stars.
     method = client.add_flags if seen else client.remove_flags
@@ -294,6 +296,9 @@ def safe_move(client, folder, uidvalidity, uids, destination, expected_snapshot)
         select(client, folder, uidvalidity, readonly=False)
         client.delete_messages(uids, silent=True)
         client.uid_expunge(uids)
+    select(client, folder, uidvalidity, readonly=True)
+    if client.fetch(uids, ["FLAGS"]):
+        raise SafetyError("Source removal unconfirmed; copies may remain, reconcile without retry")
     return {"status": "moved", "source_folder": folder, "source_uidvalidity": uidvalidity,
             "destination": destination, "destination_uidvalidity": target_validity,
             "uid_mapping": {str(a): b for a, b in mapping.items()}, "method": "UID MOVE" if use_move else "UIDPLUS"}

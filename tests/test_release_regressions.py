@@ -56,6 +56,31 @@ class EventDurationTests(unittest.TestCase):
 
 
 class ReadStateVerificationTests(unittest.TestCase):
+    def test_protected_batch_refuses_new_star_seen_on_final_snapshot(self):
+        client = FakeIMAP((1,))
+        client.boxes['INBOX'][1][b'FLAGS'] = ()
+        reviewed = core.snapshot(client, 'INBOX', 71, [1])
+        client.boxes['INBOX'][1][b'FLAGS'] = (b'\\Flagged',)
+        with self.assertRaises(core.SafetyError):
+            core.set_seen(client, 'INBOX', 71, [1], True, expected_snapshot=reviewed)
+        self.assertFalse(any(c[0] == 'add_flags' for c in client.calls))
+        self.assertNotIn(b'\\Seen', client.boxes['INBOX'][1][b'FLAGS'])
+
+    def test_standing_read_rechecks_protection_at_action_time(self):
+        from unittest.mock import Mock
+        client = FakeIMAP((1,))
+        client.boxes['INBOX'][1][b'FLAGS'] = ()
+        access = Mock()
+        def run(operation, folder, validity, uids, destination, reviewed, action):
+            client.boxes['INBOX'][1][b'FLAGS'] = (b'\\Flagged',)
+            return action()
+        access.run.side_effect = run
+        service = MailService('synthetic@example.com', 'synthetic-only', connector=lambda: client)
+        with patch('icloud_for_agents.service.cleanup_access', return_value=access):
+            with self.assertRaises(core.SafetyError):
+                service.set_seen(folder='INBOX', uidvalidity=71, uids=[1], seen=True)
+        self.assertNotIn(b'\\Seen', client.boxes['INBOX'][1][b'FLAGS'])
+
     def test_missing_or_wrong_final_flags_fail_both_directions(self):
         for seen in (True, False):
             for observed in ({}, {1: () if seen else (b'\\Seen',)}):
@@ -95,6 +120,28 @@ class ReadStateVerificationTests(unittest.TestCase):
                 with self.assertRaises(core.SafetyError):
                     service.set_seen(folder='INBOX', uidvalidity=71, uids=[2], seen=True)
                 self.assertNotIn(b'\\Seen', client.boxes['INBOX'][2][b'FLAGS'])
+
+
+class MoveCompletionTests(unittest.TestCase):
+    def test_fallback_does_not_claim_success_when_deleted_flag_is_cleared(self):
+        client = FakeIMAP((1,), capabilities=('UIDPLUS',))
+        reviewed = core.snapshot(client, 'INBOX', 71, [1])
+        expunge = client.uid_expunge
+        def competing_client(uids):
+            client.boxes['INBOX'][1][b'FLAGS'] = (b'\\Flagged', b'custom')
+            expunge(uids)
+        with patch.object(client, 'uid_expunge', side_effect=competing_client):
+            with self.assertRaisesRegex(core.SafetyError, 'Source removal unconfirmed'):
+                core.safe_move(client, 'INBOX', 71, [1], 'Retained', reviewed)
+        self.assertIn(1, client.boxes['INBOX'])
+        self.assertIn(10001, client.boxes['Retained'])
+
+    def test_native_move_also_requires_source_absence(self):
+        client = FakeIMAP((1,))
+        reviewed = core.snapshot(client, 'INBOX', 71, [1])
+        with patch.object(client, 'move', side_effect=client.copy):
+            with self.assertRaisesRegex(core.SafetyError, 'Source removal unconfirmed'):
+                core.safe_move(client, 'INBOX', 71, [1], 'Retained', reviewed)
 
 
 class SharedDescriptorTests(unittest.TestCase):

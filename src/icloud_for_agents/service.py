@@ -64,7 +64,7 @@ class MailService:
             if not access:return core.set_seen(client, **kwargs)
             items=core.snapshot(client,kwargs["folder"],kwargs["uidvalidity"],kwargs["uids"])
             return access.run("mark_read",kwargs["folder"],kwargs["uidvalidity"],kwargs["uids"],None,items,
-                              lambda:core.set_seen(client,**kwargs))
+                              lambda:core.set_seen(client,expected_snapshot=items,**kwargs))
 
     def prepare_trash(self, folder, uidvalidity, uids, reason):
         if not isinstance(reason, str) or not 1 <= len(reason) <= 2000:
