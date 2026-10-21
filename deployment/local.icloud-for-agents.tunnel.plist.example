@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Disabled</key>
+	<true/>
+	<key>KeepAlive</key>
+	<false/>
+	<key>Label</key>
+	<string>local.icloud-for-agents.tunnel</string>
+	<key>LimitLoadToSessionType</key>
+	<string>Aqua</string>
+	<key>ProcessType</key>
+	<string>Background</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/ABSOLUTE/PATH/TO/icloud-for-agents/.venv/bin/python</string>
+		<string>/ABSOLUTE/PATH/TO/icloud-for-agents/scripts/start-private-tunnel.py</string>
+		<string>--start-with-keychain</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>StandardErrorPath</key>
+	<string>/ABSOLUTE/PATH/TO/icloud-for-agents/local/tunnel/service.stderr.log</string>
+	<key>StandardOutPath</key>
+	<string>/ABSOLUTE/PATH/TO/icloud-for-agents/local/tunnel/service.stdout.log</string>
+	<key>Umask</key>
+	<integer>63</integer>
+	<key>WorkingDirectory</key>
+	<string>/ABSOLUTE/PATH/TO/icloud-for-agents</string>
+</dict>
+</plist>
