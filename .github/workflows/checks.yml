@@ -1,0 +1,38 @@
+name: Source checks
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.14'
+          architecture: arm64
+      - name: Install reviewed environment
+        run: |
+          test "$(uname -m)" = arm64
+          python -m venv .venv
+          .venv/bin/python -m pip install --require-hashes --only-binary=:all: -r requirements-macos-arm64-py314.lock
+          .venv/bin/python -m pip install --no-deps --no-build-isolation -e .
+          .venv/bin/python -m pip check
+      - name: Guarded synthetic checks
+        run: |
+          .venv/bin/python tests/run_offline.py
+          .venv/bin/python tests/stdio_smoke.py
+          .venv/bin/python tests/policy_stdio_smoke.py
+          .venv/bin/python scripts/check-dependency-licenses.py
+      - name: Build and inspect distributions
+        run: |
+          .venv/bin/python -c "import setuptools.build_meta as b; b.build_sdist('dist'); b.build_wheel('dist')"
+          .venv/bin/python scripts/check-sdist.py dist/icloud_for_agents-*.tar.gz

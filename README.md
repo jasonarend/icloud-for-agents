@@ -2,7 +2,7 @@
 
 **Version 1.1.0**
 
-Manage iCloud mail, calendars and contacts from your AI assistant while keeping your credentials private and stored locally on your Mac. Connect a local stdio client, or connect ChatGPT through your own private OpenAI Secure MCP Tunnel.
+Manage iCloud mail, calendars and contacts from your AI assistant while keeping your credentials private and stored locally on your Mac. Connect a local MCP client over stdio, or connect ChatGPT through your own private OpenAI Secure MCP Tunnel.
 
 An independent project, unaffiliated with Apple. The tested setup is macOS on Apple silicon with Python 3.14; see [installation requirements](docs/getting-started/installation.md) for compatibility details.
 

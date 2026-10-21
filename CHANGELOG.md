@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Verify source removal after moves and refuse protected mark-as-read batches when their final snapshot has changed.
+- Complete dependency notice inventory (including aiofile LICENCE files) and add repeatable verification, macOS CI and maintenance/data-retention instructions.
+
 - Include every test runner and fixture, plus the security policy, in source distributions; add an archive completeness check.
 - Reuse one inherited credential handoff across Mail and DAV in either initialization order.
 - Replace and clear grouped vCard properties; remove event DURATION when setting an explicit end while preserving nested alarms.
