@@ -1,0 +1,12 @@
+include README.md NOTICE.md CHANGELOG.md LICENSE
+include requirements-macos-arm64-py314.lock
+recursive-include docs *.md *.json
+recursive-include scripts *.py
+recursive-include deployment *.json *.example
+recursive-include third_party LICENSE *.json
+prune local
+prune tools
+prune .venv
+prune build
+prune dist
+global-exclude __pycache__ *.py[cod] .DS_Store

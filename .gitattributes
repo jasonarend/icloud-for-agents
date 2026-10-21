@@ -1,0 +1,7 @@
+local/ export-ignore
+runtime/ export-ignore
+tools/ export-ignore
+.venv/ export-ignore
+build/ export-ignore
+dist/ export-ignore
+__pycache__/ export-ignore

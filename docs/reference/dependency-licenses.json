@@ -1,0 +1,1184 @@
+{
+  "scope": "Installed locked runtime distributions; metadata inventory, not legal clearance or dependency-source security audit. No dependencies are vendored.",
+  "distributions": [
+    {
+      "distribution": "Authlib",
+      "locked_version": "1.9.1",
+      "installed_version": "1.9.1",
+      "license_expression": null,
+      "license_label": "BSD-3-Clause",
+      "license_classifiers": [
+        "License :: OSI Approved :: BSD License"
+      ],
+      "license_files": [
+        {
+          "file": "authlib-1.9.1.dist-info/licenses/LICENSE",
+          "sha256": "8e1b48518de9c6cd00cb48c7fe5b8023fd90d5552ca12ebe7362a0df30ddbe45"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "IMAPClient",
+      "locked_version": "3.0.1",
+      "installed_version": "3.0.1",
+      "license_expression": null,
+      "license_label": "3-Clause BSD License",
+      "license_classifiers": [
+        "License :: OSI Approved :: BSD License"
+      ],
+      "license_files": [
+        {
+          "file": "IMAPClient-3.0.1.dist-info/COPYING",
+          "sha256": "3472df704ba097d0d24e994ad3080ac504b66402bab897fa374eb31be9a4ec9b"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "PyJWT",
+      "locked_version": "2.15.1",
+      "installed_version": "2.15.1",
+      "license_expression": "MIT",
+      "license_label": null,
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "pyjwt-2.15.1.dist-info/licenses/LICENSE",
+          "sha256": "797a7a20231d4c433e9f1911db1731d06b5828b98f499819a034f7c0f56f5ce5"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "PyYAML",
+      "locked_version": "6.0.3",
+      "installed_version": "6.0.3",
+      "license_expression": null,
+      "license_label": "MIT",
+      "license_classifiers": [
+        "License :: OSI Approved :: MIT License"
+      ],
+      "license_files": [
+        {
+          "file": "pyyaml-6.0.3.dist-info/licenses/LICENSE",
+          "sha256": "8d3928f9dc4490fd635707cb88eb26bd764102a7282954307d3e5167a577e8a4"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "Pygments",
+      "locked_version": "2.21.0",
+      "installed_version": "2.21.0",
+      "license_expression": "BSD-2-Clause",
+      "license_label": null,
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "pygments-2.21.0.dist-info/licenses/LICENSE",
+          "sha256": "a9d66f1d526df02e29dce73436d34e56e8632f46c275bbdffc70569e882f9f17"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "aiofile",
+      "locked_version": "3.12.3",
+      "installed_version": "3.12.3",
+      "license_expression": "Apache-2.0",
+      "license_label": null,
+      "license_classifiers": [
+        "License :: OSI Approved :: Apache Software License"
+      ],
+      "license_files": [],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "annotated-types",
+      "locked_version": "0.8.0",
+      "installed_version": "0.8.0",
+      "license_expression": "MIT",
+      "license_label": null,
+      "license_classifiers": [
+        "License :: OSI Approved :: MIT License"
+      ],
+      "license_files": [
+        {
+          "file": "annotated_types-0.8.0.dist-info/licenses/LICENSE",
+          "sha256": "fe1049884b1a0d9342901e88e07f32925d24b3121d9972b6a6805fb9824b095d"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "anyio",
+      "locked_version": "4.15.1",
+      "installed_version": "4.15.1",
+      "license_expression": "MIT",
+      "license_label": null,
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "anyio-4.15.1.dist-info/licenses/LICENSE",
+          "sha256": "5361ac9dc58f2ef5fd2e9b09c68297c17f04950909bbc8023bdb82eacf22c2b0"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "attrs",
+      "locked_version": "26.1.0",
+      "installed_version": "26.1.0",
+      "license_expression": "MIT",
+      "license_label": null,
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "attrs-26.1.0.dist-info/licenses/LICENSE",
+          "sha256": "882115c95dfc2af1eeb6714f8ec6d5cbcabf667caff8729f42420da63f714e9f"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "beartype",
+      "locked_version": "0.23.1",
+      "installed_version": "0.23.1",
+      "license_expression": "MIT",
+      "license_label": null,
+      "license_classifiers": [
+        "License :: OSI Approved :: MIT License"
+      ],
+      "license_files": [
+        {
+          "file": "beartype-0.23.1.dist-info/licenses/LICENSE",
+          "sha256": "c7d3148ab7a1e87f643e7a79b15e933b6d41fe50d723341226c5188f2e227938"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "cachetools",
+      "locked_version": "7.2.4",
+      "installed_version": "7.2.4",
+      "license_expression": "MIT",
+      "license_label": null,
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "cachetools-7.2.4.dist-info/licenses/LICENSE",
+          "sha256": "28c000b52b0ee27138a68ef778227e4057046e86b65f62f1cacb99b0cc49e0d2"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "caio",
+      "locked_version": "0.12.9",
+      "installed_version": "0.12.9",
+      "license_expression": "Apache-2.0",
+      "license_label": null,
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "caio-0.12.9.dist-info/licenses/COPYING",
+          "sha256": "c79de288bfd6d645a0c668a9e64672ad15f4f0279af216d8dcf20b9699603329"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "certifi",
+      "locked_version": "2026.10.19",
+      "installed_version": "2026.10.19",
+      "license_expression": null,
+      "license_label": "MPL-2.0",
+      "license_classifiers": [
+        "License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)"
+      ],
+      "license_files": [
+        {
+          "file": "certifi-2026.10.19.dist-info/licenses/LICENSE",
+          "sha256": "e93716da6b9c0d5a4a1df60fe695b370f0695603d21f6f83f053e42cfc10caf7"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "cffi",
+      "locked_version": "2.1.1",
+      "installed_version": "2.1.1",
+      "license_expression": "MIT-0",
+      "license_label": null,
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "cffi-2.1.1.dist-info/licenses/LICENSE",
+          "sha256": "5ba24ddc57067f9249add644c3afc41a5d6dc37e23433ef759d95df370b0af63"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "click",
+      "locked_version": "8.5.0",
+      "installed_version": "8.5.0",
+      "license_expression": "BSD-3-Clause",
+      "license_label": null,
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "click-8.5.0.dist-info/licenses/LICENSE.txt",
+          "sha256": "9a8ad106a394e853bfe21f42f4e72d592819a22805d991b5f3275029292b658d"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "cryptography",
+      "locked_version": "50.0.2",
+      "installed_version": "50.0.2",
+      "license_expression": "Apache-2.0 OR BSD-3-Clause",
+      "license_label": null,
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "cryptography-50.0.2.dist-info/licenses/LICENSE",
+          "sha256": "3e0c7c091a948b82533ba98fd7cbb40432d6f1a9acbf85f5922d2f99a93ae6bb"
+        },
+        {
+          "file": "cryptography-50.0.2.dist-info/licenses/LICENSE.APACHE",
+          "sha256": "aac73b3148f6d1d7111dbca32099f68d26c644c6813ae1e4f05f6579aa2663fe"
+        },
+        {
+          "file": "cryptography-50.0.2.dist-info/licenses/LICENSE.BSD",
+          "sha256": "602c4c7482de6479dd2e9793cda275e5e63d773dacd1eca689232ab7008fb4fb"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "cyclopts",
+      "locked_version": "5.2.0",
+      "installed_version": "5.2.0",
+      "license_expression": "Apache-2.0",
+      "license_label": null,
+      "license_classifiers": [
+        "License :: OSI Approved :: Apache Software License"
+      ],
+      "license_files": [
+        {
+          "file": "cyclopts-5.2.0.dist-info/licenses/LICENSE",
+          "sha256": "f14b20048c12393cb9920065c47fadc030210b0f9cab9849ce0a68a063ededc5"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "dnspython",
+      "locked_version": "2.9.0",
+      "installed_version": "2.9.0",
+      "license_expression": "ISC",
+      "license_label": null,
+      "license_classifiers": [],
+      "license_files": [],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "docstring_parser",
+      "locked_version": "0.18.0",
+      "installed_version": "0.18.0",
+      "license_expression": null,
+      "license_label": "MIT",
+      "license_classifiers": [
+        "License :: OSI Approved :: MIT License"
+      ],
+      "license_files": [
+        {
+          "file": "docstring_parser-0.18.0.dist-info/licenses/LICENSE.md",
+          "sha256": "dfe514a337ae8417abd31a8af707bbd6172b03e5430bb083e145899ea97a3eea"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "email-validator",
+      "locked_version": "2.3.0",
+      "installed_version": "2.3.0",
+      "license_expression": null,
+      "license_label": "Unlicense",
+      "license_classifiers": [
+        "License :: OSI Approved :: The Unlicense (Unlicense)"
+      ],
+      "license_files": [
+        {
+          "file": "email_validator-2.3.0.dist-info/licenses/LICENSE",
+          "sha256": "672179752e109134a3fb2bdd0780b29fdb7a03974f0f586a13aead5129562d4c"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "exceptiongroup",
+      "locked_version": "1.3.1",
+      "installed_version": "1.3.1",
+      "license_expression": null,
+      "license_label": null,
+      "license_classifiers": [
+        "License :: OSI Approved :: MIT License"
+      ],
+      "license_files": [
+        {
+          "file": "exceptiongroup-1.3.1.dist-info/licenses/LICENSE",
+          "sha256": "6e5070d765031e0ad403a1cbf90ae6d19a0228f802e320b7acff460aa72ed47c"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "fastmcp",
+      "locked_version": "4.1.3",
+      "installed_version": "4.1.3",
+      "license_expression": "Apache-2.0",
+      "license_label": null,
+      "license_classifiers": [
+        "License :: OSI Approved :: Apache Software License"
+      ],
+      "license_files": [
+        {
+          "file": "fastmcp-4.1.3.dist-info/licenses/LICENSE",
+          "sha256": "43070e2d4e532684de521b885f385d0841030efa2b1a20bafb76133a5e1379c1"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "fastmcp-slim",
+      "locked_version": "4.1.3",
+      "installed_version": "4.1.3",
+      "license_expression": "Apache-2.0",
+      "license_label": null,
+      "license_classifiers": [
+        "License :: OSI Approved :: Apache Software License"
+      ],
+      "license_files": [],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "griffelib",
+      "locked_version": "2.4.0",
+      "installed_version": "2.4.0",
+      "license_expression": "ISC",
+      "license_label": null,
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "griffelib-2.4.0.dist-info/licenses/LICENSE",
+          "sha256": "d746d07b994c49910d0212f098ec5981658f95cadb82d725ad52d72afb99ad88"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "h11",
+      "locked_version": "0.16.0",
+      "installed_version": "0.16.0",
+      "license_expression": null,
+      "license_label": "MIT",
+      "license_classifiers": [
+        "License :: OSI Approved :: MIT License"
+      ],
+      "license_files": [
+        {
+          "file": "h11-0.16.0.dist-info/licenses/LICENSE.txt",
+          "sha256": "37db5bb85926db28a427a25867f10b1232003aea1be69ccb851138adb8e6f361"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "httpcore2",
+      "locked_version": "2.15.1",
+      "installed_version": "2.15.1",
+      "license_expression": "BSD-3-Clause",
+      "license_label": null,
+      "license_classifiers": [
+        "License :: OSI Approved :: BSD License"
+      ],
+      "license_files": [
+        {
+          "file": "httpcore2-2.15.1.dist-info/licenses/LICENSE.md",
+          "sha256": "c4df125c807b0613501e943a5c92496dd11d2c16604ce396097a8dde396304d9"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "httpx2",
+      "locked_version": "2.15.1",
+      "installed_version": "2.15.1",
+      "license_expression": "BSD-3-Clause",
+      "license_label": null,
+      "license_classifiers": [
+        "License :: OSI Approved :: BSD License"
+      ],
+      "license_files": [
+        {
+          "file": "httpx2-2.15.1.dist-info/licenses/LICENSE.md",
+          "sha256": "7e7d6dbaf7fe160d39fd6e84fd02c33cab96bcbea34d36998d545bceb4a19c30"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "idna",
+      "locked_version": "3.20",
+      "installed_version": "3.20",
+      "license_expression": "BSD-3-Clause",
+      "license_label": null,
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "idna-3.20.dist-info/licenses/LICENSE.md",
+          "sha256": "1a9a4f0e3d479a27240ddd59a9137a66ab4a0f9dfdc8ca6188cc0bfd85187f04"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "jaraco.classes",
+      "locked_version": "3.4.0",
+      "installed_version": "3.4.0",
+      "license_expression": null,
+      "license_label": null,
+      "license_classifiers": [
+        "License :: OSI Approved :: MIT License"
+      ],
+      "license_files": [
+        {
+          "file": "jaraco.classes-3.4.0.dist-info/LICENSE",
+          "sha256": "86da0f01aeae46348a3c3d465195dc1ceccde79f79e87769a64b8da04b2a4741"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "jaraco.context",
+      "locked_version": "6.1.2",
+      "installed_version": "6.1.2",
+      "license_expression": "MIT",
+      "license_label": null,
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "jaraco_context-6.1.2.dist-info/licenses/LICENSE",
+          "sha256": "9755a18519666e5f0f4cae3daad3d7012bcae48a600b31237d75e9fe134e6683"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "jaraco.functools",
+      "locked_version": "4.6.0",
+      "installed_version": "4.6.0",
+      "license_expression": "MIT",
+      "license_label": null,
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "jaraco_functools-4.6.0.dist-info/licenses/LICENSE",
+          "sha256": "9755a18519666e5f0f4cae3daad3d7012bcae48a600b31237d75e9fe134e6683"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "joserfc",
+      "locked_version": "1.7.7",
+      "installed_version": "1.7.7",
+      "license_expression": null,
+      "license_label": "BSD-3-Clause",
+      "license_classifiers": [
+        "License :: OSI Approved :: BSD License"
+      ],
+      "license_files": [
+        {
+          "file": "joserfc-1.7.7.dist-info/licenses/LICENSE",
+          "sha256": "19ee1fafcc9ec4217fc32b8a651d820538c789cf4041cb4e46b4b176a5f2a9c8"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "jsonref",
+      "locked_version": "1.1.0",
+      "installed_version": "1.1.0",
+      "license_expression": null,
+      "license_label": "MIT",
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "jsonref-1.1.0.dist-info/licenses/LICENSE",
+          "sha256": "c93d594f97a1bc45d04908cd47c707cd7ff078f038a011443e0049ed28da3f31"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "jsonschema",
+      "locked_version": "4.26.0",
+      "installed_version": "4.26.0",
+      "license_expression": "MIT",
+      "license_label": null,
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "jsonschema-4.26.0.dist-info/licenses/COPYING",
+          "sha256": "4f92a015a13c4d1a040bef018aa13430b4f1bc73b41b16bb846c346766de7439"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "jsonschema-path",
+      "locked_version": "0.5.0",
+      "installed_version": "0.5.0",
+      "license_expression": null,
+      "license_label": "Apache-2.0",
+      "license_classifiers": [
+        "License :: OSI Approved :: Apache Software License"
+      ],
+      "license_files": [
+        {
+          "file": "jsonschema_path-0.5.0.dist-info/licenses/LICENSE",
+          "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "jsonschema-specifications",
+      "locked_version": "2025.9.1",
+      "installed_version": "2025.9.1",
+      "license_expression": "MIT",
+      "license_label": null,
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "jsonschema_specifications-2025.9.1.dist-info/licenses/COPYING",
+          "sha256": "42dcd63495f87b4eb7c7757afa379bb55a53f94afd7a5f657d9adf57236e515c"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "keyring",
+      "locked_version": "25.7.0",
+      "installed_version": "25.7.0",
+      "license_expression": "MIT",
+      "license_label": null,
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "keyring-25.7.0.dist-info/licenses/LICENSE",
+          "sha256": "5a57cb4db85e2a2dd88c290628908add57e3451449e0a9a71fdfb38776fd759d"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "markdown-it-py",
+      "locked_version": "4.2.0",
+      "installed_version": "4.2.0",
+      "license_expression": null,
+      "license_label": null,
+      "license_classifiers": [
+        "License :: OSI Approved :: MIT License"
+      ],
+      "license_files": [
+        {
+          "file": "markdown_it_py-4.2.0.dist-info/licenses/LICENSE",
+          "sha256": "4a2260d6e2cd0f5a151a1e86dbfe7d3ed552b1e2beabf9941c1ba5c49cbce484"
+        },
+        {
+          "file": "markdown_it_py-4.2.0.dist-info/licenses/LICENSE.markdown-it",
+          "sha256": "792c48c5a849a15fdf9e37e8bcf9e6d1dd13b32b46c642a748a0a46a9919d473"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "mcp",
+      "locked_version": "2.3.0",
+      "installed_version": "2.3.0",
+      "license_expression": null,
+      "license_label": "MIT",
+      "license_classifiers": [
+        "License :: OSI Approved :: MIT License"
+      ],
+      "license_files": [
+        {
+          "file": "mcp-2.3.0.dist-info/licenses/LICENSE",
+          "sha256": "5e13dbbc1d120fc2a03cecde7c91424ae2d7de11b63d58ded2f4431e261ee50d"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "mcp-types",
+      "locked_version": "2.3.0",
+      "installed_version": "2.3.0",
+      "license_expression": null,
+      "license_label": "MIT",
+      "license_classifiers": [
+        "License :: OSI Approved :: MIT License"
+      ],
+      "license_files": [
+        {
+          "file": "mcp_types-2.3.0.dist-info/licenses/LICENSE",
+          "sha256": "5e13dbbc1d120fc2a03cecde7c91424ae2d7de11b63d58ded2f4431e261ee50d"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "mdurl",
+      "locked_version": "0.1.2",
+      "installed_version": "0.1.2",
+      "license_expression": null,
+      "license_label": null,
+      "license_classifiers": [
+        "License :: OSI Approved :: MIT License"
+      ],
+      "license_files": [
+        {
+          "file": "mdurl-0.1.2.dist-info/LICENSE",
+          "sha256": "7c605df6e28667a9603118e98274f64a49ce3eed0d26fccce9534a345e0ef955"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "more-itertools",
+      "locked_version": "11.2.1",
+      "installed_version": "11.2.1",
+      "license_expression": "MIT",
+      "license_label": null,
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "more_itertools-11.2.1.dist-info/licenses/LICENSE",
+          "sha256": "09f1c8c9e941af3e584d59641ea9b87d83c0cb0fd007eb5ef391a7e2643c1a46"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "openapi-pydantic",
+      "locked_version": "0.6.0",
+      "installed_version": "0.6.0",
+      "license_expression": null,
+      "license_label": "MIT",
+      "license_classifiers": [
+        "License :: OSI Approved :: MIT License"
+      ],
+      "license_files": [
+        {
+          "file": "openapi_pydantic-0.6.0.dist-info/licenses/LICENSE",
+          "sha256": "8fdba18804738841e069c993bea44d931e45c3aa02bc4ba7f78160435cc3d009"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "opentelemetry-api",
+      "locked_version": "1.45.1",
+      "installed_version": "1.45.1",
+      "license_expression": "Apache-2.0",
+      "license_label": null,
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "opentelemetry_api-1.45.1.dist-info/licenses/LICENSE",
+          "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "packaging",
+      "locked_version": "26.3",
+      "installed_version": "26.3",
+      "license_expression": "Apache-2.0 OR BSD-2-Clause",
+      "license_label": null,
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "packaging-26.3.dist-info/licenses/LICENSE",
+          "sha256": "cad1ef5bd340d73e074ba614d26f7deaca5c7940c3d8c34852e65c4909686c48"
+        },
+        {
+          "file": "packaging-26.3.dist-info/licenses/LICENSE.APACHE",
+          "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594"
+        },
+        {
+          "file": "packaging-26.3.dist-info/licenses/LICENSE.BSD",
+          "sha256": "b70e7e9b742f1cc6f948b34c16aa39ffece94196364bc88ff0d2180f0028fac5"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "pathable",
+      "locked_version": "0.6.0",
+      "installed_version": "0.6.0",
+      "license_expression": null,
+      "license_label": "Apache-2.0",
+      "license_classifiers": [
+        "License :: OSI Approved :: Apache Software License"
+      ],
+      "license_files": [
+        {
+          "file": "pathable-0.6.0.dist-info/licenses/LICENSE",
+          "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "platformdirs",
+      "locked_version": "4.13.5",
+      "installed_version": "4.13.5",
+      "license_expression": "MIT",
+      "license_label": null,
+      "license_classifiers": [
+        "License :: OSI Approved :: MIT License"
+      ],
+      "license_files": [
+        {
+          "file": "platformdirs-4.13.5.dist-info/licenses/LICENSE",
+          "sha256": "29e0fd62e929850e86eb28c3fdccf0cefdf4fa94879011cffb3d0d4bed6d4db6"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "py-key-value-aio",
+      "locked_version": "0.4.6",
+      "installed_version": "0.4.6",
+      "license_expression": "Apache-2.0",
+      "license_label": null,
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "py_key_value_aio-0.4.6.dist-info/licenses/LICENSE",
+          "sha256": "d09dfd49388d9bff8ecf258700abebbd77d25da2903cd21f362e074f242a1601"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "pycparser",
+      "locked_version": "3.11",
+      "installed_version": "3.11",
+      "license_expression": "BSD-3-Clause",
+      "license_label": null,
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "pycparser-3.11.dist-info/licenses/LICENSE",
+          "sha256": "0a9e78156ae8b96caf1b4f11ac2df424b83de29736f9e757630548a6272fdf90"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "pydantic",
+      "locked_version": "2.14.1",
+      "installed_version": "2.14.1",
+      "license_expression": "MIT",
+      "license_label": null,
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "pydantic-2.14.1.dist-info/licenses/LICENSE",
+          "sha256": "a9e186f3ca16b5eef84318e7a701721351a00cb7b8ae3a4394b67b49e3529ef3"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "pydantic-settings",
+      "locked_version": "2.16.1",
+      "installed_version": "2.16.1",
+      "license_expression": "MIT",
+      "license_label": null,
+      "license_classifiers": [
+        "License :: OSI Approved :: MIT License"
+      ],
+      "license_files": [
+        {
+          "file": "pydantic_settings-2.16.1.dist-info/licenses/LICENSE",
+          "sha256": "eb355a753e020346d33d83bf9769135b89fc610568ac531a01c295bcee7fd998"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "pydantic_core",
+      "locked_version": "2.50.1",
+      "installed_version": "2.50.1",
+      "license_expression": "MIT",
+      "license_label": null,
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "pydantic_core-2.50.1.dist-info/licenses/LICENSE",
+          "sha256": "2afdd30d54b4d62b6f488a6bcc1546e84ec5061f13f4209c03d012348783795a"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "pyperclip",
+      "locked_version": "1.11.0",
+      "installed_version": "1.11.0",
+      "license_expression": null,
+      "license_label": "BSD",
+      "license_classifiers": [
+        "License :: OSI Approved :: BSD License"
+      ],
+      "license_files": [
+        {
+          "file": "pyperclip-1.11.0.dist-info/licenses/LICENSE.txt",
+          "sha256": "a72b0acc9389e4c17ced890ef1b03455e04978d39e25636099b93efb76b74ead"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "python-dotenv",
+      "locked_version": "1.2.4",
+      "installed_version": "1.2.4",
+      "license_expression": null,
+      "license_label": "BSD-3-Clause",
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "python_dotenv-1.2.4.dist-info/licenses/LICENSE",
+          "sha256": "80619b7049f08c81683ad0e01f08f257a840652dd71ee83146d36658c7d2c2b9"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "python-multipart",
+      "locked_version": "0.0.32",
+      "installed_version": "0.0.32",
+      "license_expression": "Apache-2.0",
+      "license_label": null,
+      "license_classifiers": [
+        "License :: OSI Approved :: Apache Software License"
+      ],
+      "license_files": [
+        {
+          "file": "python_multipart-0.0.32.dist-info/licenses/LICENSE.txt",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "referencing",
+      "locked_version": "0.37.0",
+      "installed_version": "0.37.0",
+      "license_expression": "MIT",
+      "license_label": null,
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "referencing-0.37.0.dist-info/licenses/COPYING",
+          "sha256": "42dcd63495f87b4eb7c7757afa379bb55a53f94afd7a5f657d9adf57236e515c"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "rich",
+      "locked_version": "15.0.0",
+      "installed_version": "15.0.0",
+      "license_expression": null,
+      "license_label": "MIT",
+      "license_classifiers": [
+        "License :: OSI Approved :: MIT License"
+      ],
+      "license_files": [
+        {
+          "file": "rich-15.0.0.dist-info/licenses/LICENSE",
+          "sha256": "deed7c17a4318158190a3ea239cc879a5a50271cebb98ae7025f48fbe58dca15"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "rich-rst",
+      "locked_version": "2.2.0",
+      "installed_version": "2.2.0",
+      "license_expression": "MIT",
+      "license_label": null,
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "rich_rst-2.2.0.dist-info/licenses/LICENSE",
+          "sha256": "afd4029d4a3f931ff188b56413dc125a8de083130164a4b6019731dff935523a"
+        },
+        {
+          "file": "rich_rst-2.2.0.dist-info/licenses/rich_rst/_vendor/LICENSES.txt",
+          "sha256": "47ddf53cbbccf3f9b175ff9212ed0e9a7e5a813996516f8816eaa14e748cee00"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "rpds-py",
+      "locked_version": "2026.9.1",
+      "installed_version": "2026.9.1",
+      "license_expression": "MIT",
+      "license_label": null,
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "rpds_py-2026.9.1.dist-info/licenses/LICENSE",
+          "sha256": "314e4e91be3baa93c0fb4bccc9e4e97cd643eb839b065af921782c2175fe9909"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "setuptools",
+      "locked_version": "84.2.1",
+      "installed_version": "84.2.1",
+      "license_expression": "MIT",
+      "license_label": null,
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "setuptools-84.2.1.dist-info/licenses/LICENSE",
+          "sha256": "86da0f01aeae46348a3c3d465195dc1ceccde79f79e87769a64b8da04b2a4741"
+        },
+        {
+          "file": "setuptools/_vendor/autocommand-2.2.2.dist-info/LICENSE",
+          "sha256": "ade78d04982d69972d444a8e14a94f87a2334dd3855cc80348ea8e240aa0df2d"
+        },
+        {
+          "file": "setuptools/_vendor/backports.tarfile-1.2.0.dist-info/LICENSE",
+          "sha256": "86da0f01aeae46348a3c3d465195dc1ceccde79f79e87769a64b8da04b2a4741"
+        },
+        {
+          "file": "setuptools/_vendor/importlib_metadata-8.7.1.dist-info/licenses/LICENSE",
+          "sha256": "458502e12d97bbf64438606a20044aa85eb05fb0a8a807bb35dbec253fd1fc04"
+        },
+        {
+          "file": "setuptools/_vendor/jaraco.text-4.0.0.dist-info/LICENSE",
+          "sha256": "86da0f01aeae46348a3c3d465195dc1ceccde79f79e87769a64b8da04b2a4741"
+        },
+        {
+          "file": "setuptools/_vendor/jaraco_context-6.1.0.dist-info/licenses/LICENSE",
+          "sha256": "9755a18519666e5f0f4cae3daad3d7012bcae48a600b31237d75e9fe134e6683"
+        },
+        {
+          "file": "setuptools/_vendor/jaraco_functools-4.4.0.dist-info/licenses/LICENSE",
+          "sha256": "5a57cb4db85e2a2dd88c290628908add57e3451449e0a9a71fdfb38776fd759d"
+        },
+        {
+          "file": "setuptools/_vendor/more_itertools-10.8.0.dist-info/licenses/LICENSE",
+          "sha256": "09f1c8c9e941af3e584d59641ea9b87d83c0cb0fd007eb5ef391a7e2643c1a46"
+        },
+        {
+          "file": "setuptools/_vendor/packaging-26.3.dist-info/licenses/LICENSE",
+          "sha256": "cad1ef5bd340d73e074ba614d26f7deaca5c7940c3d8c34852e65c4909686c48"
+        },
+        {
+          "file": "setuptools/_vendor/packaging-26.3.dist-info/licenses/LICENSE.APACHE",
+          "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594"
+        },
+        {
+          "file": "setuptools/_vendor/packaging-26.3.dist-info/licenses/LICENSE.BSD",
+          "sha256": "b70e7e9b742f1cc6f948b34c16aa39ffece94196364bc88ff0d2180f0028fac5"
+        },
+        {
+          "file": "setuptools/_vendor/platformdirs-4.4.0.dist-info/licenses/LICENSE",
+          "sha256": "29e0fd62e929850e86eb28c3fdccf0cefdf4fa94879011cffb3d0d4bed6d4db6"
+        },
+        {
+          "file": "setuptools/_vendor/tomli-2.4.0.dist-info/licenses/LICENSE",
+          "sha256": "b80816b0d530b8accb4c2211783790984a6e3b61922c2b5ee92f3372ab2742fe"
+        },
+        {
+          "file": "setuptools/_vendor/wheel-0.46.3.dist-info/licenses/LICENSE.txt",
+          "sha256": "30c23618679108f3e8ea1d2a658c7ca417bdfc891c98ef1a89fa4ff0c9828654"
+        },
+        {
+          "file": "setuptools/_vendor/zipp-3.23.0.dist-info/licenses/LICENSE",
+          "sha256": "5a57cb4db85e2a2dd88c290628908add57e3451449e0a9a71fdfb38776fd759d"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "sse-starlette",
+      "locked_version": "3.5.0",
+      "installed_version": "3.5.0",
+      "license_expression": "BSD-3-Clause",
+      "license_label": null,
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "sse_starlette-3.5.0.dist-info/licenses/LICENSE",
+          "sha256": "80af6bfccbebd2c14d4aab96695cab9950e177190cc80f5ef819e99996883e8e"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "starlette",
+      "locked_version": "1.9.0",
+      "installed_version": "1.9.0",
+      "license_expression": "BSD-3-Clause",
+      "license_label": null,
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "starlette-1.9.0.dist-info/licenses/LICENSE.md",
+          "sha256": "dcb95677a02240243187e964f941847d19b17821cf99e5afae684fab328c19bf"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "truststore",
+      "locked_version": "0.10.5",
+      "installed_version": "0.10.5",
+      "license_expression": "MIT",
+      "license_label": null,
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "truststore-0.10.5.dist-info/licenses/LICENSE",
+          "sha256": "33be7b7e8fa4fd19b1760e1a8ed8a668bdab852c91b692dd41424bcb725a9fca"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "typing-inspection",
+      "locked_version": "0.4.4",
+      "installed_version": "0.4.4",
+      "license_expression": "MIT",
+      "license_label": null,
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "typing_inspection-0.4.4.dist-info/licenses/LICENSE",
+          "sha256": "804b59b25f2c31bd278f9202a19ae49a3945aa2664387e2d0a128c7cacc61ec3"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "typing_extensions",
+      "locked_version": "4.16.0",
+      "installed_version": "4.16.0",
+      "license_expression": "PSF-2.0",
+      "license_label": null,
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "typing_extensions-4.16.0.dist-info/licenses/LICENSE",
+          "sha256": "3b2f81fe21d181c499c59a256c8e1968455d6689d269aa85373bfb6af41da3bf"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "uncalled-for",
+      "locked_version": "0.4.1",
+      "installed_version": "0.4.1",
+      "license_expression": "MIT",
+      "license_label": null,
+      "license_classifiers": [
+        "License :: OSI Approved :: MIT License"
+      ],
+      "license_files": [
+        {
+          "file": "uncalled_for-0.4.1.dist-info/licenses/LICENSE",
+          "sha256": "62e55653f6573b42bf936146f3158a7b9446c55db802124a4ef42629fa97bb29"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "uvicorn",
+      "locked_version": "0.54.0",
+      "installed_version": "0.54.0",
+      "license_expression": "BSD-3-Clause",
+      "license_label": null,
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "uvicorn-0.54.0.dist-info/licenses/LICENSE.md",
+          "sha256": "efe1acf3e62fb99c288b0ec73e5a773b7268ef4320fe757ea994214e4b63c371"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "watchfiles",
+      "locked_version": "1.3.0",
+      "installed_version": "1.3.0",
+      "license_expression": null,
+      "license_label": "MIT",
+      "license_classifiers": [
+        "License :: OSI Approved :: MIT License"
+      ],
+      "license_files": [
+        {
+          "file": "watchfiles-1.3.0.dist-info/licenses/LICENSE",
+          "sha256": "4fd78355b67ce2677ede9fb6f63a250f377bb7e22088136a5f4699adb4bc069f"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "websockets",
+      "locked_version": "17.3",
+      "installed_version": "17.3",
+      "license_expression": "BSD-3-Clause",
+      "license_label": null,
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "websockets-17.3.dist-info/licenses/LICENSE",
+          "sha256": "3d6a0c050d8bec52fabad502e45fb25bd02bcadbd70dea34d447b6a0ff4e6da8"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    },
+    {
+      "distribution": "wheel",
+      "locked_version": "0.48.0",
+      "installed_version": "0.48.0",
+      "license_expression": "MIT",
+      "license_label": null,
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "wheel-0.48.0.dist-info/licenses/LICENSE.txt",
+          "sha256": "30c23618679108f3e8ea1d2a658c7ca417bdfc891c98ef1a89fa4ff0c9828654"
+        }
+      ],
+      "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"
+    }
+  ]
+}
