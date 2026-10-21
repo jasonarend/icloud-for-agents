@@ -2,7 +2,7 @@
 
 **Version 1.1.0**
 
-Manage iCloud mail, calendars and contacts from your AI assistant while keeping your credentials private and stored locally on your Mac. Connect a local MCP client over stdio, or connect ChatGPT through your own private OpenAI Secure MCP Tunnel.
+Manage iCloud mail, calendars and contacts from your AI assistant while keeping your credentials private and stored locally on your Mac. Connect a local MCP client like Claude over stdio, or connect ChatGPT through your own private OpenAI Secure MCP Tunnel.
 
 An independent project, unaffiliated with Apple. The tested setup is macOS on Apple silicon with Python 3.14; see [installation requirements](docs/getting-started/installation.md) for compatibility details.
 
@@ -79,7 +79,7 @@ Want to help expand compatibility? We welcome client testing, setup improvements
 
 Report suspected vulnerabilities through the [private security reporting process](SECURITY.md).
 
-The test suite uses synthetic accounts and credential-free stdio discovery. Claude and other stdio clients are compatible in principle but have not been tested end-to-end with this project. Public source distribution is separate from any client plugin catalog.
+The test suite uses synthetic accounts and credential-free stdio discovery. Claude Desktop and Claude Code are tested and supported through local stdio MCP. Other client routes have the status described in the client compatibility guide. Public source distribution is separate from any client plugin catalog.
 
 ## License and provenance
 

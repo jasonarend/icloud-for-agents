@@ -2,7 +2,7 @@
 
 The server runs on your Mac and retrieves credentials from macOS Keychain. A local client launches it over stdio; ChatGPT connects through your private Secure MCP Tunnel. The model name does not determine the connection: Claude in a local app and Claude in a browser have different capabilities.
 
-ChatGPT/private tunnel on macOS arm64 with Python 3.14 is the tested live setup. The local client routes below follow official client documentation, but have not each been validated against a live iCloud account with this project. Verify the installed client version and current documentation before changing configuration.
+Tested and supported clients are ChatGPT through the private tunnel, Claude Desktop on macOS, and Claude Code through local stdio MCP. The tested platform is macOS arm64 with Python 3.14. Other client routes follow official client documentation and remain unverified with this project unless stated otherwise. Verify the installed client version and current documentation before changing configuration.
 
 ## Prepare the local server
 
