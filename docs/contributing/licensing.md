@@ -12,6 +12,8 @@ Runtime dependencies are FastMCP, IMAPClient and PyYAML, with resolved transitiv
 
 Run `.venv/bin/python scripts/check-dependency-licenses.py` to check all locked distribution versions and inventoried notice paths/hashes against the installed environment. After deliberately reviewing dependency changes, `--write` refreshes that inventory. The collector recognizes both LICENSE and LICENCE spellings, including aiofile's two Apache-2.0 notice files, and embedded third-party NOTICE files. It excludes Python modules merely named `license.py`.
 
+The lock permits both the macOS 26 native and portable caio wheels at the same pinned version. Their COPYING text is identical after newline normalization; the portable wheel uses CRLF. Its separately verified exact notice hash and wheel provenance are recorded under `verified_variants`. Verification accepts only recorded exact hashes, not arbitrary normalized or changed text.
+
 ## Evidence and certification
 
 Passing tests, advisory checks and notice inventory verification are release evidence, not an independent security certification or a legal opinion on license compatibility. The project claims neither. MIT attribution and dependency notice evidence must stay intact; a new bundled dependency, transport or distribution arrangement requires its own review. If an external certification or legal sign-off is needed, identify its scope and qualified independent reviewer before describing a release as certified. A missing inventory entry alone does not establish a license violation.

@@ -192,7 +192,15 @@
       "license_files": [
         {
           "file": "caio-0.12.9.dist-info/licenses/COPYING",
-          "sha256": "c79de288bfd6d645a0c668a9e64672ad15f4f0279af216d8dcf20b9699603329"
+          "sha256": "c79de288bfd6d645a0c668a9e64672ad15f4f0279af216d8dcf20b9699603329",
+          "verified_variants": [
+            {
+              "sha256": "07653d6263b500be511a40cc3b50663265acf24a3688ebc9644a50eb0898849e",
+              "wheel": "caio-0.12.9-py3-none-any.whl",
+              "wheel_sha256": "bf12d4f014b2a33e642ed7905b5787656ede2fc24be21f7c086826ff0d32cec3",
+              "review": "Same Apache-2.0 COPYING text; portable wheel uses CRLF instead of LF."
+            }
+          ]
         }
       ],
       "review_status": "metadata and notice hashes inventoried; review actual terms before bundling"

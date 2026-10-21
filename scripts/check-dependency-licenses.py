@@ -37,7 +37,14 @@ def verify(root, write=False):
         if dist.version != version or entry['locked_version'] != version or entry['installed_version'] != version:
             raise ValueError('Installed/locked/inventoried version mismatch: ' + entry['distribution'])
         notices = notice_files(dist)
-        if sorted(entry['license_files'], key=lambda item: item['file']) != notices:
+        expected = {item['file']: item for item in entry['license_files']}
+        matches = set(expected) == {item['file'] for item in notices}
+        for notice in notices:
+            recorded = expected.get(notice['file'], {})
+            allowed = {recorded.get('sha256')} | {
+                variant['sha256'] for variant in recorded.get('verified_variants', [])}
+            matches = matches and notice['sha256'] in allowed
+        if not matches:
             changed.append(entry['distribution'])
             entry['license_files'] = notices
     if changed and write:
