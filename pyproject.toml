@@ -1,0 +1,25 @@
+[project]
+name = "icloud-for-agents"
+version = "1.1.0"
+readme = "README.md"
+description = "Private iCloud mail, calendars and contacts with explicit change approvals"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE", "NOTICE.md"]
+dependencies = ["fastmcp>=4.0,<5", "imapclient==3.0.1", "PyYAML==6.0.3"]
+
+[project.scripts]
+icloud-for-agents = "icloud_for_agents.server:main"
+icloud-agents-approve = "icloud_for_agents.approvals:main"
+icloud-agents-cleanup-access = "icloud_for_agents.cleanup_access:main"
+
+[build-system]
+requires = ["setuptools>=77.0.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 110

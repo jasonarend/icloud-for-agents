@@ -1,0 +1,12 @@
+{
+  "account": "you@example.com",
+  "apple_keychain_service": "icloud-for-agents",
+  "access_mode": "read-only",
+  "dav_reads": false,
+  "folder_overrides": {},
+  "services": {
+    "mail": true,
+    "calendar": false,
+    "contacts": false
+  }
+}
