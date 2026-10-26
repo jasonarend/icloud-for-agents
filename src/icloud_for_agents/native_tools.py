@@ -78,6 +78,9 @@ def register_change_tools(mcp):
         def prepare_grant(scope:dict)->dict:
             """Propose ongoing/scenario native permission with exact rules, optional expiry/cap, and revocation. No data writes."""
             return NativeGrants(editor(name)).prepare(scope)
+        def prepare_grant_replacement(grant_id:str,scope:dict)->dict:
+            """Review replacement scenario scope; activation retires prior authority and carries quota history forward."""
+            return NativeGrants(editor(name)).prepare_replacement(grant_id,scope)
         def activate_grant(grant_id:str)->dict:
             """Activate one reviewed native grant under the existing strict/trusted policy. Does not change OS/config access."""
             return NativeGrants(editor(name)).activate(grant_id)
@@ -93,7 +96,7 @@ def register_change_tools(mcp):
         def prepare_with_grant(grant_id:str,changes:list[dict])->dict:
             """Prepare exact changes within one active scenario grant; unsupported operations and wider scope refused."""
             return editor(name).prepare_with_grant(grant_id,changes)
-        for suffix,fn in [('prepare_grant',prepare_grant),('activate_grant',activate_grant),('grant_status',grant_status),('finalize_grant',finalize_grant),('revoke_grant',revoke_grant),('prepare_with_grant',prepare_with_grant)]:
+        for suffix,fn in [('prepare_grant',prepare_grant),('prepare_grant_replacement',prepare_grant_replacement),('activate_grant',activate_grant),('grant_status',grant_status),('finalize_grant',finalize_grant),('revoke_grant',revoke_grant),('prepare_with_grant',prepare_with_grant)]:
             mcp.tool(name=name+'_'+suffix,annotations=READ if suffix=='grant_status' else WRITE)(guard(fn))
     for name in ('notes','reminders'):
         if enabled(name):register_permissions(name)

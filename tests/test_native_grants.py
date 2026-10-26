@@ -182,3 +182,43 @@ class NativeGrantTests(unittest.TestCase):
         self.adapter.private_folder=folder;result=self.engine.execute(p['plan_id'])
         self.assertEqual(result['status'],'stopped_before_dispatch');self.assertEqual(self.adapter.calls,[])
         self.assertTrue(self.store.operation_settled(p['plan_id']))
+
+    def test_replacement_retires_prior_authority_and_carries_rolling_quota(self):
+        original=self.activate(self.scope(max_batch=1,max_24h=2));first=self.engine.prepare_with_grant(original,self.changes());self.engine.execute(first['plan_id'])
+        scope=self.scope(max_batch=1,max_24h=2,scenario='Reviewed replacement')
+        replacement=self.manager.prepare_replacement(original,scope)
+        self.assertEqual(replacement['review']['payload']['previous_scope'],self.manager.owned(original)['payload']['scope'])
+        self.manager.activate(replacement['plan_id']);self.assertEqual(self.manager.status(original)['status'],'revoked')
+        with self.assertRaises(SafetyError):self.engine.prepare_with_grant(original,self.changes())
+        second=self.engine.prepare_with_grant(replacement['plan_id'],self.changes());self.assertEqual(self.engine.execute(second['plan_id'])['status'],'applied')
+        third=self.engine.prepare_with_grant(replacement['plan_id'],self.changes())
+        with self.assertRaises(SafetyError):self.engine.execute(third['plan_id'])
+        self.assertEqual(len(self.adapter.calls),2)
+    def test_replacement_denial_or_prior_revocation_preserves_original_decision(self):
+        os.environ['ICLOUD_APPROVAL_POLICY']='local-receipt';p=self.manager.prepare(self.scope());self.store.write_once(self.store.path(p['plan_id'],'.approved'),{'plan_id':p['plan_id'],'sha256':p['sha256']});self.manager.activate(p['plan_id'])
+        replacement=self.manager.prepare_replacement(p['plan_id'],self.scope(scenario='Changed'))
+        with self.assertRaises(FileNotFoundError):self.manager.activate(replacement['plan_id'])
+        self.assertEqual(self.manager.status(p['plan_id'])['status'],'active')
+        self.manager.revoke(p['plan_id']);self.store.write_once(self.store.path(replacement['plan_id'],'.approved'),{'plan_id':replacement['plan_id'],'sha256':replacement['sha256']})
+        with self.assertRaises(SafetyError):self.manager.activate(replacement['plan_id'])
+        self.assertFalse(self.store.path(replacement['plan_id'],'.started').exists())
+    def test_replacement_interruption_is_fail_closed_then_explicitly_finalized(self):
+        identity=self.activate();replacement=self.manager.prepare_replacement(identity,self.scope(scenario='Updated scenario'));new_id=replacement['plan_id'];original_finish=self.store.finish
+        def interrupt(plan_id,result):
+            if plan_id==new_id:raise OSError('Synthetic crash before completion record')
+            return original_finish(plan_id,result)
+        with patch.object(self.store,'finish',side_effect=interrupt),self.assertRaises(OSError):self.manager.activate(new_id)
+        self.assertEqual(self.manager.status(identity)['status'],'revoked')
+        with self.assertRaises(SafetyError):self.engine.prepare_with_grant(new_id,self.changes())
+        self.manager.finalize(new_id);self.assertEqual(self.manager.status(new_id)['status'],'active')
+        batch=self.engine.prepare_with_grant(new_id,self.changes());self.assertEqual(self.engine.execute(batch['plan_id'])['status'],'applied')
+    def test_interruption_before_retirement_can_complete_only_original_admission(self):
+        identity=self.activate();replacement=self.manager.prepare_replacement(identity,self.scope(scenario='Changed'));new_id=replacement['plan_id']
+        self.store.consume(new_id,self.engine.account)
+        self.assertEqual(self.manager.status(identity)['status'],'active')
+        self.assertEqual(self.manager.status(identity)['write_admission'],'blocked_by_unfinished_native_operation')
+        self.manager.finalize(new_id);self.assertEqual(self.manager.status(identity)['status'],'revoked');self.assertEqual(self.manager.status(new_id)['status'],'active')
+    def test_independent_prior_revocation_cannot_be_overridden_during_finalization(self):
+        identity=self.activate();replacement=self.manager.prepare_replacement(identity,self.scope(scenario='Changed'));new_id=replacement['plan_id'];self.store.consume(new_id,self.engine.account);self.manager.revoke(identity)
+        with self.assertRaises(SafetyError):self.manager.finalize(new_id)
+        self.manager.revoke(new_id);self.assertTrue(self.store.operation_settled(new_id))

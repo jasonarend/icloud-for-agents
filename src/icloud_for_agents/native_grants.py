@@ -83,16 +83,51 @@ class NativeGrants:
             result.append({'source':self.container(rule['source_id'],rule['container_id']),
                            'destinations':[self.container(rule['source_id'],d) for d in rule['destinations']]})
         return result
-    def prepare(self,scope):
+    def prepare(self,scope,*,_replaces=None):
         validate_scope(self.name,scope,self.store.clock());context=self.engine.context(True)
-        return self.store.prepare(self.name+'_grant',{'account':self.account,'context':context,'scope':scope,
+        payload={'account':self.account,'context':context,'scope':scope,
              'containers':self.scope_snapshot(scope),'effects':{
                  'authority':'Ongoing exact rule scope; no per-batch receipt within the active grant. Each batch is immutable and consumed once.',
                  'lifetime':'Until revoked' if scope['expires'] is None else 'Until the selected expiry or revocation',
                  'configuration':'No service, source, OS permission or write-mode changes.',
                  'exclusions':'No permanent deletion, collaboration changes, invitations, locks, recording or external export.',
                  'sharing':'Notes private ancestors checked; EventKit does not expose reminder-list participant state.',
-                 'quotas':'All admitted batch items count, including uncertain or refused items; no automatic refund.'}})
+                 'quotas':'All admitted batch items count, including uncertain or refused items; no automatic refund.'}}
+        if _replaces is not None:
+            payload['replaces']={'grant_id':_replaces['plan_id'],'sha256':digest(_replaces)}
+            payload['previous_scope']=_replaces['payload']['scope']
+            payload['effects']['replacement']='Retire the exact prior grant before activating this scope; rolling quota history carries forward.'
+        return self.store.prepare(self.name+'_grant',payload)
+    def prepare_replacement(self,grant_id,scope):
+        return self.prepare(scope,_replaces=self.checked(grant_id))
+    def lineage(self,grant):
+        chain={};current=grant
+        for _ in range(64):
+            identity=current['plan_id']
+            if identity in chain:raise SafetyError('Cyclic native grant replacement history')
+            chain[identity]=current;parent=current['payload'].get('replaces')
+            if parent is None:return chain
+            if not isinstance(parent,dict) or set(parent)!={'grant_id','sha256'}:raise SafetyError('Invalid native replacement binding')
+            previous=self.owned(parent['grant_id'])
+            if parent['sha256']!=digest(previous):raise SafetyError('Native replacement history changed')
+            current=previous
+        raise SafetyError('Native grant replacement history exceeds the verified bound')
+    def retirement(self,plan):
+        parent=plan['payload'].get('replaces')
+        if parent is None:return None
+        previous=self.owned(parent['grant_id'])
+        if (parent!={'grant_id':previous['plan_id'],'sha256':digest(previous)}
+                or plan['payload'].get('previous_scope')!=previous['payload']['scope']):raise SafetyError('Native grant replacement binding or before-scope changed')
+        record={'grant_sha256':digest(previous),'replaced_by':plan['plan_id'],'replacement_sha256':digest(plan)}
+        return self.store.path(previous['plan_id'],'.native-grant-revoked'),record
+    def retire_previous(self,plan):
+        retirement=self.retirement(plan)
+        if retirement is None:return
+        path,record=retirement
+        if path.exists():
+            if self.store.read(path)!=record:raise SafetyError('Prior native grant was revoked outside this replacement; review a fresh grant')
+        else:self.store.write_once(path,record)
+
     def owned(self,grant_id):
         plan=self.store.read(self.store.path(grant_id,'.json'))
         if plan.get('kind')!=self.name+'_grant' or plan.get('payload',{}).get('account')!=self.account:raise SafetyError('Native grant belongs to another service or owner')
@@ -107,6 +142,8 @@ class NativeGrants:
             result=self.store.read(self.store.path(grant_id,'.result'));started=self.store.read(self.store.path(grant_id,'.started'))
             if result!={'status':'completed','grant_sha256':digest(plan),'grant_active':True} or started.get('sha256')!=digest(plan):raise SafetyError('Native grant activation is incomplete or mismatched')
             self.admitted_activation(plan)
+            retired=self.retirement(plan)
+            if retired is not None and (not retired[0].exists() or self.store.read(retired[0])!=retired[1]):raise SafetyError('Prior native grant retirement is not proven')
         if self.store.path(grant_id,'.native-grant-revoked').exists() or payload['context']!=self.engine.context(True):
             raise SafetyError('Native grant authority changed during container verification')
         return plan
@@ -124,6 +161,7 @@ class NativeGrants:
         selected_read_access(self.name)
         with self.engine.serialized(),self.locked():
             plan=self.checked(grant_id,active=False);self.admitted_activation(plan)
+            self.retire_previous(plan)
             result={'status':'completed','grant_sha256':digest(plan),'grant_active':True}
             path=self.store.path(grant_id,'.result')
             if path.exists():
@@ -136,8 +174,14 @@ class NativeGrants:
         selected_read_access(self.name)
         with self.engine.serialized(),self.locked():
             self.engine.assert_settled();plan=self.checked(grant_id,active=False)
+            parent=plan['payload'].get('replaces')
+            if parent is not None:
+                previous=self.checked(parent['grant_id'])
+                if parent!={'grant_id':previous['plan_id'],'sha256':digest(previous)}:raise SafetyError('Prior native grant changed before replacement approval')
+                self.lineage(plan)
             admitted=self.store.consume(grant_id,self.account)
             if admitted!=plan:raise SafetyError('Native grant changed at activation')
+            self.retire_previous(plan)
             return self.store.finish(grant_id,{'status':'completed','grant_sha256':digest(plan),'grant_active':True})
     def revoke(self,grant_id):
         from .native_access import access_status
@@ -156,8 +200,10 @@ class NativeGrants:
         else:
             try:self.checked(grant_id,containers=False);state='active'
             except (SafetyError,OSError):state='inactive_or_unverified'
-        return {'grant_id':grant_id,'status':state,'sha256':digest(plan),'scope':plan['payload']['scope'],
-                'container_state':'not_refreshed','configuration_changed':False}
+        try:self.engine.assert_settled();admission='requires_current_scope_and_native_checks'
+        except (SafetyError,OSError):admission='blocked_by_unfinished_native_operation'
+        return {'grant_id':grant_id,'status':state,'write_admission':admission,'sha256':digest(plan),'scope':plan['payload']['scope'],
+                'container_state':'not_refreshed','configuration_changed':False,'replaces':plan['payload'].get('replaces')}
     def match(self,grant,item):
         scope=grant['payload']['scope'];op=item['operation']
         container=(item.get('parent_folder_id',item['source_id']) if op=='create_folder' else item['source_id'] if op=='create_list'
@@ -183,16 +229,18 @@ class NativeGrants:
         # quotas/revocation with admission. The existing ledger blocks uncertainty.
         with self.locked():
             plan=self.store.proposal(plan_id);binding=plan['payload'].get('standing_grant',{})
-            grant=self.checked(binding.get('grant_id'));self.check_batch(plan,grant)
+            grant=self.checked(binding.get('grant_id'));self.check_batch(plan,grant);lineage=self.lineage(grant)
             if plan.get('kind')!=self.name+'_change' or plan['payload'].get('account')!=self.account:raise SafetyError('Wrong native standing owner/service')
             self.engine.assert_settled(plan);now=self.store.clock();scope=grant['payload']['scope'];count=len(plan['payload']['changes']);used=0
             for path in self.store.root.glob('*.native-grant-use'):
                 entry=self.store.read(path)
-                if entry.get('grant_id')!=grant['plan_id']:continue
+                if entry.get('grant_id') not in lineage:continue
+                original_grant=lineage[entry['grant_id']]
                 if type(entry.get('time')) not in (int,float) or not math.isfinite(entry['time']) or entry['time']>now:raise SafetyError('Native grant audit time is invalid; inspect clock changes')
                 if type(entry.get('count')) is not int or entry['count']<1:raise SafetyError('Invalid native grant quota audit')
                 admitted=self.store.read(self.store.path(path.name.removesuffix('.native-grant-use'),'.json'))
-                if (entry.get('grant_sha256')!=digest(grant) or entry.get('plan_sha256')!=digest(admitted)
+                if (entry.get('grant_sha256')!=digest(original_grant) or entry.get('plan_sha256')!=digest(admitted)
+                        or admitted.get('payload',{}).get('standing_grant')!={'grant_id':original_grant['plan_id'],'sha256':digest(original_grant)}
                         or entry['count']!=len(admitted.get('payload',{}).get('changes',[]))):raise SafetyError('Native grant quota audit does not bind its original batch')
                 if entry['time']>=now-86400:used+=entry['count']
             if scope['max_24h'] is not None and used+count>scope['max_24h']:raise SafetyError('Native grant rolling 24-hour item cap reached')

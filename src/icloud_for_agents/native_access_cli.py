@@ -11,6 +11,7 @@ def main():
     prepare=commands.add_parser('prepare');prepare.add_argument('--scope-file',type=Path,required=True)
     for command in ('activate','finalize','status','revoke'):
         commands.add_parser(command).add_argument('grant_id')
+    replacement=commands.add_parser('replace');replacement.add_argument('grant_id');replacement.add_argument('--scope-file',type=Path,required=True)
     changes=commands.add_parser('changes');changes.add_argument('grant_id');changes.add_argument('--changes-file',type=Path,required=True)
     args=parser.parse_args()
     from .native_tools import editor
@@ -22,6 +23,7 @@ def main():
         return json.loads(raw)
     try:
         if args.command=='prepare':result=manager.prepare(read(args.scope_file))
+        elif args.command=='replace':result=manager.prepare_replacement(args.grant_id,read(args.scope_file))
         elif args.command=='changes':result=engine.prepare_with_grant(args.grant_id,read(args.changes_file))
         else:result=getattr(manager,args.command)(args.grant_id)
         print(json.dumps(result,ensure_ascii=True,indent=2))

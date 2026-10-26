@@ -57,6 +57,19 @@ def run(policy):
                     invalid=[dict(changes[0],fields=dict(fields,unreviewed='No'))]
                     assert call(name+'_prepare_with_grant',{'grant_id':identity,'changes':invalid}).get('isError')
                     pending=data(call(name+'_prepare_with_grant',{'grant_id':identity,'changes':changes}))
+                    replacement=data(call(name+'_prepare_grant_replacement',{'grant_id':identity,'scope':dict(scope,scenario='Revised synthetic scenario',max_24h=2)}))
+                    new_id=replacement['plan_id']
+                    if policy=='local-receipt':
+                        assert call(name+'_activate_grant',{'grant_id':new_id}).get('isError')
+                        receipt=runtime/(new_id+'.approved');fd=os.open(receipt,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+                        with os.fdopen(fd,'w') as stream:json.dump({'plan_id':new_id,'sha256':replacement['sha256']},stream)
+                    assert data(call(name+'_activate_grant',{'grant_id':new_id}))['grant_active']
+                    assert data(call(name+'_grant_status',{'grant_id':identity}))['status']=='revoked'
+                    assert call(name+'_execute_approved',{'plan_id':pending['plan_id']}).get('isError')
+                    capped=data(call(name+'_prepare_with_grant',{'grant_id':new_id,'changes':changes}))
+                    assert call(name+'_execute_approved',{'plan_id':capped['plan_id']}).get('isError')
+                    assert data(call(name+'_cancel_plan',{'plan_id':capped['plan_id']}))['status']=='cancelled'
+                    assert data(call(name+'_revoke_grant',{'grant_id':new_id}))['status']=='revoked'
                     assert data(call(name+'_revoke_grant',{'grant_id':identity}))['status']=='revoked'
                     assert data(call(name+'_grant_status',{'grant_id':identity}))['status']=='revoked'
                     assert call(name+'_execute_approved',{'plan_id':pending['plan_id']}).get('isError')
@@ -67,7 +80,7 @@ def run(policy):
                 except subprocess.TimeoutExpired:process.terminate();process.wait(timeout=5)
                 process.stdout.close()
         assert process.returncode==0,(home/'stderr.log').read_text();assert json.loads(audit.read_text())==[]
-        return {'status':'passed','transport':'real stdio JSON-RPC','synthetic_providers_only':True,'policy':policy,'services':['notes','reminders'],'settings_remained_read_only':True,'scenario_activation_scope_replay_revocation_verified':True,'network_helper_attempts':[]}
+        return {'status':'passed','transport':'real stdio JSON-RPC','synthetic_providers_only':True,'policy':policy,'services':['notes','reminders'],'settings_remained_read_only':True,'scenario_activation_scope_replay_revocation_verified':True,'replacement_retires_prior_scope_and_carries_quota':True,'network_helper_attempts':[]}
 
 if __name__=='__main__':
     results=[run(policy) for policy in ('trusted-client','local-receipt')];path=ROOT/'build/reports/NATIVE-GRANT-STDIO.json';path.parent.mkdir(parents=True,exist_ok=True);path.write_text(json.dumps(results,indent=2)+'\n');print(json.dumps(results,indent=2))
