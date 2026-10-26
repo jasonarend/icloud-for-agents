@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = r'''
 const fixtureNotes = [
  {id:()=> 'note-1',name:()=> 'Synthetic plain',passwordProtected:()=> false,
-  attachments:()=>[{id:()=> 'attachment-1',name:()=> 'synthetic.pdf',contentIdentifier:()=> 'cid:synthetic'}],body:()=> '<div>Synthetic content</div>',plaintext:()=> 'Synthetic content',
+  attachments:()=>[{id:()=> 'attachment-1',name:()=> 'synthetic.pdf',contentIdentifier:()=> 'cid:synthetic'}],body:()=> '<div>Synthetic content</div><object><table><tr><td>Table-only token</td></tr></table></object>',plaintext:()=> 'Synthetic content',
   modificationDate:()=> null},
  {id:()=> 'note-2',name:()=> 'Synthetic locked',passwordProtected:()=> true,
   body:()=> {throw Error('locked_content_was_read');},plaintext:()=> {throw Error('locked_content_was_read');}}
@@ -76,8 +76,10 @@ print(result)
         assert 'html' not in locked and 'text' not in locked
         search=call('search',text='content',limit=1,offset=0)
         assert len(search['items'])==1 and search['items'][0]['id']=='note-1'
-        search=call('search',text='absent',limit=1,offset=0)
+        search=call('search',text='absent',limit=100,offset=0)
         assert search['items']==[] and search['locked_bodies_excluded']>0
+        table_search=call('search',text='Table-only',limit=1,offset=0)
+        assert len(table_search['table_projection_candidates'])==1
         attachments=call('attachments',folder_id='folder-1',id='note-1',limit=1,offset=0)
         assert attachments['attachments'][0]['id']=='attachment-1' and attachments['content_downloaded'] is False
         locked_attachments=call('attachments',folder_id='folder-1',id='note-2',limit=1,offset=0)

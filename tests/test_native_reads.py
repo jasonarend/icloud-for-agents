@@ -112,3 +112,13 @@ class NativeReadTests(unittest.TestCase):
             request=dispatch.call_args.args[0]
             self.assertEqual((request['limit'],request['offset']),(50,0))
 
+    def test_search_finds_table_text_and_keeps_raw_html_internal(self):
+        page={'items':[],'table_projection_candidates':[{'id':'note','title':'Synthetic','source_id':'selected',
+            'folder_id':'folder','html':'<object><table><tr><td>A &amp; B</td></tr></table></object>','truncated':False}],
+            'done':True,'next_offset':1}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps({'notes':{'source_ids':['selected']}})),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=page):
+            result=NativeReader('notes').read('search',text='A & B')
+        self.assertEqual(result['items'][0]['excerpt'],'A & B')
+        self.assertEqual(result['items'][0]['match_source'],'exported_table_text')
+        self.assertNotIn('table_projection_candidates',result)
+        self.assertNotIn('html',result['items'][0])

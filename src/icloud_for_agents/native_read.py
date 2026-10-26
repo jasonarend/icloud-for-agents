@@ -94,6 +94,23 @@ class NativeReader:
         if action in {'folders','query','search','attachments','lists'}:
             request.setdefault('limit',limit);request.setdefault('offset',offset)
         result = self._dispatch(request, config)
+        if self.name == 'notes' and action == 'search':
+            from .notes_content import project_html
+            candidates=result.pop('table_projection_candidates',[])
+            if not isinstance(candidates,list) or len(candidates)>limit:
+                raise SafetyError('Invalid bounded Notes search projection')
+            for candidate in candidates:
+                try:
+                    projected=project_html(candidate['html'])
+                    index=projected['text'].lower().find(fields['text'].lower())
+                    if index>=0:
+                        result.setdefault('items',[]).append({key:candidate[key] for key in ('id','title','source_id','folder_id')})
+                        result['items'][-1].update(excerpt=projected['text'][max(0,index-80):index+240],
+                            locked=False,content_complete=False,match_source='exported_table_text',
+                            text_projection_complete=projected['text_projection_complete'] and not candidate.get('truncated',False))
+                except (ValueError,KeyError,TypeError):
+                    result.setdefault('unavailable',[]).append({'category':'table_projection_unavailable'})
+            if len(result.get('items',[]))>limit:raise SafetyError('Native search exceeded result limit')
         if self.name == 'notes' and action == 'get' and 'html' in result.get('item', {}):
             from .notes_content import project_html
             try:
@@ -272,13 +289,13 @@ def register_read_tools(mcp):
         @mcp.tool(annotations=annotations)
         @guard
         def notes_query(folder_id: str, limit: int = 50, offset: int = 0) -> dict:
-            """Read a bounded note-title page in one exact folder; no body search yet."""
+            """Read a bounded title page in one exact folder; use notes_search for content."""
             return NativeReader('notes').read('query', folder_id=folder_id, limit=limit, offset=offset)
 
         @mcp.tool(annotations=annotations)
         @guard
         def notes_search(text: str, folder_id: str | None = None, limit: int = 50, offset: int = 0) -> dict:
-            """Bounded title/plaintext search. Follow next_offset until done even after empty pages."""
+            """Bounded title, plaintext and exported table-text search. Follow next_offset until done even after empty pages."""
             return NativeReader('notes').read('search', text=text, folder_id=folder_id, limit=limit, offset=offset)
 
         @mcp.tool(annotations=annotations)

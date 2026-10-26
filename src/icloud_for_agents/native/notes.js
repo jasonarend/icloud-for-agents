@@ -36,9 +36,10 @@ function readNotes(app, req) {
         });
         if(req.folder_id && !folders.some(f=>f.object.id()===req.folder_id))throw Error('not_found_in_scope');
         refs.sort((a,b)=>a.id.localeCompare(b.id));
-        const needle=req.text.toLowerCase(), items=[], unavailable=[];
+        const needle=req.text.toLowerCase(), items=[], unavailable=[], projections=[];
+        let projectionBytes=0;
         let offset=req.offset, scanned=0, lockedSkipped=0, truncatedBodies=0;
-        while(offset<refs.length && scanned<100 && items.length<req.limit) {
+        while(offset<refs.length && scanned<100 && items.length+projections.length<req.limit) {
             const ref=refs[offset++];scanned++;
             try {
                 const note=ref.folder.object.notes.byId(ref.id), title=note.name(), locked=note.passwordProtected();
@@ -49,11 +50,21 @@ function readNotes(app, req) {
                 if(title.toLowerCase().includes(needle) || index>=0)items.push({id:ref.id,title:title.slice(0,1000),
                     source_id:ref.folder.source,folder_id:ref.folder.object.id(),locked:locked,
                     excerpt:index>=0?body.slice(Math.max(0,index-80),index+240):'',content_complete:false});
+                else if(!locked) {
+                    const html=note.body();
+                    if(html.includes('<table')) {
+                        const bounded=html.slice(0,100000);
+                        if(projectionBytes+bounded.length>250000)unavailable.push({id:ref.id,category:'table_projection_budget'});
+                        else {projectionBytes+=bounded.length;projections.push({id:ref.id,title:title.slice(0,1000),
+                            source_id:ref.folder.source,folder_id:ref.folder.object.id(),html:bounded,
+                            truncated:html.length>100000});}
+                    }
+                }
             } catch(_) {unavailable.push({id:ref.id,category:'note_read_unavailable'});}
         }
-        return JSON.stringify({protocol_version:1,items:items,done:offset>=refs.length,next_offset:offset,
+        return JSON.stringify({protocol_version:1,items:items,table_projection_candidates:projections,done:offset>=refs.length,next_offset:offset,
             scanned:scanned,unavailable:unavailable,locked_bodies_excluded:lockedSkipped,truncated_bodies:truncatedBodies,
-            search_coverage:'title and bounded plaintext; no native OCR/attachment/semantic index',pagination_consistency:'live_offset_may_shift'});
+            search_coverage:'title, bounded plaintext and exported table text; no native OCR/attachment/semantic index',pagination_consistency:'live_offset_may_shift'});
     }
     if (req.action === 'folders') {
         const limit=req.limit===undefined?100:req.limit, offset=req.offset===undefined?0:req.offset;
