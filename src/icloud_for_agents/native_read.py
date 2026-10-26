@@ -91,6 +91,8 @@ class NativeReader:
             raise SafetyError('Invalid overdue filter')
         request = {'protocol_version': 1, 'action': action, 'source_ids': sources,
                    **{k: v for k, v in fields.items() if v is not None}}
+        if action in {'folders','query','search','attachments','lists'}:
+            request.setdefault('limit',limit);request.setdefault('offset',offset)
         result = self._dispatch(request, config)
         if self.name == 'notes' and action == 'get' and 'html' in result.get('item', {}):
             from .notes_content import project_html
@@ -128,7 +130,10 @@ class NativeReader:
                         raise SafetyError('Open Notes before validating native Automation access')
                     if response['error']=='permission_required':
                         raise SafetyError('Notes Automation permission is required for the native helper app')
-                    raise SafetyError('Native Notes operation failed; no automatic retry')
+                    code=response.get('error_code')
+                    detail=(' (Apple event code '+str(code)+')') if type(code) is int else ''
+                    if response.get('stage') in {'validation','folder_lookup','membership_before','note_constructor','note_insert','membership_after'}:detail+=' at '+response['stage']
+                    raise SafetyError('Native Notes operation failed'+detail+'; no automatic retry')
                 return response
             command = [str(path)]
         else:

@@ -2,6 +2,8 @@
 // This module never accepts scripts, arbitrary commands, paths or approval flags.
 ObjC.import('Foundation');
 function applyNotes(app, req) {
+    let stage='validation';
+    try {
     if (req.protocol_version!==1 || req.action!=='apply' || !Array.isArray(req.source_ids)) throw Error('invalid_request');
     const item=req.change;
     if (!item || !['create_note','create_folder'].includes(item.operation) || !req.source_ids.includes(item.source_id)) throw Error('unsupported_operation');
@@ -25,6 +27,7 @@ function applyNotes(app, req) {
         account.folders.push(folder);
         return JSON.stringify({protocol_version:1,result:{id:folder.id(),source_id:item.source_id,saved_locally:true}});
     }
+    stage='folder_lookup';
     const matches=folders.filter(f=>f.id()===item.folder_id);
     if(matches.length!==1)throw Error('not_found_in_scope');
     const folder=matches[0];
@@ -33,11 +36,31 @@ function applyNotes(app, req) {
     // Notes derives its title from the first body paragraph. Supplying both name
     // and body can leave a title-only draft, depending on property assignment order.
     const escapeText=text=>text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    stage='membership_before';
     const before=new Set(folder.notes.id());
-    folder.notes.push(app.Note({body:'<div>'+escapeText(fields.title)+'</div>'+fields.html}));
+    stage='note_constructor';
+    const draft=app.Note({body:'<div>'+escapeText(fields.title)+'</div>'+fields.html});
+    stage='note_insert';
+    folder.notes.push(draft);
     // Resolve through the destination collection, not the unbound constructor
     // object. Never issue another creation if the identity is uncertain.
-    const created=folder.notes.id().filter(id=>!before.has(id));
-    if(created.length!==1)throw Error('created_identity_uncertain');
-    return JSON.stringify({protocol_version:1,result:{id:created[0],source_id:item.source_id,folder_id:item.folder_id,saved_locally:true}});
+    stage='membership_after';
+    const after=folder.notes.id();
+    let createdID=null;
+    try {const bound=draft.id();if(after.includes(bound) && !before.has(bound))createdID=bound;} catch(_) {}
+    if(!createdID) {
+        // Saving may also replace an older temporary Core Data URI with a
+        // permanent URI. Such unrelated transitions must not select that note.
+        const matching=after.filter(id=>!before.has(id) && folder.notes.byId(id).name()===fields.title);
+        if(matching.length!==1)throw Error('created_identity_uncertain');
+        createdID=matching[0];
+    }
+    return JSON.stringify({protocol_version:1,result:{id:createdID,source_id:item.source_id,folder_id:item.folder_id,saved_locally:true}});
+    } catch(error) {
+        const match=String(error).match(/-\d{3,6}/);
+        const known=['invalid_request','unsupported_operation','not_found_in_scope','invalid_fields','folder_limit','duplicate_folder','shared_write_not_supported','created_identity_uncertain'];
+        const category=known.find(value=>String(error).includes(value)) || 'provider_exception';
+        return JSON.stringify({protocol_version:1,error:'notes_operation_failed',stage:stage,category:category,
+            error_code:match?Number(match[0]):-2700});
+    }
 }

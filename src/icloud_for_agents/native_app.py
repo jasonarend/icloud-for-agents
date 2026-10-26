@@ -4,6 +4,7 @@ No listener, daemon, arbitrary command selection or independently authenticated
 remote approval is provided. This is a same-owner local helper transport.
 """
 import json
+import hashlib
 import os
 from pathlib import Path
 import stat
@@ -13,6 +14,18 @@ import shutil
 
 from .approvals import PlanStore, runtime_root
 from .core import SafetyError
+
+
+def exchange_base():
+    return Path.home()/'Library/Application Support/icloud-for-agents/native-exchange'
+
+
+def exchange_root():
+    # One-shot request files belong in the local app-support location, even when
+    # the audit workspace is on an external or cloud-backed volume. Each ledger
+    # keeps a distinct namespace; relocating IPC never relocates/clears approvals.
+    identity=hashlib.sha256(str(runtime_root().resolve()).encode()).hexdigest()
+    return exchange_base()/identity/'native-app'
 
 
 def application_request(helper, request, timeout=25):
@@ -26,7 +39,9 @@ def application_request(helper, request, timeout=25):
         raise SafetyError('Notes application transport requires a built helper app bundle')
     runtime=runtime_root()
     PlanStore(runtime).ready()
-    root=runtime/'native-app'
+    PlanStore(exchange_base()).ready()
+    PlanStore(exchange_root().parent).ready()
+    root=exchange_root()
     root.mkdir(mode=0o700,parents=True,exist_ok=True)
     info=root.lstat()
     if not stat.S_ISDIR(info.st_mode) or info.st_uid!=os.getuid() or stat.S_IMODE(info.st_mode)!=0o700:
@@ -55,7 +70,7 @@ def application_request(helper, request, timeout=25):
         if len(raw)>2_000_000:raise SafetyError('Native result exceeds limit')
         result=json.loads(raw)
         if not isinstance(result,dict) or result.get('protocol_version')!=1 or result.get('request_id')!=directory.name:raise ValueError()
-        shutil.rmtree(directory)
+        if "error" not in result:shutil.rmtree(directory)
         return result
     except SafetyError:raise
     except (OSError,ValueError,subprocess.SubprocessError):
@@ -64,8 +79,14 @@ def application_request(helper, request, timeout=25):
 
 
 def pending_requests(service):
+    """Include retained requests from both transports; never hide older uncertainty."""
+    current=_pending_at(exchange_root(),service)
+    legacy=_pending_at(runtime_root()/'native-app',service)
+    return current+legacy
+
+
+def _pending_at(root,service):
     """Metadata only: never expose an old note body or an unselected source's data."""
-    root=runtime_root()/'native-app'
     if not root.exists():return []
     info=root.lstat()
     if not stat.S_ISDIR(info.st_mode) or info.st_uid!=os.getuid() or stat.S_IMODE(info.st_mode)!=0o700:

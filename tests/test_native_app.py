@@ -19,6 +19,8 @@ class NativeApplicationTests(unittest.TestCase):
         (self.bundle/'Contents/Info.plist').write_text('synthetic bundle')
         context=patch('icloud_for_agents.native_app.runtime_root',return_value=self.root/'runtime')
         context.start();self.addCleanup(context.stop)
+        base=patch('icloud_for_agents.native_app.exchange_base',return_value=self.root/'local-app-support')
+        base.start();self.addCleanup(base.stop)
     def request(self,**extra):
         return application_request(self.helper,{'protocol_version':1,'service':'notes','action':'status'},**extra)
     def test_private_files_fixed_command_no_environment_secrets_and_cleanup(self):
@@ -65,3 +67,27 @@ class NativeApplicationTests(unittest.TestCase):
         with patch('subprocess.run',side_effect=AssertionError('No launch')),self.assertRaises(SafetyError):self.request()
         runtime.chmod(0o700);self.helper.chmod(0o777)
         with patch('subprocess.run',side_effect=AssertionError('No launch')),self.assertRaises(SafetyError):self.request()
+
+    def test_exchange_is_local_and_separate_for_each_audit_workspace(self):
+        from icloud_for_agents.native_app import exchange_root
+        first=exchange_root()
+        self.assertTrue(first.is_relative_to(self.root/'local-app-support'))
+        self.assertFalse(first.is_relative_to(self.root/'runtime'))
+        with patch('icloud_for_agents.native_app.runtime_root',return_value=self.root/'another-runtime'):
+            self.assertNotEqual(first,exchange_root())
+
+    def test_error_response_is_retained_for_review_without_replay(self):
+        def launch(command,**kwargs):
+            directory=Path(command[-1]);result=directory/'result.json'
+            result.write_text(json.dumps({'protocol_version':1,'request_id':directory.name,
+                                         'error':'notes_operation_failed','error_code':-2700}))
+            result.chmod(0o600);return SimpleNamespace(returncode=0)
+        with patch('subprocess.run',side_effect=launch) as launched:
+            self.assertEqual(self.request()['error_code'],-2700)
+        self.assertEqual(launched.call_count,1)
+        self.assertEqual(pending_requests('notes')[0]['state'],'response_available')
+    def test_legacy_request_metadata_remains_visible(self):
+        root=self.root/'runtime'/'native-app';directory=root/'request-legacy'
+        directory.mkdir(parents=True,mode=0o700);root.chmod(0o700)
+        request=directory/'request.json';request.write_text(json.dumps({'service':'notes','action':'apply'}));request.chmod(0o600)
+        self.assertEqual(pending_requests('notes')[0]['request_id'],'request-legacy')

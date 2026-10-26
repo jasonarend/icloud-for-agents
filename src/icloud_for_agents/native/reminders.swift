@@ -130,15 +130,22 @@ if req["service"] as? String == "notes" {
     let encoded = data.base64EncodedString()
     let entry = action == "apply" ? "applyNotes" : "readNotes"
     let bridge = "\nfunction run() { return " + entry + "(Application('Notes'), JSON.parse(ObjC.unwrap($.NSString.alloc.initWithDataEncoding($.NSData.alloc.initWithBase64EncodedStringOptions('" + encoded + "',0), $.NSUTF8StringEncoding)))); }"
-    let script = OSAScript(source: source + bridge, language: language)
-    var diagnostic: NSDictionary?
-    guard let output = script.executeAndReturnError(&diagnostic)?.stringValue,
-          let value = (try? JSONSerialization.jsonObject(with: Data(output.utf8))) as? [String: Any] else {
-        let code = diagnostic?[OSAScriptErrorNumberKey] as? Int ?? -1
-        if code == -1743 || code == -1744 { fail("permission_required") }
-        respond(["protocol_version":1,"error":"notes_operation_failed","error_code":code])
+    // Keep the application run loop available while OSAKit sends Apple events.
+    // A stalled script must not leave an indefinitely running helper behind.
+    _ = NSApplication.shared
+    DispatchQueue.global(qos: .userInitiated).async {
+        let script = OSAScript(source: source + bridge, language: language)
+        var diagnostic: NSDictionary?
+        guard let output = script.executeAndReturnError(&diagnostic)?.stringValue,
+              let value = (try? JSONSerialization.jsonObject(with: Data(output.utf8))) as? [String: Any] else {
+            let code = diagnostic?[OSAScriptErrorNumberKey] as? Int ?? -1
+            if code == -1743 || code == -1744 { fail("permission_required") }
+            respond(["protocol_version":1,"error":"notes_operation_failed","error_code":code])
+        }
+        respond(value)
     }
-    respond(value)
+    RunLoop.current.run(until: Date(timeIntervalSinceNow: 20))
+    fail(action == "apply" ? "mutation_failed_or_uncertain" : "notes_read_timeout")
 }
 responseRequestID = req["request_id"] as? String
 // This operator-only action is deliberately absent from the MCP read bridge.

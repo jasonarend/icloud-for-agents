@@ -9,10 +9,12 @@ FIXTURE=r'''
 const folder={id:()=> 'folder',name:()=> 'Existing',container:()=>({id:()=> 'selected'}),shared:()=>false,folders:()=>[]};
 const roots=()=>[folder];
 roots.push=f=>{if(f.name()!=='New folder')throw Error('unexpected_folder');};
-const saved=[];
-folder.notes={id:()=>saved.slice(),push:n=>{
+let makeAmbiguous=false;
+const saved=['temporary-old'];
+folder.notes={id:()=>saved.slice(),byId:id=>({name:()=>(id==='new-note' || id==='other-new')?"'); Application('Mail'); //":'Old draft'}),push:n=>{
  if(n.body()!=="<div>&#39;); Application(&#39;Mail&#39;); //</div><div>Body</div>")throw Error('unexpected_body');
- saved.push('new-note');
+ saved.splice(0,saved.length,'permanent-old','new-note');
+ if(makeAmbiguous)saved.push('other-new');
 }};
 const account={id:()=> 'selected',folders:roots};
 const app={accounts:()=>[account],
@@ -29,31 +31,34 @@ def run():
 function run() {
  const data=$.NSFileHandle.fileHandleWithStandardInput.readDataToEndOfFile;
  const req=JSON.parse(ObjC.unwrap($.NSString.alloc.initWithDataEncoding(data,$.NSUTF8StringEncoding)));
+ makeAmbiguous=req.synthetic_ambiguous===true;
  return applyNotes(app,req);
 }
 ''')
-        def call(change,ids=None):
+        def call(change,ids=None,ambiguous=False):
             return subprocess.run(['/usr/bin/osascript','-l','JavaScript',str(script)],
-                input=json.dumps({'protocol_version':1,'action':'apply','source_ids':ids or ['selected'],'change':change}),
+                input=json.dumps({'protocol_version':1,'action':'apply','source_ids':ids or ['selected'],'change':change,'synthetic_ambiguous':ambiguous}),
                 capture_output=True,text=True,timeout=10)
         note={'operation':'create_note','source_id':'selected','folder_id':'folder',
               'fields':{'title':"'); Application('Mail'); //",'html':'<div>Body</div>'}}
         response=call(note);assert response.returncode==0,response.stderr
         assert json.loads(response.stdout)['result']['id']=='new-note'
+        ambiguous=call(note,ambiguous=True)
+        assert json.loads(ambiguous.stdout)['category']=='created_identity_uncertain'
         folder={'operation':'create_folder','source_id':'selected','fields':{'title':'New folder'}}
         response=call(folder);assert response.returncode==0,response.stderr
         assert json.loads(response.stdout)['result']['id']=='new-folder'
         response=call(dict(note,source_id='other'))
-        assert response.returncode!=0 and 'unsupported_operation' in response.stderr
+        assert response.returncode==0 and json.loads(response.stdout)['category']=='unsupported_operation'
         response=call(dict(note,folder_id='missing'))
-        assert response.returncode!=0 and 'not_found_in_scope' in response.stderr
+        assert response.returncode==0 and json.loads(response.stdout)['category']=='not_found_in_scope'
         response=call(dict(note,operation='arbitrary_script'))
-        assert response.returncode!=0 and 'unsupported_operation' in response.stderr
+        assert response.returncode==0 and json.loads(response.stdout)['category']=='unsupported_operation'
         response=call(dict(folder,fields={'title':'Existing'}))
-        assert response.returncode!=0 and 'duplicate_folder' in response.stderr
+        assert response.returncode==0 and json.loads(response.stdout)['category']=='duplicate_folder'
     return {'status':'passed','synthetic_only':True,'native_app_acceptance':False,
             'contract_cases':['create_note','create_folder','title_is_data','source_scope',
-                              'unknown_folder','unknown_operation','duplicate_folder']}
+                              'unknown_folder','unknown_operation','duplicate_folder','unrelated_temporary_identity_transition']}
 
 
 if __name__=='__main__':

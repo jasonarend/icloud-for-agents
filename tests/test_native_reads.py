@@ -105,3 +105,10 @@ class NativeReadTests(unittest.TestCase):
                        {'notes':{'arbitrary_script':'x'}}, {'notes':{'helper_path':'relative'}},
                        {'reminders':{'helper_path':'relative'}}, {'notes':{'access_mode':'all'}}, []):
             with self.subTest(config=config), self.assertRaises(ValueError): validate_config(config)
+
+    def test_implicit_page_defaults_are_sent_to_fixed_protocol(self):
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps({'notes':{'source_ids':['selected']}})), patch('platform.system',return_value='Darwin'), patch.object(NativeReader,'_dispatch',return_value={'items':[]}) as dispatch:
+            NativeReader('notes').read('query',folder_id='folder')
+            request=dispatch.call_args.args[0]
+            self.assertEqual((request['limit'],request['offset']),(50,0))
+
