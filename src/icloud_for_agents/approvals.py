@@ -23,6 +23,9 @@ import uuid
 from .core import SafetyError, canonical, digest
 
 
+PLAN_KINDS = frozenset({"trash", "send", "calendar_change", "contact_change", "notes_change", "reminders_change"})
+
+
 def runtime_root():
     configured = os.environ.get("ICLOUD_RUNTIME_ROOT")
     if configured is not None:
@@ -90,7 +93,7 @@ class PlanStore:
         return json.loads(raw)
 
     def prepare(self, kind, payload):
-        if kind not in {"trash", "send", "calendar_change", "contact_change"}:
+        if kind not in PLAN_KINDS:
             raise SafetyError("Unsupported approval proposal kind")
         plan_id = uuid.uuid4().hex
         plan = {"plan_id": plan_id, "kind": kind, "created": self.clock(),
@@ -104,7 +107,7 @@ class PlanStore:
 
     def proposal(self, plan_id):
         plan = self.read(self.path(plan_id, ".json"))
-        if plan.get("plan_id") != plan_id or plan.get("kind") not in {"trash", "send", "calendar_change", "contact_change"}:
+        if plan.get("plan_id") != plan_id or plan.get("kind") not in PLAN_KINDS:
             raise SafetyError("Invalid proposal")
         if self.clock() > plan["expires"]:
             raise SafetyError("Plan expired; prepare a new proposal")
@@ -272,7 +275,7 @@ def approve_interactively(store, plan_id):
     # Escape all controls in mail-derived text before rendering it in a terminal.
     review = json.dumps(plan, ensure_ascii=True, indent=2)
     fingerprint = digest(plan)
-    labels = {"trash": "TRASH", "send": "SEND", "calendar_change": "APPROVE CALENDAR", "contact_change": "APPROVE CONTACTS"}
+    labels = {"trash": "TRASH", "send": "SEND", "calendar_change": "APPROVE CALENDAR", "contact_change": "APPROVE CONTACTS", "notes_change": "APPROVE NOTES", "reminders_change": "APPROVE REMINDERS"}
     label = labels[plan["kind"]]
     if any(item.get("operation") == "delete" for item in plan["payload"].get("changes", [])):
         label = "IRREVERSIBLE DELETE " + label
