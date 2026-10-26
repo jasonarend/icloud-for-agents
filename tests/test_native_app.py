@@ -119,3 +119,22 @@ class NativeApplicationTests(unittest.TestCase):
             plist=self.bundle/'Contents/Info.plist';info=plistlib.loads(plist.read_bytes());info['CFBundleVersion']='changed'
             plist.write_bytes(plistlib.dumps(info))
             self.assertNotEqual(before,NotesCreateAdapter().backend_id)
+
+    def test_content_launches_only_the_fixed_notes_target_before_helper(self):
+        calls=[]
+        def launch(command,**kwargs):
+            calls.append(command)
+            if len(calls)==1:
+                self.assertEqual(command,['/usr/bin/open','-g','-a','/System/Applications/Notes.app'])
+                return SimpleNamespace(returncode=0)
+            directory=Path(command[-1]);result=directory/'result.json'
+            result.write_text(json.dumps({'protocol_version':1,'request_id':directory.name,'folder':{'id':'synthetic'}}));result.chmod(0o600)
+            return SimpleNamespace(returncode=0)
+        with patch('subprocess.run',side_effect=launch):
+            response=application_request(self.helper,{'protocol_version':1,'service':'notes','action':'folder_get','folder_id':'synthetic'})
+        self.assertEqual(response['folder']['id'],'synthetic');self.assertEqual(len(calls),2)
+    def test_target_launch_failure_never_launches_mutation_helper(self):
+        with patch('subprocess.run',return_value=SimpleNamespace(returncode=1)) as launch:
+            with self.assertRaises(SafetyError):application_request(self.helper,{'protocol_version':1,'service':'notes','action':'apply'})
+        self.assertEqual(launch.call_count,1)
+        self.assertEqual(launch.call_args.args[0],['/usr/bin/open','-g','-a','/System/Applications/Notes.app'])

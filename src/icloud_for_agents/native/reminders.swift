@@ -6,6 +6,7 @@ import OSAKit
 import ApplicationServices
 import Darwin
 import AppKit
+import Carbon
 
 let ipcDirectory: URL? = {
     guard CommandLine.arguments.count > 1 else { return nil }
@@ -43,20 +44,33 @@ func requestData() -> Data {
     let stream = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
     return stream.readData(ofLength: 65537)
 }
+var notesEventSendCount=0
+let notesSendWithoutConsent: OSASendUPP = { event,reply,mode,priority,ticks,idle,filter,refCon in
+    notesEventSendCount+=1
+    let bounded:Int32 = ticks<=0 ? 300 : min(ticks,300)
+    return OSErr(truncatingIfNeeded:AESendMessage(event,reply,mode | AESendMode(kAEDoNotPromptForUserConsent),Int(bounded)))
+}
+func notesScript(_ source:String)->OSAScript? {
+    guard let language=OSALanguage(forName:"JavaScript") else { return nil }
+    let instance=OSALanguageInstance(language:language)
+    guard OSASetSendProc(instance.componentInstance,notesSendWithoutConsent,nil)==noErr else { return nil }
+    return OSAScript(source:source,from:nil,languageInstance:instance,using:[])
+}
 func notesPermission(prompt: Bool) -> OSStatus {
     // AppleEvents.h requires this API off the main thread. Pump the main run loop
     // so an ordinary app-launched helper can participate in the system consent UI.
     if ipcDirectory != nil { _ = NSApplication.shared }
+    // Use the stable application address used by the Notes bridge. A PID
+    // descriptor can report procNotFound while the same Notes process is alive.
+    // Check running state without launching Notes or requesting consent.
+    guard NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.Notes").contains(where: { !$0.isTerminated }) else { return -600 }
     let completion = DispatchSemaphore(value: 0)
     let lock = NSLock()
     var result: OSStatus = -1712
     DispatchQueue.global(qos: .userInitiated).async {
         let code: OSStatus
-        if let notes = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.Notes").first {
-            // The permission API explicitly requires an already-running target.
-            let target = NSAppleEventDescriptor(processIdentifier: notes.processIdentifier)
-            code = AEDeterminePermissionToAutomateTarget(target.aeDesc, typeWildCard, typeWildCard, prompt)
-        } else { code = -600 }
+        let target = NSAppleEventDescriptor(bundleIdentifier: "com.apple.Notes")
+        code = AEDeterminePermissionToAutomateTarget(target.aeDesc, typeWildCard, typeWildCard, prompt)
         lock.lock(); result = code; lock.unlock()
         completion.signal()
     }
@@ -101,13 +115,13 @@ if service == "notes" {
         // enforcement. Does not inspect note bodies, alter policy or approve consent.
         _ = NSApplication.shared
         DispatchQueue.global(qos: .userInitiated).async {
-            let source = "JSON.stringify({account_count:Application('Notes').accounts().length})"
-            let script = OSAScript(source: source, language: OSALanguage(forName: "JavaScript"))
+            let source = "JSON.stringify({account_count:Application('com.apple.Notes').accounts().length})"
+            guard let script = notesScript(source) else { fail("notes_bridge_unavailable") }
             var error: NSDictionary?
             if let text = script.executeAndReturnError(&error)?.stringValue,
                let value = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] {
                 respond(["protocol_version":1,"read_probe_succeeded":true,"account_count":value["account_count"] ?? 0,
-                         "application_writes_enabled":false])
+                         "application_writes_enabled":false,"nonprompting_event_count":notesEventSendCount])
             }
             respond(["protocol_version":1,"read_probe_succeeded":false,
                      "error_code":error?[OSAScriptErrorNumberKey] as? Int ?? -1,"application_writes_enabled":false])
@@ -115,28 +129,44 @@ if service == "notes" {
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 60))
         fail("read_probe_timeout")
     }
-    if action == "status" || action == "request_access" {
-        let result = notesPermission(prompt: action == "request_access")
+    if action == "status" {
+        guard NSRunningApplication.runningApplications(withBundleIdentifier:"com.apple.Notes").contains(where: { !$0.isTerminated }) else {
+            respond(["protocol_version":1,"service":"notes","permission_status":-600,"permission_state":"target_not_running","permission_granted":false,"application_writes_enabled":false])
+        }
+        // A fixed application-version read proves actual event access without
+        // reading note/account content or using the blocking preflight API.
+        _ = NSApplication.shared
+        DispatchQueue.global(qos:.userInitiated).async {
+            guard let script=notesScript("Application('com.apple.Notes').version()") else { fail("notes_bridge_unavailable") }
+            var error:NSDictionary?
+            let output=script.executeAndReturnError(&error)
+            let code:OSStatus = output?.stringValue?.isEmpty == false && notesEventSendCount>0 ? noErr : OSStatus(error?[OSAScriptErrorNumberKey] as? Int ?? -1)
+            let state = code == noErr ? "granted" : code == -1743 ? "denied" : code == -1744 ? "requires_consent" : code == -600 ? "target_not_running" : "unknown"
+            respond(["protocol_version":1,"service":"notes","permission_status":code,"permission_state":state,"permission_granted":code==noErr,
+                     "application_writes_enabled":false,"nonprompting_event_count":notesEventSendCount,"permission_method":"nonprompting_application_metadata_event"])
+        }
+        RunLoop.current.run(until:Date(timeIntervalSinceNow:8))
+        respond(["protocol_version":1,"service":"notes","permission_status":-1712,"permission_state":"unknown_timeout","permission_granted":false,"application_writes_enabled":false])
+    }
+    if action == "request_access" {
+        let result = notesPermission(prompt: true)
         let state = result == noErr ? "granted" : result == -1743 ? "denied" : result == -1744 ? "requires_consent" : result == -600 ? "target_not_running" : result == -1712 ? "unknown_timeout" : "unknown"
         respond(["protocol_version": 1, "service": "notes", "permission_status": result, "permission_state": state,
                  "permission_granted": result == noErr, "application_writes_enabled": false])
     }
-    let access = notesPermission(prompt: false)
-    if access == -600 { fail("notes_not_running") }
-    if access == -1712 { fail("permission_check_timed_out") }
-    guard access == noErr else { fail("permission_required") }
+    // Every actual event uses the fixed nonprompting sender below. macOS checks
+    // current permission on each send; no cached grant or preflight fallback.
     guard let url = Bundle.main.url(forResource: action == "apply" ? "notes-write" : "notes", withExtension: "js"),
-          let source = try? String(contentsOf: url, encoding: .utf8),
-          let language = OSALanguage(forName: "JavaScript") else { fail("notes_bridge_unavailable") }
+          let source = try? String(contentsOf: url, encoding: .utf8) else { fail("notes_bridge_unavailable") }
     // Only base64 request data is inserted; caller text is never executable source.
     let encoded = data.base64EncodedString()
     let entry = action == "apply" ? "applyNotes" : "readNotes"
-    let bridge = "\nfunction run() { return " + entry + "(Application('Notes'), JSON.parse(ObjC.unwrap($.NSString.alloc.initWithDataEncoding($.NSData.alloc.initWithBase64EncodedStringOptions('" + encoded + "',0), $.NSUTF8StringEncoding)))); }"
+    let bridge = "\nfunction run() { return " + entry + "(Application('com.apple.Notes'), JSON.parse(ObjC.unwrap($.NSString.alloc.initWithDataEncoding($.NSData.alloc.initWithBase64EncodedStringOptions('" + encoded + "',0), $.NSUTF8StringEncoding)))); }"
     // Keep the application run loop available while OSAKit sends Apple events.
     // A stalled script must not leave an indefinitely running helper behind.
     _ = NSApplication.shared
     DispatchQueue.global(qos: .userInitiated).async {
-        let script = OSAScript(source: source + bridge, language: language)
+        guard let script = notesScript(source + bridge) else { fail("notes_bridge_unavailable") }
         var diagnostic: NSDictionary?
         if action=="apply" { mutationDispatched=true }
         guard let output = script.executeAndReturnError(&diagnostic)?.stringValue,
@@ -145,7 +175,8 @@ if service == "notes" {
             if code == -1743 || code == -1744 { fail("permission_required") }
             respond(["protocol_version":1,"error":"notes_operation_failed","error_code":code])
         }
-        respond(value)
+        var result=value;result["nonprompting_event_count"]=notesEventSendCount
+        respond(result)
     }
     RunLoop.current.run(until: Date(timeIntervalSinceNow: 20))
     fail(action == "apply" ? "mutation_failed_or_uncertain" : "notes_read_timeout")

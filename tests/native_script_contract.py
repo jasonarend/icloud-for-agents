@@ -21,12 +21,15 @@ const fixtureNotes = [
 const notesCollection = ()=>fixtureNotes;
 notesCollection.id=()=>fixtureNotes.map(n=>n.id());
 notesCollection.byId=id=>fixtureNotes.find(n=>n.id()===id);
-const child = {id:()=> 'folder-child',name:()=> 'Child',container:()=>({id:()=> 'folder-1'}),folders:()=>[],notes:notesCollection};
-const parent = {id:()=> 'folder-1',name:()=> 'Synthetic',container:()=>({id:()=> 'selected'}),folders:()=>[child],notes:notesCollection};
+let fixtureNoWalk=false;
+const child = {shared:()=>false,id:()=> 'folder-child',name:()=> 'Child',container:()=>({id:()=> 'folder-1'}),folders:()=>[],notes:notesCollection};
+const parent = {shared:()=>false,id:()=> 'folder-1',name:()=> 'Synthetic',container:()=>({id:()=> 'selected'}),folders:()=>[child],notes:notesCollection};
 const unselected = {id:()=> 'unselected',name:()=> 'Other',folders:()=> {throw Error('unselected_account_read');}};
+const foreignFolder={id:()=> 'foreign-folder',container:()=>({id:()=> 'unselected'}),name:()=>{throw Error('foreign_metadata_read');}};
+const cycleFolder={id:()=> 'cycle-folder',container:()=>({id:()=> 'cycle-folder'})};
 const fixtureApplication = name=>{
  if(name!=='Notes')throw Error('unexpected_app');
- return {accounts:()=>[{id:()=> 'selected',name:()=> 'Synthetic account',folders:()=>[parent,child]},unselected]};
+ return {folders:{byId:id=>{const f=[parent,child,foreignFolder,cycleFolder].find(f=>f.id()===id);if(!f)throw Error('not_found_in_scope');return f;}},accounts:()=>[{id:()=> 'selected',name:()=> 'Synthetic account',folders:()=>{if(fixtureNoWalk)throw Error('unrelated_folder_walk');return [parent,child];}},unselected]};
 };
 '''
 
@@ -34,7 +37,7 @@ const fixtureApplication = name=>{
 def run():
     source = (ROOT/'src/icloud_for_agents/native/notes.js').read_text()
     with tempfile.TemporaryDirectory(prefix='icloud-native-fixtures-') as directory:
-        script=Path(directory)/'notes-fixture.js';script.write_text(FIXTURE+'\n'+source+"\nfunction run() { return readNotes(fixtureApplication('Notes'), readRequest()); }\n")
+        script=Path(directory)/'notes-fixture.js';script.write_text(FIXTURE+'\n'+source+"\nfunction run() { const req=readRequest();fixtureNoWalk=req.synthetic_no_walk===true;return readNotes(fixtureApplication('Notes'),req); }\n")
         def call(action, **fields):
             request={'protocol_version':1,'action':action,'source_ids':['selected'],**fields}
             process=subprocess.run(['/usr/bin/osascript','-l','JavaScript',str(script)],
@@ -62,6 +65,9 @@ print(result)
         assert call('contains',folder_id='folder-child',id='note-1')['exists'] is False
         child_page=call('query',folder_id='folder-child',limit=1,offset=0)
         assert child_page['items']==[] and child_page['next_offset']==1 and child_page['done'] is False
+        exact=call('folder_get',folder_id='folder-child',synthetic_no_walk=True)['folder']
+        assert exact['parent_id']=='folder-1' and exact['source_id']=='selected'
+        assert call('get',folder_id='folder-1',id='note-1',synthetic_no_walk=True)['item']['id']=='note-1'
         folders=call('folders')['folders']
         assert len(folders)==2 and len({f['id'] for f in folders})==2,folders
         assert next(f for f in folders if f['id']=='folder-child')['parent_id']=='folder-1'
@@ -98,7 +104,7 @@ print(result)
         assert alias.returncode!=0 and 'not_found_in_scope' in alias.stderr
     return {'status':'passed','synthetic_only':True,'native_app_acceptance':False,
             'contract_cases':['nested_folder_deduplication','account_scope','bounded_pages',
-                              'exact_plain_note','locked_content_not_read','unknown_folder_refused','osakit_embedding','scoped_plaintext_search','locked_search_exclusion','attachment_metadata_only','nullable_native_attachment_name','exact_physical_container','empty_filtered_page_progression']}
+                              'exact_plain_note','locked_content_not_read','unknown_folder_refused','osakit_embedding','scoped_plaintext_search','locked_search_exclusion','attachment_metadata_only','nullable_native_attachment_name','exact_physical_container','exact_folder_reads_skip_unrelated_tree','empty_filtered_page_progression']}
 
 
 if __name__=='__main__':

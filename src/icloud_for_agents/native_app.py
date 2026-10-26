@@ -81,6 +81,13 @@ def application_request(helper, request, timeout=25):
         stream.write(encoded);stream.flush();os.fsync(stream.fileno())
     env={k:os.environ[k] for k in ('HOME','PATH','TMPDIR','LANG') if k in os.environ}
     try:
+        if request.get('service')=='notes' and request.get('action') in {'sources','folders','folder_get','query','get','search','attachments','diagnose_note','contains','apply','request_access','diagnose_read_access'}:
+            # Normal application launch, not Automation consent or a fallback
+            # host. Status stays nonlaunching. Wake the fixed target before the
+            # helper's already-running-target permission preflight.
+            target=subprocess.run(['/usr/bin/open','-g','-a','/System/Applications/Notes.app'],
+                stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=10,env=env)
+            if target.returncode:raise SafetyError('Notes application launch failed before helper dispatch; inspect pending request status')
         process=subprocess.run(['/usr/bin/open','-W','-n',str(bundle), '--args','--ipc-directory',str(directory)],
             stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=timeout,env=env)
         if process.returncode:raise SafetyError('Native application launch failed; inspect pending request status')

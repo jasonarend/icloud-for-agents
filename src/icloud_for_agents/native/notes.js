@@ -8,7 +8,7 @@ function readRequest() {
     if (req.protocol_version !== 1 || !['sources','folders','folder_get','query','get','search','attachments','diagnose_note','contains'].includes(req.action)) throw Error('unsupported_action');
     return req;
 }
-function run() { const req=readRequest(); return readNotes(Application('Notes'), req); }
+function run() { const req=readRequest(); return readNotes(Application('com.apple.Notes'), req); }
 function readNotes(app, req) {
     const accounts = app.accounts();
     if (req.action === 'sources') return JSON.stringify({protocol_version:1, sources: accounts.map(a => ({id:a.id(), title:a.name()}))});
@@ -26,7 +26,23 @@ function readNotes(app, req) {
             folders.push({object:f, source:source}); walk(f,source,depth+1);
         });
     }
-    selected.forEach(a => walk(a,a.id(),0));
+    if(req.folder_id && !['folders','search'].includes(req.action)) {
+        // Exact object reads need only the selected folder and its ancestry.
+        // Walking every folder before each metadata check multiplies Apple events
+        // for large accounts and can exhaust the one-shot helper deadline.
+        const target=app.folders.byId(req.folder_id);
+        if(target.id()!==req.folder_id)throw Error('not_found_in_scope');
+        let current=target, source=null;const ancestors=new Set();
+        for(let depth=0;depth<32;depth++) {
+            const id=current.id();if(ancestors.has(id))throw Error('folder_limit');ancestors.add(id);
+            const parent=current.container().id();
+            if(req.source_ids.includes(parent)) {source=parent;break;}
+            if(accounts.some(a=>a.id()===parent))throw Error('not_found_in_scope');
+            current=app.folders.byId(parent);
+        }
+        if(source===null)throw Error('not_found_in_scope');
+        folders.push({object:target,source:source});
+    } else selected.forEach(a => walk(a,a.id(),0));
     if (req.action==='search') {
         if(typeof req.text!=='string' || req.text.length<1 || req.text.length>1000 || !Number.isInteger(req.limit) || req.limit<1 || req.limit>100 || !Number.isInteger(req.offset) || req.offset<0 || req.offset>100000)throw Error('invalid_page');
         const refs=[];
