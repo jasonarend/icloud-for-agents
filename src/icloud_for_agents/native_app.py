@@ -5,6 +5,7 @@ remote approval is provided. This is a same-owner local helper transport.
 """
 import json
 import hashlib
+import plistlib
 import os
 from pathlib import Path
 import stat
@@ -14,6 +15,34 @@ import shutil
 
 from .approvals import PlanStore, runtime_root
 from .core import SafetyError
+
+
+def _owned_asset(path,*,directory=False,limit=None):
+    try:info=path.lstat()
+    except OSError:raise SafetyError('Native app assets are unavailable') from None
+    valid_type=stat.S_ISDIR(info.st_mode) if directory else stat.S_ISREG(info.st_mode)
+    if not valid_type or info.st_uid!=os.getuid() or info.st_mode & 0o022 or (limit is not None and info.st_size>limit):
+        raise SafetyError('Native app assets must be owned, regular and not writable by other users')
+
+
+def validate_bundle(helper):
+    """Validate the entrypoint and bundled scripts, not just one executable file."""
+    helper=Path(helper);bundle=helper.parent.parent.parent
+    if bundle.suffix!='.app':raise SafetyError('Notes requires the built native helper app bundle')
+    for directory in (bundle,bundle/'Contents',helper.parent,bundle/'Contents/Resources'):
+        _owned_asset(directory,directory=True)
+    _owned_asset(helper,limit=50_000_000)
+    if not os.access(helper,os.X_OK):raise SafetyError('Native helper must be executable')
+    plist=bundle/'Contents/Info.plist';_owned_asset(plist,limit=65536)
+    for name in ('notes.js','notes-write.js'):_owned_asset(bundle/'Contents/Resources'/name,limit=1_000_000)
+    try:
+        info=plistlib.loads(plist.read_bytes())
+        if (not isinstance(info,dict) or info.get('CFBundleExecutable')!=helper.name
+                or info.get('CFBundleIdentifier')!='com.jasonarend.icloud-for-agents.native'
+                or info.get('CFBundlePackageType')!='APPL'):raise ValueError()
+    except (OSError,ValueError,TypeError,plistlib.InvalidFileException):
+        raise SafetyError('Native app entrypoint or identity does not match the configured helper') from None
+    return bundle
 
 
 def exchange_base():
@@ -30,13 +59,7 @@ def exchange_root():
 
 def application_request(helper, request, timeout=25):
     helper=Path(helper)
-    if helper.is_symlink() or not helper.is_file():raise SafetyError('Native helper must be a regular executable')
-    info=helper.stat()
-    if info.st_uid!=os.getuid() or info.st_mode & 0o022 or not os.access(helper,os.X_OK):
-        raise SafetyError('Native helper must be owner-controlled and executable')
-    bundle=helper.parent.parent.parent
-    if bundle.suffix!='.app' or not (bundle/'Contents/Info.plist').is_file():
-        raise SafetyError('Notes application transport requires a built helper app bundle')
+    bundle=validate_bundle(helper)
     runtime=runtime_root()
     PlanStore(runtime).ready()
     PlanStore(exchange_base()).ready()

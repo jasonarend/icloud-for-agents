@@ -1,6 +1,7 @@
 """Private one-shot application IPC, with no real subprocess or native app access."""
 import json
 import os
+import plistlib
 from pathlib import Path
 from types import SimpleNamespace
 import tempfile
@@ -16,7 +17,10 @@ class NativeApplicationTests(unittest.TestCase):
         self.root=Path(self.tmp.name);self.bundle=self.root/'Helper.app'
         self.helper=self.bundle/'Contents/MacOS/icloud-agents-native'
         self.helper.parent.mkdir(parents=True);self.helper.write_text('synthetic executable');self.helper.chmod(0o700)
-        (self.bundle/'Contents/Info.plist').write_text('synthetic bundle')
+        (self.bundle/'Contents/Info.plist').write_bytes(plistlib.dumps({'CFBundleExecutable':self.helper.name,
+            'CFBundleIdentifier':'com.jasonarend.icloud-for-agents.native','CFBundlePackageType':'APPL'}))
+        resources=self.bundle/'Contents/Resources';resources.mkdir()
+        for name in ('notes.js','notes-write.js'):(resources/name).write_text('synthetic fixed script')
         context=patch('icloud_for_agents.native_app.runtime_root',return_value=self.root/'runtime')
         context.start();self.addCleanup(context.stop)
         base=patch('icloud_for_agents.native_app.exchange_base',return_value=self.root/'local-app-support')
@@ -91,3 +95,27 @@ class NativeApplicationTests(unittest.TestCase):
         directory.mkdir(parents=True,mode=0o700);root.chmod(0o700)
         request=directory/'request.json';request.write_text(json.dumps({'service':'notes','action':'apply'}));request.chmod(0o600)
         self.assertEqual(pending_requests('notes')[0]['request_id'],'request-legacy')
+
+    def test_bundle_entrypoint_cannot_redirect_the_validated_executable(self):
+        plist=self.bundle/'Contents/Info.plist';info=plistlib.loads(plist.read_bytes());info['CFBundleExecutable']='other-program'
+        plist.write_bytes(plistlib.dumps(info))
+        with patch('subprocess.run',side_effect=AssertionError('No launch')),self.assertRaises(SafetyError):self.request()
+    def test_other_app_identity_cannot_be_used_as_the_helper(self):
+        plist=self.bundle/'Contents/Info.plist';info=plistlib.loads(plist.read_bytes());info['CFBundleIdentifier']='com.apple.Notes'
+        plist.write_bytes(plistlib.dumps(info))
+        with patch('subprocess.run',side_effect=AssertionError('No launch')),self.assertRaises(SafetyError):self.request()
+    def test_writable_or_symlinked_resources_and_bundle_are_refused(self):
+        resource=self.bundle/'Contents/Resources/notes.js';resource.chmod(0o666)
+        with patch('subprocess.run',side_effect=AssertionError('No launch')),self.assertRaises(SafetyError):self.request()
+        resource.chmod(0o644);resource.unlink();target=self.root/'other.js';target.write_text('not the bundle resource');resource.symlink_to(target)
+        with patch('subprocess.run',side_effect=AssertionError('No launch')),self.assertRaises(SafetyError):self.request()
+        resource.unlink();resource.write_text('restored');self.bundle.chmod(0o777)
+        with patch('subprocess.run',side_effect=AssertionError('No launch')),self.assertRaises(SafetyError):self.request()
+
+    def test_approval_fingerprint_includes_bundle_metadata(self):
+        from icloud_for_agents.native_notes import NotesCreateAdapter
+        with patch.dict(os.environ,{'ICLOUD_ENABLE_NOTES':'1','ICLOUD_NATIVE_CONFIG':json.dumps({'notes':{'helper_path':str(self.helper)}})}):
+            before=NotesCreateAdapter().backend_id
+            plist=self.bundle/'Contents/Info.plist';info=plistlib.loads(plist.read_bytes());info['CFBundleVersion']='changed'
+            plist.write_bytes(plistlib.dumps(info))
+            self.assertNotEqual(before,NotesCreateAdapter().backend_id)

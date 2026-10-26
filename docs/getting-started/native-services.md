@@ -8,7 +8,7 @@ Reminders exposes OS permission status, source discovery, selected-source list d
 
 **Owner-controlled setup**
 
-An authorized agent can build the repository-owned helper with `scripts/build-native-helper.py`, using a new output directory for each reviewed build. Swift and codesign are macOS build-time tools; neither a separate MCP server nor an additional Python runtime dependency is required. The resulting app is ad-hoc signed for development. A release still needs its own signing/distribution and upgrade-permission continuity evidence.
+An authorized agent can build the repository-owned helper with `scripts/build-native-helper.py`, using a new output directory for each reviewed build. Swift and codesign are macOS build-time tools; neither a separate MCP server nor an additional Python runtime dependency is required. The resulting app is ad-hoc signed for development. Notes transport validates the owned app directories, entrypoint, declared bundle identity and bundled fixed scripts; symlinked or group/world-writable assets are refused. Approval fingerprints include the executable, bundle metadata and scripts. A release still needs its own signing/distribution and upgrade-permission continuity evidence.
 
 After the owner selects a service, private settings accept `native_services` alongside the optional `notes` and `reminders` service booleans. For example, these nonsecret fields illustrate the schema; they do not enable a live installation:
 
