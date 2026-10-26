@@ -15,6 +15,7 @@ const moving={id:()=> 'move-id',container:()=>({id:()=>moved?'destination':'fold
  body:()=> '<div>Rich move fixture</div><object><table><tr><td>Cell</td></tr></table></object>',
  attachments:()=>[{id:()=> 'asset',name:()=>namelessAttachment?null:'synthetic.pdf',contentIdentifier:()=> 'cid:asset'}],
  move:options=>{if(options.to.id()!=='destination')throw Error('wrong_destination');moved=true;if(moveFails)throw Error('failed_after_move');}};
+const children=()=>[];children.push=f=>{if(f.name()!=='New child')throw Error('wrong_child');};folder.folders=children;
 const roots=()=>[folder,destination,parent];
 roots.push=f=>{if(f.name()!=='New folder')throw Error('unexpected_folder');};
 let makeAmbiguous=false, makeConstructorFail=false, makeEditFail=false;
@@ -106,6 +107,8 @@ function run() {
         uncertain=json.loads(call(move,move_fail=True).stdout)
         assert uncertain['mutation_dispatched'] is True and 'result' not in uncertain
         folder={'operation':'create_folder','source_id':'selected','fields':{'title':'New folder'}}
+        nested=dict(folder,parent_folder_id='folder',fields={'title':'New child'})
+        assert json.loads(call(nested).stdout)['result']['parent_id']=='folder'
         response=call(folder);assert response.returncode==0,response.stderr
         assert json.loads(response.stdout)['result']['id']=='new-folder'
         response=call(dict(note,source_id='other'))
@@ -119,7 +122,7 @@ function run() {
         assert response.returncode==0 and json.loads(response.stdout)['category']=='duplicate_folder'
     return {'status':'passed','synthetic_only':True,'native_app_acceptance':False,
             'contract_cases':['create_note','create_folder','title_is_data','source_scope',
-                              'unknown_folder','unknown_operation','duplicate_folder','unrelated_temporary_identity_transition','ambiguous_creation_identity','exact_title_only_repair','changed_repair_snapshot_refused','existing_note_append_and_replace','changed_edit_snapshot_refused','dispatch_evidence_before_constructor_and_setter','validation_refusal_before_dispatch','native_move_with_attachment_inventory','shared_destination_refused','move_failure_after_effect_uncertain','shared_ancestor_refused','nullable_native_attachment_preserved']}
+                              'unknown_folder','unknown_operation','duplicate_folder','unrelated_temporary_identity_transition','ambiguous_creation_identity','exact_title_only_repair','changed_repair_snapshot_refused','existing_note_append_and_replace','changed_edit_snapshot_refused','dispatch_evidence_before_constructor_and_setter','validation_refusal_before_dispatch','native_move_with_attachment_inventory','shared_destination_refused','move_failure_after_effect_uncertain','shared_ancestor_refused','nullable_native_attachment_preserved','nested_private_folder_creation']}
 
 
 if __name__=='__main__':

@@ -33,13 +33,17 @@ function applyNotes(app, req) {
         throw Error('folder_limit');
     }
     if(item.operation==='create_folder') {
-        if(folders.some(f=>f.container().id()===account.id() && f.name()===fields.title))throw Error('duplicate_folder');
+        let parent=account;
+        if(item.parent_folder_id) {
+            const matching=folders.filter(f=>f.id()===item.parent_folder_id);
+            if(matching.length!==1)throw Error('not_found_in_scope');parent=matching[0];requirePrivateFolder(parent);
+        }
+        if(folders.some(f=>f.container().id()===parent.id() && f.name()===fields.title))throw Error('duplicate_folder');
         mutationDispatched=true;
         const folder=app.Folder({name:fields.title});
-        account.folders.push(folder);
-        return JSON.stringify({protocol_version:1,result:{id:folder.id(),source_id:item.source_id,saved_locally:true}});
+        parent.folders.push(folder);
+        return JSON.stringify({protocol_version:1,result:{id:folder.id(),source_id:item.source_id,parent_id:parent.id(),saved_locally:true}});
     }
-    stage='folder_lookup';
     const matches=folders.filter(f=>f.id()===item.folder_id);
     if(matches.length!==1)throw Error('not_found_in_scope');
     const folder=matches[0];

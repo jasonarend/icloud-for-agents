@@ -191,15 +191,16 @@ class NotesCreateAdapter:
         if isinstance(change,dict) and change.get('operation')=='move_note':return self.prepare_move(change)
         if isinstance(change,dict) and change.get('operation') in {'append_note','update_note'}:
             return self.prepare_existing(change)
-        if not isinstance(change,dict) or set(change)-{'operation','source_id','folder_id','fields'}:
+        if not isinstance(change,dict) or set(change)-{'operation','source_id','folder_id','parent_folder_id','fields'}:
             raise SafetyError('Unknown Notes change fields')
         operation=change.get('operation');source=change.get('source_id')
         if operation not in self.operations or source not in require_write('notes')['source_ids']:
             raise SafetyError('Unselected Notes operation/source')
         fields=change.get('fields')
+        if operation!='create_folder' and 'parent_folder_id' in change:raise SafetyError('Parent selection applies only to folder creation')
         if operation=='create_folder':
             if not isinstance(fields,dict) or set(fields)!={'title'} or 'folder_id' in change:
-                raise SafetyError('Root folder creation requires only a title')
+                raise SafetyError('Folder creation requires only a title and optional parent folder')
             prepared=prepare_content({'title':fields['title']})
             fields={'title':prepared['title']}
         else:
@@ -210,11 +211,15 @@ class NotesCreateAdapter:
               'fidelity_verified':True,'effects':{'sharing':'none','existing_content':'unchanged',
               'rich_native_features':'not certified by text readback'}}
         if operation=='create_note':item['folder_id']=change['folder_id']
+        if operation=='create_folder' and 'parent_folder_id' in change:
+            parent=change['parent_folder_id']
+            if not isinstance(parent,str) or not 1<=len(parent)<=1000 or parent==source:raise SafetyError('Use a real parent folder ID, or omit it for the source root')
+            item['parent_folder_id']=parent
         item['before']=self.snapshot(item)
         if operation=='create_note' and item['before'].get('shared'):
             raise SafetyError('Shared Notes writes need separate collaboration support')
         if operation=='create_folder' and item['before']['matching_titles']>0:
-            raise SafetyError('Folder title already exists in this account')
+            raise SafetyError('Folder title already exists under this parent')
         if len(json.dumps(item,ensure_ascii=False).encode())>60000:
             raise SafetyError('Prepared note exceeds native request limit')
         return item
@@ -223,9 +228,13 @@ class NotesCreateAdapter:
         if item['operation']=='move_note':return self.move_snapshot(item)
         if item['operation'] in {'append_note','update_note'}:return self.note_snapshot(item)
         if item['operation']=='create_folder':
-            folders=[f for f in self.folders() if f['source_id']==item['source_id'] and f['parent_id']==item['source_id']]
-            return {'source_id':item['source_id'],'membership_sha256':digest(sorted(folders,key=lambda f:f['id'])),
-                    'root_folder_count':len(folders),'matching_titles':sum(f['title']==item['fields']['title'] for f in folders)}
+            parent=item.get('parent_folder_id',item['source_id'])
+            parent_snapshot=self.private_folder(parent,item['source_id']) if 'parent_folder_id' in item else None
+            folders=[f for f in self.folders() if f['source_id']==item['source_id'] and f['parent_id']==parent]
+            result={'source_id':item['source_id'],'parent_id':parent,'membership_sha256':digest(sorted(folders,key=lambda f:f['id'])),
+                    'folder_count':len(folders),'matching_titles':sum(f['title']==item['fields']['title'] for f in folders)}
+            if parent_snapshot is not None:result['parent']=parent_snapshot
+            return result
         folder=self.private_folder(item['folder_id'],item['source_id'])
         return folder
 
@@ -240,7 +249,7 @@ class NotesCreateAdapter:
         if item['operation']=='move_note':return self.verify_move(item,outcome)
         if item['operation']=='create_folder':
             return any(f['id']==outcome['id'] and f['title']==item['fields']['title']
-                       and f['source_id']==item['source_id'] and f.get('parent_id')==item['source_id'] for f in self.folders())
+                       and f['source_id']==item['source_id'] and f.get('parent_id')==item.get('parent_folder_id',item['source_id']) for f in self.folders())
         if item['operation'] in {'append_note','update_note'} and outcome['id']!=item['id']:return False
         note=self.reader.read('get',folder_id=item['folder_id'],id=outcome['id'])['item']
         if (note.get('id')!=outcome['id'] or note.get('source_id')!=item['source_id'] or note.get('folder_id')!=item['folder_id']):return False

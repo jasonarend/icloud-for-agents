@@ -161,3 +161,24 @@ class NativeNotesTests(unittest.TestCase):
         self.reader.attachments=item['before']['attachments'];self.reader.note['created']='changed'
         self.assertFalse(self.adapter.verify(item,outcome))
         self.assertFalse(self.adapter.verify(item,dict(outcome,folder_id='folder')))
+
+    def test_nested_folder_creation_binds_private_parent_and_direct_siblings(self):
+        item=self.adapter.prepare({'operation':'create_folder','source_id':'selected','parent_folder_id':'folder','fields':{'title':'Synthetic'}})
+        self.assertEqual(item['before']['parent_id'],'folder')
+        self.assertEqual(item['before']['parent']['id'],'folder')
+        self.assertEqual(item['before']['matching_titles'],0)
+        self.reader.folder['shared']=True
+        with self.assertRaises(SafetyError):self.adapter.prepare({'operation':'create_folder','source_id':'selected','parent_folder_id':'folder','fields':{'title':'Child'}})
+    def test_parent_scope_is_not_an_ignored_field_or_source_alias(self):
+        with self.assertRaises(SafetyError):self.prepare(parent_folder_id='folder')
+        with self.assertRaises(SafetyError):self.adapter.prepare({'operation':'create_folder','source_id':'selected','parent_folder_id':'selected','fields':{'title':'Child'}})
+
+    def test_nested_folder_verification_requires_exact_source_and_physical_parent(self):
+        item=self.adapter.prepare({'operation':'create_folder','source_id':'selected','parent_folder_id':'folder','fields':{'title':'Child'}})
+        created={'id':'child','title':'Child','source_id':'selected','parent_id':'folder','shared':False}
+        self.adapter.folders=lambda:[dict(created)]
+        self.assertTrue(self.adapter.verify(item,{'id':'child','source_id':'selected'}))
+        created['parent_id']='selected'
+        self.assertFalse(self.adapter.verify(item,{'id':'child','source_id':'selected'}))
+        created.update(parent_id='folder',source_id='other')
+        self.assertFalse(self.adapter.verify(item,{'id':'child','source_id':'selected'}))
