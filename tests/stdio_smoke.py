@@ -65,6 +65,7 @@ def run(native=False):
                 if native:
                     expected |= {"notes_prepare_changes", "notes_execute_approved", "notes_plan_status", "notes_reconcile_created",
                                  "reminders_prepare_changes", "reminders_execute_approved", "reminders_plan_status", "reminders_reconcile_created",
+                                 "reminders_prepare_update_correction", "reminders_reconcile_correction",
                                  "notes_search", "notes_attachments", "notes_status", "notes_sources", "notes_folders", "notes_query", "notes_get",
                                  "notes_access_status", "reminders_access_status", "reminders_daily", "reminders_status", "reminders_sources", "reminders_lists", "reminders_query", "reminders_get"}
                 assert {tool["name"] for tool in tools} == expected

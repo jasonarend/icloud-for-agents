@@ -62,3 +62,34 @@ class NativeRemindersTests(unittest.TestCase):
         day={'year':2026,'month':10,'day':26}
         with self.assertRaises(SafetyError):self.prepare(fields={'title':'Task','due':day,'start':dict(day,day=27)})
         with self.assertRaises(SafetyError):self.prepare(fields={'title':'Task','due':day,'start':dict(day,hour=9,minute=0,timezone='UTC')})
+
+    def existing(self,operation='update_reminder',fields=None):
+        return self.adapter.prepare({'operation':operation,'source_id':'selected','id':'created',
+                                     'fields':fields or {'notes':'Edited body'}})
+    def test_partial_update_preserves_unrequested_values(self):
+        item=self.existing();self.assertEqual(item['fields'],{'notes':'Edited body'})
+        self.assertEqual(item['before']['item'],self.reader.item)
+        self.reader.item['notes']='Edited body'
+        self.assertTrue(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
+        self.reader.item['priority']=9
+        self.assertFalse(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
+    def test_existing_scope_recurrence_and_completion_are_explicit(self):
+        for value in (True,False):
+            item=self.existing('set_completed',{'completed':value})
+            self.reader.item['completed']=value
+            self.assertTrue(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
+        with self.assertRaises(SafetyError):self.existing('set_completed',{'completed':1})
+        self.reader.item['has_recurrence']=True
+        with self.assertRaises(SafetyError):self.existing('set_completed',{'completed':True})
+        self.reader.item['has_recurrence']=False;self.reader.item['source_id']='other'
+        with self.assertRaises(SafetyError):self.existing()
+    def test_move_requires_writable_same_source_destination(self):
+        with self.assertRaises(SafetyError):self.existing('move_reminder',{'list_id':'missing'})
+        item=self.existing('move_reminder',{'list_id':'list'})
+        self.assertEqual(item['before']['destination'],self.reader.list)
+        self.assertTrue(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
+    def test_partial_date_edit_is_checked_against_unchanged_other_date(self):
+        self.reader.item['start']={'year':2026,'month':10,'day':27,'date_only':True,'timezone':None}
+        with self.assertRaises(SafetyError):self.existing(fields={'due':{'year':2026,'month':10,'day':26}})
+        item=self.existing(fields={'due':None})
+        self.assertEqual(item['fields'],{'due':None})

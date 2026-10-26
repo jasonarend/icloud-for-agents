@@ -32,7 +32,7 @@ def validate_date(value):
 
 
 class RemindersCreateAdapter:
-    operations={'create_list','create_reminder'}
+    operations={'create_list','create_reminder','update_reminder','set_completed','move_reminder'}
     def __init__(self):self.reader=NativeReader('reminders')
     @property
     def backend_id(self):
@@ -50,7 +50,44 @@ class RemindersCreateAdapter:
             if type(next_offset) is not int or next_offset<=offset or next_offset>10000:
                 raise SafetyError('List discovery incomplete; no write')
             offset=next_offset
+    def prepare_existing(self,change):
+        allowed={'operation','source_id','id','fields'}
+        if set(change)-allowed or not isinstance(change.get('id'),str) or not change['id']:
+            raise SafetyError('Existing reminder changes require one exact ID')
+        operation=change['operation'];source=change.get('source_id');fields=change.get('fields')
+        if source not in require_write('reminders')['source_ids'] or not isinstance(fields,dict) or not fields:
+            raise SafetyError('Select an exact source and nonempty fields')
+        if operation=='set_completed':
+            if set(fields)!={'completed'} or type(fields['completed']) is not bool:
+                raise SafetyError('Use an explicit completion boolean')
+        elif operation=='move_reminder':
+            if set(fields)!={'list_id'} or not isinstance(fields['list_id'],str) or not fields['list_id']:
+                raise SafetyError('Select an exact destination list in the same source')
+        else:
+            if set(fields)-{'title','notes','priority','due','start'}:
+                raise SafetyError('Unsupported reminder update fields')
+            # Reuse creation validation without injecting defaults into the patch.
+            current=self.reader.read('get',id=change['id'])['item']
+            merged={key:current[key] for key in ('title','notes','priority')}
+            for key in ('due','start'):
+                value=current.get(key)
+                merged[key]=({k:v for k,v in value.items() if k in {'year','month','day','hour','minute','timezone'} and v is not None}
+                             if isinstance(value,dict) else None)
+            validated=self.prepare({'operation':'create_reminder','source_id':source,
+                'list_id':current['list_id'],'fields':{**merged,**fields}})['fields']
+            fields={key:validated[key] for key in fields}
+        item={'operation':operation,'source_id':source,'id':change['id'],'fields':dict(fields),
+              'fidelity_verified':True,'effects':{'existing_content':'only explicitly listed public EventKit fields change',
+              'native_metadata':'advanced native-field preservation requires live acceptance',
+              'notifications':'Apple controls sync and notification delivery'}}
+        item['before']=self.snapshot(item)
+        if item['before']['item'].get('has_recurrence'):
+            raise SafetyError('Recurring reminder edits require explicit series/occurrence semantics')
+        return item
+
     def prepare(self,change):
+        if isinstance(change,dict) and change.get('operation') in {'update_reminder','set_completed','move_reminder'}:
+            return self.prepare_existing(change)
         if not isinstance(change,dict) or set(change)-{'operation','source_id','list_id','fields'}:
             raise SafetyError('Unknown Reminders change fields')
         source=change.get('source_id');operation=change.get('operation');fields=change.get('fields')
@@ -86,6 +123,17 @@ class RemindersCreateAdapter:
         return item
     def snapshot(self,item):
         lists=[c for c in self.lists() if c['source_id']==item['source_id']]
+        if item['operation'] in {'update_reminder','set_completed','move_reminder'}:
+            reminder=self.reader.read('get',id=item['id'])['item']
+            if reminder.get('source_id')!=item['source_id']:raise SafetyError('Reminder belongs to another source')
+            current=next((c for c in lists if c['id']==reminder['list_id']),None)
+            if not current or not current.get('writable'):raise SafetyError('Reminder list is not writable')
+            result={'list':current,'item':reminder}
+            if item['operation']=='move_reminder':
+                destination=next((c for c in lists if c['id']==item['fields']['list_id']),None)
+                if not destination or not destination.get('writable'):raise SafetyError('Destination is absent, out of source scope or read-only')
+                result['destination']=destination
+            return result
         if item['operation']=='create_list':
             return {'source_id':item['source_id'],'membership_sha256':digest(sorted(lists,key=lambda c:c['id'])),
                     'list_count':len(lists),'matching_titles':sum(c['title']==item['fields']['title'] for c in lists)}
@@ -100,6 +148,15 @@ class RemindersCreateAdapter:
         if outcome.get('source_id')!=item['source_id'] or not isinstance(outcome.get('id'),str):return False
         if item['operation']=='create_list':return any(c['id']==outcome['id'] and c['title']==item['fields']['title'] and c['source_id']==item['source_id'] for c in self.lists())
         note=self.reader.read('get',id=outcome['id'])['item']
+        if item['operation'] in {'update_reminder','set_completed','move_reminder'}:
+            if outcome['id']!=item['id'] or note.get('source_id')!=item['source_id']:return False
+            expected=dict(item['before']['item']);expected.update(item['fields'])
+            for key in ('title','notes','priority','due','start','list_id','completed','url','has_recurrence','has_alarms'):
+                actual=note.get(key);wanted=expected.get(key)
+                if key in {'due','start'} and isinstance(wanted,dict):
+                    if not isinstance(actual,dict) or any(actual.get(k)!=v for k,v in wanted.items()):return False
+                elif actual!=wanted:return False
+            return True
         if note.get('source_id')!=item['source_id'] or note.get('list_id')!=item['list_id'] or note.get('completed') is not False:return False
         if any(note.get(k)!=item['fields'][k] for k in ('title','notes','priority')):return False
         for key in ('due','start'):

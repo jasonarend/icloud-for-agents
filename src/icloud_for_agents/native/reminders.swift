@@ -171,6 +171,55 @@ guard let sourceIDs = req["source_ids"] as? [String], !sourceIDs.isEmpty, source
 guard sourceIDs.allSatisfy({ id in store.sources.contains(where: { $0.sourceIdentifier == id }) }) else { fail("not_found_in_scope") }
 let lists = allLists.filter { sourceIDs.contains($0.source.sourceIdentifier) }
 if action == "apply" {
+    if let item = req["change"] as? [String: Any], let operation = item["operation"] as? String,
+       ["update_reminder", "set_completed", "move_reminder"].contains(operation) {
+        guard let sourceID = item["source_id"] as? String, sourceIDs.contains(sourceID),
+              let identifier = item["id"] as? String, let fields = item["fields"] as? [String: Any],
+              let before = item["before"] as? [String: Any], let previous = before["item"] as? [String: Any],
+              !lists.isEmpty else { fail("invalid_mutation") }
+        store.fetchReminders(matching: store.predicateForReminders(in: lists)) { reminders in
+            guard let reminders = reminders, reminders.count <= 100000,
+                  let reminder = reminders.first(where: { $0.calendarItemIdentifier == identifier }),
+                  reminder.calendar.source.sourceIdentifier == sourceID,
+                  reminder.calendar.allowsContentModifications else { fail("not_found_in_scope") }
+            guard NSDictionary(dictionary: object(reminder)).isEqual(to: previous), !reminder.hasRecurrenceRules else {
+                fail("snapshot_changed_or_recurrence_unsupported")
+            }
+            if operation == "set_completed" {
+                guard Set(fields.keys) == ["completed"], let completed = fields["completed"] as? Bool else { fail("invalid_fields") }
+                reminder.isCompleted = completed
+            } else if operation == "move_reminder" {
+                guard Set(fields.keys) == ["list_id"], let listID = fields["list_id"] as? String,
+                      let destination = lists.first(where: { $0.calendarIdentifier == listID && $0.source.sourceIdentifier == sourceID }),
+                      destination.allowsContentModifications else { fail("not_found_in_scope") }
+                reminder.calendar = destination
+            } else {
+                guard !fields.isEmpty, Set(fields.keys).isSubset(of: ["title", "notes", "priority", "due", "start"]) else { fail("invalid_fields") }
+                if let title = fields["title"] as? String { reminder.title = title }
+                if let notes = fields["notes"] as? String { reminder.notes = notes }
+                if let priority = fields["priority"] as? Int { reminder.priority = priority }
+                func patchDate(_ value: Any) -> DateComponents? {
+                    guard let data = value as? [String: Any] else { return nil }
+                    var result = DateComponents(); result.calendar = Calendar(identifier: .gregorian)
+                    result.year = data["year"] as? Int; result.month = data["month"] as? Int; result.day = data["day"] as? Int
+                    result.hour = data["hour"] as? Int; result.minute = data["minute"] as? Int
+                    if let zone = data["timezone"] as? String { result.timeZone = TimeZone(identifier: zone) }
+                    return result
+                }
+                // EventKit may synthesize start components when due changes.
+                // Restore the previously reviewed start unless explicitly patched.
+                let previousStart = reminder.startDateComponents
+                if let due = fields["due"] { reminder.dueDateComponents = patchDate(due) }
+                if let start = fields["start"] { reminder.startDateComponents = patchDate(start) }
+                else { reminder.startDateComponents = previousStart }
+            }
+            do { try store.save(reminder, commit: true) } catch { fail("mutation_failed_or_uncertain") }
+            respond(["protocol_version":1,"result":["id":reminder.calendarItemIdentifier,
+                "list_id":reminder.calendar.calendarIdentifier,"source_id":sourceID,"saved_locally":true]])
+        }
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 20))
+        fail("mutation_failed_or_uncertain")
+    }
     guard let item = req["change"] as? [String: Any], let operation = item["operation"] as? String,
           let sourceID = item["source_id"] as? String, sourceIDs.contains(sourceID),
           let fields = item["fields"] as? [String: Any], let title = fields["title"] as? String,

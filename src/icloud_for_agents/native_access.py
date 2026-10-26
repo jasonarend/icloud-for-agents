@@ -23,7 +23,7 @@ def access_status(name):
             'source_ids': config.get('source_ids', []),
             'scope_selected': bool(config.get('source_ids')),
             'os_permission': 'not_checked', 'writes_implemented': True,
-            'implemented_write_operations':(['create_note','create_folder'] if name=='notes' else ['create_list','create_reminder']),
+            'implemented_write_operations':(['create_note','create_folder'] if name=='notes' else ['create_list','create_reminder','update_reminder','set_completed','move_reminder']),
             'standing_grants_implemented': False,
             'read_actions': sorted(READ_ACTIONS[name])}
 

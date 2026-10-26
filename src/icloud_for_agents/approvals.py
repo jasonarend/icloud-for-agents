@@ -188,6 +188,36 @@ class PlanStore:
                         {"status":"reconciled_retry_verified", "retry_id":retry_id,
                          "retry_result_sha256":digest(result), "record_sha256":digest(record), "verification":verification})
 
+    def _native_correction_for(self, original_id, correction):
+        """Exact reserved correction of one known-ID reminder update, never a create retry."""
+        path=self.path(original_id,'.native-correction')
+        if not path.exists():return False
+        record=self.read(path);original=self.read(self.path(original_id,'.json'));result=self.read(self.path(original_id,'.result'))
+        changes=original.get('payload',{}).get('changes',[]);repairs=correction.get('payload',{}).get('changes',[])
+        attempts=result.get('attempted',[])
+        return (record.get('status')=='reserved_known_update_correction'
+                and record.get('original_sha256')==digest(original) and record.get('original_result_sha256')==digest(result)
+                and record.get('correction_id')==correction.get('plan_id') and record.get('correction_sha256')==digest(correction)
+                and correction.get('native_correction_of')==original_id
+                and original.get('kind')==correction.get('kind')=='reminders_change'
+                and original['payload'].get('account')==correction['payload'].get('account')
+                and not original.get('native_correction_of')
+                and result.get('status')=='failed_or_uncertain' and result.get('phase')=='verification'
+                and len(changes)==len(repairs)==len(attempts)==1
+                and changes[0].get('operation')==repairs[0].get('operation')=='update_reminder'
+                and changes[0].get('id')==repairs[0].get('id')==attempts[0].get('result',{}).get('id')
+                and changes[0].get('source_id')==repairs[0].get('source_id'))
+
+    def _native_correction_completed(self, original_id):
+        path=self.path(original_id,'.native-correction-result')
+        if not path.exists():return False
+        proof=self.read(path);correction=self.read(self.path(proof['correction_id'],'.json'))
+        result=self.read(self.path(proof['correction_id'],'.result'))
+        return (self._native_correction_for(original_id,correction)
+                and proof.get('status')=='original_requested_fields_verified_after_correction'
+                and proof.get('correction_result_sha256')==digest(result) and result.get('status')=='applied'
+                and proof.get('original_result_sha256')==digest(self.read(self.path(original_id,'.result'))))
+
     def _native_reconciliation_completed(self, plan_id):
         path=self.path(plan_id,'.native-reconciled')
         if not path.exists():return False
@@ -200,7 +230,7 @@ class PlanStore:
                 and record.get('attempt_record_hashes')==[digest(self.read(self.path(plan_id,'.attempt-'+str(i)))) for i in range(len(attempts))])
 
     def _reconciliation_completed(self, original_id):
-        if self._native_reconciliation_completed(original_id):return True
+        if self._native_reconciliation_completed(original_id) or self._native_correction_completed(original_id):return True
         path = self.path(original_id, ".reconciled-result")
         if not path.exists():
             return False
@@ -247,7 +277,7 @@ class PlanStore:
                         continue
                     result_path = self.path(started.stem, ".result")
                     if not result_path.exists() or self.read(result_path).get("status") not in {"applied", "moved", "sent", "completed"}:
-                        if not (self._reconciliation_completed(started.stem) or (plan.get("reconciliation_of") == started.stem and self._reconciled_for(started.stem, plan))):
+                        if not (self._reconciliation_completed(started.stem) or (plan.get("native_correction_of")==started.stem and self._native_correction_for(started.stem,plan)) or (plan.get("reconciliation_of") == started.stem and self._reconciled_for(started.stem, plan))):
                             raise SafetyError("Prior write unfinished or uncertain; reconcile before a new write")
                 authority = "trusted-client-policy; not an independent human receipt"
             else:
@@ -266,6 +296,8 @@ class PlanStore:
         return result
 
     def status(self, plan_id):
+        if self._native_correction_completed(plan_id):
+            return {"status":"verified_after_explicit_correction","original_status":"failed_or_uncertain","do_not_retry":True}
         if self._native_reconciliation_completed(plan_id):
             return {"status":"applied_after_readback_reconciliation","original_status":"failed_or_uncertain","do_not_retry":True}
         result = self.path(plan_id, ".result")

@@ -81,7 +81,7 @@ def register_change_tools(mcp):
         @mcp.tool(annotations=WRITE)
         @guard
         def reminders_prepare_changes(changes:list[dict])->dict:
-            """Prepare <=20 exact create_list/create_reminder changes; default read-only refuses."""
+            """Prepare <=20 exact creates, field updates, completion changes or same-source moves; read-only refuses."""
             return editor('reminders',write=True).prepare(changes)
 
         @mcp.tool(annotations=WRITE)
@@ -104,3 +104,17 @@ def register_change_tools(mcp):
             """Verify known created objects after failed readback; no automatic retry or generic uncertainty clear."""
             check_plan_scope('reminders',plan_id)
             return editor('reminders').reconcile_created(plan_id)
+
+        @mcp.tool(annotations=WRITE)
+        @guard
+        def reminders_prepare_update_correction(plan_id:str)->dict:
+            """Propose one exact correction of a known-ID update after failed readback; ordinary approval required."""
+            require_write('reminders');check_plan_scope('reminders',plan_id)
+            return editor('reminders',write=True).prepare_update_correction(plan_id)
+
+        @mcp.tool(annotations=WRITE)
+        @guard
+        def reminders_reconcile_correction(plan_id:str)->dict:
+            """Verify the successful correction and original requested state; never replay or clear unknown effects."""
+            require_write('reminders');check_plan_scope('reminders',plan_id)
+            return editor('reminders',write=True).reconcile_correction(plan_id)
