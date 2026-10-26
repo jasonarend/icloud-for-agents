@@ -16,7 +16,9 @@ def access_status(name):
     policy = os.environ.get('ICLOUD_APPROVAL_POLICY', 'local-receipt')
     if policy not in {'local-receipt', 'trusted-client'}:
         raise SafetyError('Invalid approval policy')
-    return {'service': name, 'effective_access': effective, 'configured_access': mode,
+    from .native_app import pending_requests
+    pending = pending_requests(name)
+    return {'pending_native_requests':pending,'service': name, 'effective_access': effective, 'configured_access': mode,
             'runtime_access': global_mode, 'approval_policy': policy,
             'source_ids': config.get('source_ids', []),
             'scope_selected': bool(config.get('source_ids')),

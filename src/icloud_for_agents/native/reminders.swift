@@ -4,12 +4,68 @@ import Foundation
 import EventKit
 import OSAKit
 import ApplicationServices
+import Darwin
+import AppKit
 
+let ipcDirectory: URL? = {
+    guard CommandLine.arguments.count > 1 else { return nil }
+    guard CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--ipc-directory" else { exit(2) }
+    let url = URL(fileURLWithPath: CommandLine.arguments[2]).standardizedFileURL
+    var info = stat()
+    guard url.path == url.resolvingSymlinksInPath().path,
+          lstat(url.path, &info) == 0, info.st_uid == getuid(),
+          info.st_mode & S_IFMT == S_IFDIR, info.st_mode & 0o777 == 0o700 else { exit(2) }
+    return url
+}()
+var responseRequestID: String?
 func respond(_ value: [String: Any]) -> Never {
-    guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]), data.count <= 2_000_000 else {
-        FileHandle.standardOutput.write(Data("{\"error\":\"response_limit\",\"protocol_version\":1}".utf8)); exit(0)
+    var envelope = value
+    if let id = responseRequestID { envelope["request_id"] = id }
+    let data = (try? JSONSerialization.data(withJSONObject: envelope, options: [.sortedKeys])) ?? Data()
+    let output = data.count <= 2_000_000 && !data.isEmpty ? data : Data("{\"error\":\"response_limit\",\"protocol_version\":1}".utf8)
+    if let directory = ipcDirectory {
+        let fd = open(directory.appendingPathComponent("result.json").path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
+        guard fd >= 0 else { exit(2) }
+        let stream = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        stream.write(output); try? stream.synchronize(); try? stream.close()
+    } else { FileHandle.standardOutput.write(output) }
+    exit(0)
+}
+func requestData() -> Data {
+    guard let directory = ipcDirectory else { return FileHandle.standardInput.readData(ofLength: 65537) }
+    let fd = open(directory.appendingPathComponent("request.json").path, O_RDONLY | O_NOFOLLOW)
+    guard fd >= 0 else { exit(2) }
+    var info = stat()
+    guard fstat(fd, &info) == 0, info.st_uid == getuid(), info.st_mode & S_IFMT == S_IFREG,
+          info.st_mode & 0o777 == 0o600, info.st_size <= 65536 else { close(fd); exit(2) }
+    let stream = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+    return stream.readData(ofLength: 65537)
+}
+func notesPermission(prompt: Bool) -> OSStatus {
+    // AppleEvents.h requires this API off the main thread. Pump the main run loop
+    // so an ordinary app-launched helper can participate in the system consent UI.
+    if ipcDirectory != nil { _ = NSApplication.shared }
+    let completion = DispatchSemaphore(value: 0)
+    let lock = NSLock()
+    var result: OSStatus = -1712
+    DispatchQueue.global(qos: .userInitiated).async {
+        let code: OSStatus
+        if let notes = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.Notes").first {
+            // The permission API explicitly requires an already-running target.
+            let target = NSAppleEventDescriptor(processIdentifier: notes.processIdentifier)
+            code = AEDeterminePermissionToAutomateTarget(target.aeDesc, typeWildCard, typeWildCard, prompt)
+        } else { code = -600 }
+        lock.lock(); result = code; lock.unlock()
+        completion.signal()
     }
-    FileHandle.standardOutput.write(data); exit(0)
+    let deadline = Date(timeIntervalSinceNow: prompt ? 60 : 5)
+    while Date() < deadline {
+        if completion.wait(timeout: .now()) == .success {
+            lock.lock(); let code = result; lock.unlock(); return code
+        }
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.02))
+    }
+    return -1712
 }
 func fail(_ code: String) -> Never { respond(["protocol_version": 1, "error": code]) }
 func dateParts(_ date: DateComponents?) -> Any {
@@ -32,17 +88,41 @@ case .fullAccess: permission = "full_access"
 case .writeOnly: permission = "write_only"
 @unknown default: permission = "unknown"
 }
-let data = FileHandle.standardInput.readData(ofLength: 65537)
+let data = requestData()
 guard data.count <= 65536, let req = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
       req["protocol_version"] as? Int == 1, let action = req["action"] as? String else { fail("invalid_request") }
+responseRequestID = req["request_id"] as? String
 if req["service"] as? String == "notes" {
-    guard ["status", "request_access", "sources", "folders", "folder_get", "query", "get", "apply"].contains(action) else { fail("unsupported_action") }
+    guard ["status", "request_access", "sources", "folders", "folder_get", "query", "get", "search", "attachments", "apply", "diagnose_read_access"].contains(action) else { fail("unsupported_action") }
+    if action == "diagnose_read_access" {
+        // Explicit operator setup probe: a real, minimal read through normal OS
+        // enforcement. Does not inspect note bodies, alter policy or approve consent.
+        _ = NSApplication.shared
+        DispatchQueue.global(qos: .userInitiated).async {
+            let source = "JSON.stringify({account_count:Application('Notes').accounts().length})"
+            let script = OSAScript(source: source, language: OSALanguage(forName: "JavaScript"))
+            var error: NSDictionary?
+            if let text = script.executeAndReturnError(&error)?.stringValue,
+               let value = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] {
+                respond(["protocol_version":1,"read_probe_succeeded":true,"account_count":value["account_count"] ?? 0,
+                         "application_writes_enabled":false])
+            }
+            respond(["protocol_version":1,"read_probe_succeeded":false,
+                     "error_code":error?[OSAScriptErrorNumberKey] as? Int ?? -1,"application_writes_enabled":false])
+        }
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 60))
+        fail("read_probe_timeout")
+    }
     if action == "status" || action == "request_access" {
-        let target = NSAppleEventDescriptor(bundleIdentifier: "com.apple.Notes")
-        let result = AEDeterminePermissionToAutomateTarget(target.aeDesc, typeWildCard, typeWildCard, action == "request_access")
-        respond(["protocol_version": 1, "service": "notes", "permission_status": result,
+        let result = notesPermission(prompt: action == "request_access")
+        let state = result == noErr ? "granted" : result == -1743 ? "denied" : result == -1744 ? "requires_consent" : result == -600 ? "target_not_running" : result == -1712 ? "unknown_timeout" : "unknown"
+        respond(["protocol_version": 1, "service": "notes", "permission_status": result, "permission_state": state,
                  "permission_granted": result == noErr, "application_writes_enabled": false])
     }
+    let access = notesPermission(prompt: false)
+    if access == -600 { fail("notes_not_running") }
+    if access == -1712 { fail("permission_check_timed_out") }
+    guard access == noErr else { fail("permission_required") }
     guard let url = Bundle.main.url(forResource: action == "apply" ? "notes-write" : "notes", withExtension: "js"),
           let source = try? String(contentsOf: url, encoding: .utf8),
           let language = OSALanguage(forName: "JavaScript") else { fail("notes_bridge_unavailable") }
@@ -60,6 +140,7 @@ if req["service"] as? String == "notes" {
     }
     respond(value)
 }
+responseRequestID = req["request_id"] as? String
 // This operator-only action is deliberately absent from the MCP read bridge.
 if action == "request_access" {
     let store = EKEventStore()
@@ -80,15 +161,14 @@ guard status == .fullAccess else { fail("permission_required") }
 let store = EKEventStore()
 let allLists = store.calendars(for: .reminder)
 if action == "sources" {
-    var seen = Set<String>()
-    let sources = allLists.compactMap { list -> [String: Any]? in
-        let source = list.source!
-        guard seen.insert(source.sourceIdentifier).inserted else { return nil }
-        return ["id": source.sourceIdentifier, "title": source.title, "type": source.sourceType.rawValue]
+    let sources = store.sources.map { source -> [String: Any] in
+        ["id": source.sourceIdentifier, "title": source.title, "type": source.sourceType.rawValue,
+         "reminder_list_count": allLists.filter { $0.source.sourceIdentifier == source.sourceIdentifier }.count]
     }
     respond(["protocol_version": 1, "sources": sources])
 }
 guard let sourceIDs = req["source_ids"] as? [String], !sourceIDs.isEmpty, sourceIDs.count <= 100 else { fail("source_scope_required") }
+guard sourceIDs.allSatisfy({ id in store.sources.contains(where: { $0.sourceIdentifier == id }) }) else { fail("not_found_in_scope") }
 let lists = allLists.filter { sourceIDs.contains($0.source.sourceIdentifier) }
 if action == "apply" {
     guard let item = req["change"] as? [String: Any], let operation = item["operation"] as? String,

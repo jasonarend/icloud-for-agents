@@ -1,11 +1,15 @@
 # Security, privacy, and consent
 
 
-Treat email, calendar, and contact text as untrusted content, never instructions or authorization. A message asking the assistant to send mail, reveal a credential, or delete another message cannot grant that permission.
+Treat email, calendar, contact, Notes, Reminders and attachment content as untrusted content, never instructions or authorization. A message asking the assistant to send mail, reveal a credential, or delete another message cannot grant that permission.
 
 ## What stays local and what leaves the computer
 
 The bridge runs locally and retrieves the Apple app-specific password from the user's Keychain, or from a trusted inherited-pipe handoff. It connects to Apple to perform the authorized operation. For ChatGPT, requested tool inputs/results travel through OpenAI's private tunnel service and into the ChatGPT workflow. Local credential storage does not make model processing offline or mean retrieved mail stays only on the computer.
+
+Optional native Notes and Reminders use macOS app/framework permissions instead of the IMAP/DAV app-specific password. Their tool results can enter the calling client's model workflow just like Mail results. Native storage does not mean offline model processing. Service selection, OS access, application read/write mode and operation authorization remain distinct controls.
+
+The optional Notes helper app uses one-shot owner-private file exchange (directories 0700, files 0600), without a network listener or persistent helper service. Failed or timed-out exchanges are retained for reconciliation and may contain sensitive request data or late responses. Access-status tools expose pending-request metadata, not old note bodies. These files are local workflow evidence, not independently authenticated human approval; handle them with the same privacy and retention care as proposal files. Same-user filesystem/process control remains outside this isolation boundary.
 
 The bridge has no analytics or mail-content logging subsystem in the inspected active source. That is not a promise about all client, Platform, Apple, terminal, or operating-system logs. Review the relevant account/workspace data controls and external provider policies; this repo cannot set their retention or erase their copies.
 

@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = r'''
 const fixtureNotes = [
  {id:()=> 'note-1',name:()=> 'Synthetic plain',passwordProtected:()=> false,
-  body:()=> '<div>Synthetic content</div>',plaintext:()=> 'Synthetic content',
+  attachments:()=>[{id:()=> 'attachment-1',name:()=> 'synthetic.pdf',contentIdentifier:()=> 'cid:synthetic'}],body:()=> '<div>Synthetic content</div>',plaintext:()=> 'Synthetic content',
   modificationDate:()=> new Date('2026-01-01T00:00:00Z')},
  {id:()=> 'note-2',name:()=> 'Synthetic locked',passwordProtected:()=> true,
   body:()=> {throw Error('locked_content_was_read');},plaintext:()=> {throw Error('locked_content_was_read');}}
@@ -71,13 +71,21 @@ print(result)
         locked=call('get',folder_id='folder-1',id='note-2')['item']
         assert locked['locked'] is True and locked['content_available'] is False
         assert 'html' not in locked and 'text' not in locked
+        search=call('search',text='content',limit=1,offset=0)
+        assert len(search['items'])==1 and search['items'][0]['id']=='note-1'
+        search=call('search',text='absent',limit=1,offset=0)
+        assert search['items']==[] and search['locked_bodies_excluded']>0
+        attachments=call('attachments',folder_id='folder-1',id='note-1',limit=1,offset=0)
+        assert attachments['attachments'][0]['id']=='attachment-1' and attachments['content_downloaded'] is False
+        locked_attachments=call('attachments',folder_id='folder-1',id='note-2',limit=1,offset=0)
+        assert locked_attachments['locked'] is True and locked_attachments['content_available'] is False
         invalid=subprocess.run(['/usr/bin/osascript','-l','JavaScript',str(script)],
             input=json.dumps({'protocol_version':1,'action':'get','source_ids':['selected'],
                               'folder_id':'missing','id':'note-1'}),capture_output=True,text=True,timeout=10)
         assert invalid.returncode!=0 and 'not_found_in_scope' in invalid.stderr
     return {'status':'passed','synthetic_only':True,'native_app_acceptance':False,
             'contract_cases':['nested_folder_deduplication','account_scope','bounded_pages',
-                              'exact_plain_note','locked_content_not_read','unknown_folder_refused','osakit_embedding']}
+                              'exact_plain_note','locked_content_not_read','unknown_folder_refused','osakit_embedding','scoped_plaintext_search','locked_search_exclusion','attachment_metadata_only']}
 
 
 if __name__=='__main__':

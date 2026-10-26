@@ -12,7 +12,7 @@ from .core import SafetyError
 from .services import enabled
 
 
-READ_ACTIONS = {'notes': {'status', 'sources', 'folders', 'folder_get', 'query', 'get'},
+READ_ACTIONS = {'notes': {'status', 'sources', 'folders', 'folder_get', 'query', 'get', 'search', 'attachments'},
                 'reminders': {'status', 'sources', 'lists', 'query', 'get'}}
 MAX_OUTPUT = 2_000_000
 
@@ -107,6 +107,18 @@ class NativeReader:
             info = path.stat()
             if info.st_uid != os.getuid() or info.st_mode & 0o022 or not os.access(path, os.X_OK):
                 raise SafetyError('Native helper must be owner-controlled and executable')
+            if self.name == 'notes':
+                from .native_app import application_request
+                response = application_request(path, request)
+                if 'error' in response:
+                    if response['error']=='permission_check_timed_out':
+                        raise SafetyError('Notes permission check timed out; OS access is unverified. No automatic retry.')
+                    if response['error']=='notes_not_running':
+                        raise SafetyError('Open Notes before validating native Automation access')
+                    if response['error']=='permission_required':
+                        raise SafetyError('Notes Automation permission is required for the native helper app')
+                    raise SafetyError('Native Notes operation failed; no automatic retry')
+                return response
             command = [str(path)]
         else:
             if action == 'status':
@@ -246,6 +258,18 @@ def register_read_tools(mcp):
         def notes_query(folder_id: str, limit: int = 50, offset: int = 0) -> dict:
             """Read a bounded note-title page in one exact folder; no body search yet."""
             return NativeReader('notes').read('query', folder_id=folder_id, limit=limit, offset=offset)
+
+        @mcp.tool(annotations=annotations)
+        @guard
+        def notes_search(text: str, folder_id: str | None = None, limit: int = 50, offset: int = 0) -> dict:
+            """Bounded title/plaintext search. Follow next_offset until done even after empty pages."""
+            return NativeReader('notes').read('search', text=text, folder_id=folder_id, limit=limit, offset=offset)
+
+        @mcp.tool(annotations=annotations)
+        @guard
+        def notes_attachments(folder_id: str, id: str, limit: int = 50, offset: int = 0) -> dict:
+            """Read scoped attachment metadata only; no file download or content changes."""
+            return NativeReader('notes').read('attachments', folder_id=folder_id, id=id, limit=limit, offset=offset)
 
         @mcp.tool(annotations=annotations)
         @guard
