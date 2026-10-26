@@ -274,6 +274,28 @@ class PlanStore:
                 and record.get("original_result_sha256") == digest(self.read(self.path(original_id, ".result")))
                 and done.get("retry_result_sha256") == digest(result) and result.get("status") == "applied")
 
+    def operation_settled(self,plan_id):
+        path=self.path(plan_id,'.result')
+        if not path.exists():return False
+        result=self.read(path)
+        if result.get('status') in {'applied','moved','sent','completed'}:return True
+        if result.get('status')!='refused_without_dispatch':return False
+        plan=self.read(self.path(plan_id,'.json'));index=result.get('refused_index');changes=plan.get('payload',{}).get('changes',[])
+        evidence=result.get('refusal_evidence',{});attempts=result.get('attempted',[])
+        if (plan.get('kind') not in {'notes_change','reminders_change'} or type(index) is not int or not 0<=index<len(changes)
+                or result.get('plan_sha256')!=digest(plan) or evidence.get('mutation_dispatched') is not False
+                or result.get('refused_item_mutation_dispatched') is not False
+                or not isinstance(evidence.get('helper_response_sha256'),str)
+                or not re.fullmatch(r'[0-9a-f]{64}',evidence['helper_response_sha256'])
+                or len(attempts)!=index or result.get('completed')!=attempts):return False
+        expected={'protocol_version':1,'service':plan['kind'].removesuffix('_change'),'action':'apply',
+                  'source_ids':[changes[index]['source_id']],'change':changes[index]}
+        if evidence.get('request_sha256')!=digest(expected):return False
+        for position,attempt in enumerate(attempts):
+            if (attempt.get('index')!=position or attempt.get('operation')!=changes[position].get('operation')
+                    or self.read(self.path(plan_id,'.attempt-'+str(position)))!={'plan_sha256':digest(plan),'attempt':attempt}):return False
+        return True
+
     def consume(self, plan_id, account):
         policy = os.environ.get("ICLOUD_APPROVAL_POLICY", "local-receipt")
         if policy not in {"local-receipt", "trusted-client"}:
@@ -304,8 +326,7 @@ class PlanStore:
                     previous = self.read(self.path(started.stem, ".json"))
                     if previous["payload"].get("account") != account:
                         continue
-                    result_path = self.path(started.stem, ".result")
-                    if not result_path.exists() or self.read(result_path).get("status") not in {"applied", "moved", "sent", "completed"}:
+                    if not self.operation_settled(started.stem):
                         if not (self._reconciliation_completed(started.stem) or (plan.get("native_recovery_of")==started.stem and self._native_recovery_for(started.stem,plan)) or (plan.get("native_correction_of")==started.stem and self._native_correction_for(started.stem,plan)) or (plan.get("reconciliation_of") == started.stem and self._reconciled_for(started.stem, plan))):
                             raise SafetyError("Prior write unfinished or uncertain; reconcile before a new write")
                 authority = "trusted-client-policy; not an independent human receipt"
@@ -333,7 +354,9 @@ class PlanStore:
             return {"status":"applied_after_readback_reconciliation","original_status":"failed_or_uncertain","do_not_retry":True}
         result = self.path(plan_id, ".result")
         if result.exists():
-            return self.read(result)
+            value=self.read(result)
+            if value.get("status")=="refused_without_dispatch" and not self.operation_settled(plan_id):raise SafetyError("Native refusal evidence does not match the exact plan")
+            return value
         if self.path(plan_id, ".started").exists():
             return {"status": "started_or_uncertain", "do_not_retry": True}
         plan = self.proposal(plan_id)

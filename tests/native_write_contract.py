@@ -9,7 +9,7 @@ FIXTURE=r'''
 const folder={id:()=> 'folder',name:()=> 'Existing',container:()=>({id:()=> 'selected'}),shared:()=>false,folders:()=>[]};
 const roots=()=>[folder];
 roots.push=f=>{if(f.name()!=='New folder')throw Error('unexpected_folder');};
-let makeAmbiguous=false;
+let makeAmbiguous=false, makeConstructorFail=false, makeEditFail=false;
 let repairBody='<div>Synthetic partial</div>';
 const repair={name:()=> 'Synthetic partial',passwordProtected:()=>false,shared:()=>false,
  attachments:()=>[],modificationDate:()=>null,id:()=>{
@@ -20,7 +20,7 @@ let editBody='<div>Existing</div><div>Body</div>', requestedEditBody='';
 const editable={name:()=> 'Existing',passwordProtected:()=>false,shared:()=>false,
  attachments:()=>[],modificationDate:()=>new Date('2026-10-26T12:00:00Z'),id:()=>{
  if(editBody!==requestedEditBody)throw Error('edit_body_mismatch');return 'edit-id';}};
-Object.defineProperty(editable,'body',{get:()=>()=>editBody,set:value=>{editBody=value;}});
+Object.defineProperty(editable,'body',{get:()=>()=>editBody,set:value=>{editBody=value;if(makeEditFail)throw Error('setter_failed_after_write');}});
 const saved=['temporary-old','repair-id','edit-id'];
 folder.notes={id:()=>saved.slice(),byId:id=>id==='edit-id'?editable:id==='repair-id'?repair:({name:()=>(id==='new-note' || id==='other-new')?"'); Application('Mail'); //":'Old draft'}),push:n=>{
  if(n.body()!=="<div>&#39;); Application(&#39;Mail&#39;); //</div><div>Body</div>")throw Error('unexpected_body');
@@ -29,7 +29,7 @@ folder.notes={id:()=>saved.slice(),byId:id=>id==='edit-id'?editable:id==='repair
 }};
 const account={id:()=> 'selected',folders:roots};
 const app={accounts:()=>[account],
- Note:props=>{if('name' in props)throw Error('conflicting_title_property');return {id:()=>{throw Error('unbound_reference');},body:()=>props.body};},
+ Note:props=>{if(makeConstructorFail)throw Error('factory_failure');if('name' in props)throw Error('conflicting_title_property');return {id:()=>{throw Error('unbound_reference');},body:()=>props.body};},
  Folder:props=>({id:()=> 'new-folder',name:()=>props.name})};
 '''
 
@@ -43,13 +43,14 @@ function run() {
  const data=$.NSFileHandle.fileHandleWithStandardInput.readDataToEndOfFile;
  const req=JSON.parse(ObjC.unwrap($.NSString.alloc.initWithDataEncoding(data,$.NSUTF8StringEncoding)));
  makeAmbiguous=req.synthetic_ambiguous===true;
+ makeConstructorFail=req.synthetic_constructor_fail===true;makeEditFail=req.synthetic_edit_fail===true;
  requestedEditBody=req.change.fields.html;
  return applyNotes(app,req);
 }
 ''')
-        def call(change,ids=None,ambiguous=False):
+        def call(change,ids=None,ambiguous=False,constructor_fail=False,edit_fail=False):
             return subprocess.run(['/usr/bin/osascript','-l','JavaScript',str(script)],
-                input=json.dumps({'protocol_version':1,'action':'apply','source_ids':ids or ['selected'],'change':change,'synthetic_ambiguous':ambiguous}),
+                input=json.dumps({'protocol_version':1,'action':'apply','source_ids':ids or ['selected'],'change':change,'synthetic_ambiguous':ambiguous,'synthetic_constructor_fail':constructor_fail,'synthetic_edit_fail':edit_fail}),
                 capture_output=True,text=True,timeout=10)
         note={'operation':'create_note','source_id':'selected','folder_id':'folder',
               'fields':{'title':"'); Application('Mail'); //",'html':'<div>Body</div>'}}
@@ -57,6 +58,8 @@ function run() {
         assert json.loads(response.stdout)['result']['id']=='new-note'
         ambiguous=call(note,ambiguous=True)
         assert json.loads(ambiguous.stdout)['category']=='created_identity_uncertain'
+        assert json.loads(ambiguous.stdout)['mutation_dispatched'] is True
+        assert json.loads(call(note,constructor_fail=True).stdout)['mutation_dispatched'] is True
         repair={'operation':'repair_note_body','source_id':'selected','folder_id':'folder','id':'repair-id',
                 'fields':{'title':'Synthetic partial','html':'<div>Repaired body</div>'},
                 'before':{'note':{'title':'Synthetic partial','html':'<div>Synthetic partial</div>','modified':None}}}
@@ -74,11 +77,14 @@ function run() {
             assert json.loads(result.stdout)['result']['id']=='edit-id'
             changed=dict(edit,before={'note':dict(edit['before']['note'],modified='changed')})
             assert json.loads(call(changed).stdout)['category']=='snapshot_changed'
+            assert json.loads(call(changed).stdout)['mutation_dispatched'] is False
+            assert json.loads(call(edit,edit_fail=True).stdout)['mutation_dispatched'] is True
         folder={'operation':'create_folder','source_id':'selected','fields':{'title':'New folder'}}
         response=call(folder);assert response.returncode==0,response.stderr
         assert json.loads(response.stdout)['result']['id']=='new-folder'
         response=call(dict(note,source_id='other'))
         assert response.returncode==0 and json.loads(response.stdout)['category']=='unsupported_operation'
+        assert json.loads(response.stdout)['mutation_dispatched'] is False
         response=call(dict(note,folder_id='missing'))
         assert response.returncode==0 and json.loads(response.stdout)['category']=='not_found_in_scope'
         response=call(dict(note,operation='arbitrary_script'))
@@ -87,7 +93,7 @@ function run() {
         assert response.returncode==0 and json.loads(response.stdout)['category']=='duplicate_folder'
     return {'status':'passed','synthetic_only':True,'native_app_acceptance':False,
             'contract_cases':['create_note','create_folder','title_is_data','source_scope',
-                              'unknown_folder','unknown_operation','duplicate_folder','unrelated_temporary_identity_transition','ambiguous_creation_identity','exact_title_only_repair','changed_repair_snapshot_refused','existing_note_append_and_replace','changed_edit_snapshot_refused']}
+                              'unknown_folder','unknown_operation','duplicate_folder','unrelated_temporary_identity_transition','ambiguous_creation_identity','exact_title_only_repair','changed_repair_snapshot_refused','existing_note_append_and_replace','changed_edit_snapshot_refused','dispatch_evidence_before_constructor_and_setter','validation_refusal_before_dispatch']}
 
 
 if __name__=='__main__':

@@ -19,6 +19,13 @@ class SafetyError(ValueError):
     pass
 
 
+class NativeOperationRefused(SafetyError):
+    """The fixed native helper confirmed no mutation primitive was dispatched."""
+    def __init__(self,message,*,evidence=None):
+        super().__init__(message)
+        self.evidence=dict(evidence or {})
+
+
 def canonical(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
 

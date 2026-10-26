@@ -8,7 +8,7 @@ import fcntl
 import os
 import stat
 
-from .core import SafetyError, canonical, digest
+from .core import SafetyError, NativeOperationRefused, canonical, digest
 from .native_access import require_write
 
 
@@ -77,8 +77,7 @@ class NativeChanges:
             previous=self.store.read(self.store.path(started.stem,'.json'))
             if previous['payload'].get('account')!=self.account:
                 continue
-            result=self.store.path(started.stem,'.result')
-            if not result.exists() or self.store.read(result).get('status') not in {'applied','moved','sent','completed'}:
+            if not self.store.operation_settled(started.stem):
                 if not (self.store._reconciliation_completed(started.stem) or (correction and correction.get('native_recovery_of')==started.stem and self.store._native_recovery_for(started.stem,correction)) or (correction and correction.get('native_correction_of')==started.stem and self.store._native_correction_for(started.stem,correction))):
                     raise SafetyError('Prior write unfinished or uncertain; reconcile before another native write')
 
@@ -225,4 +224,14 @@ class NativeChanges:
                 result={'status':'failed_or_uncertain','attempted':attempted,'completed':completed,'do_not_retry':True,
                         'phase':phase,'message':'Inspect exact objects and reconcile; no automatic retry or rollback'}
                 if isinstance(exc,SafetyError):result['safety_reason']=str(exc)
+                expected_request={'protocol_version':1,'service':self.name,'action':'apply','source_ids':[item['source_id']],'change':item}
+                if (isinstance(exc,NativeOperationRefused) and phase=='mutation'
+                        and exc.evidence.get('mutation_dispatched') is False
+                        and exc.evidence.get('request_sha256')==digest(expected_request)
+                        and isinstance(exc.evidence.get('helper_response_sha256'),str)
+                        and len(exc.evidence['helper_response_sha256'])==64
+                        and all(c in '0123456789abcdef' for c in exc.evidence['helper_response_sha256'])):
+                    result.update(status='refused_without_dispatch',outcome='not_applied' if not completed else 'partially_applied_then_refused',
+                                  refused_index=index,refused_item_mutation_dispatched=False,refusal_evidence=exc.evidence,
+                                  plan_sha256=digest(plan),message='The helper confirmed no mutation dispatch for this item. Earlier verified items are listed; remaining items were not attempted. Prepare a new reviewed plan after resolving the refusal.')
             return self.store.finish(plan_id,result)

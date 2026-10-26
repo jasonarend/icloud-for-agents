@@ -18,6 +18,8 @@ let ipcDirectory: URL? = {
     return url
 }()
 var responseRequestID: String?
+var requestAction: String?
+var mutationDispatched=false
 func respond(_ value: [String: Any]) -> Never {
     var envelope = value
     if let id = responseRequestID { envelope["request_id"] = id }
@@ -67,7 +69,15 @@ func notesPermission(prompt: Bool) -> OSStatus {
     }
     return -1712
 }
-func fail(_ code: String) -> Never { respond(["protocol_version": 1, "error": code]) }
+func fail(_ code: String) -> Never {
+    var value:[String:Any]=["protocol_version":1,"error":code]
+    if requestAction=="apply" {
+        // Timeouts/save errors are always uncertain, even if another callback
+        // could be just about to enter its native mutation primitive.
+        value["mutation_dispatched"]=code=="mutation_failed_or_uncertain" || mutationDispatched
+    }
+    respond(value)
+}
 func dateParts(_ date: DateComponents?) -> Any {
     guard let d = date else { return NSNull() }
     var value: [String: Any] = [:]
@@ -92,6 +102,7 @@ let data = requestData()
 guard data.count <= 65536, let req = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
       req["protocol_version"] as? Int == 1, let action = req["action"] as? String else { fail("invalid_request") }
 responseRequestID = req["request_id"] as? String
+requestAction=action
 if req["service"] as? String == "notes" {
     guard ["status", "request_access", "sources", "folders", "folder_get", "query", "get", "search", "attachments", "diagnose_note", "apply", "diagnose_read_access"].contains(action) else { fail("unsupported_action") }
     if action == "diagnose_read_access" {
@@ -136,6 +147,7 @@ if req["service"] as? String == "notes" {
     DispatchQueue.global(qos: .userInitiated).async {
         let script = OSAScript(source: source + bridge, language: language)
         var diagnostic: NSDictionary?
+        if action=="apply" { mutationDispatched=true }
         guard let output = script.executeAndReturnError(&diagnostic)?.stringValue,
               let value = (try? JSONSerialization.jsonObject(with: Data(output.utf8))) as? [String: Any] else {
             let code = diagnostic?[OSAScriptErrorNumberKey] as? Int ?? -1
@@ -220,6 +232,7 @@ if action == "apply" {
                 if let start = fields["start"] { reminder.startDateComponents = patchDate(start) }
                 else { reminder.startDateComponents = previousStart }
             }
+            mutationDispatched=true
             do { try store.save(reminder, commit: true) } catch { fail("mutation_failed_or_uncertain") }
             respond(["protocol_version":1,"result":["id":reminder.calendarItemIdentifier,
                 "list_id":reminder.calendar.calendarIdentifier,"source_id":sourceID,"saved_locally":true]])
@@ -236,6 +249,7 @@ if action == "apply" {
         guard !lists.contains(where: { $0.source.sourceIdentifier == sourceID && $0.title == title }) else { fail("duplicate_list") }
         let list = EKCalendar(for: .reminder, eventStore: store)
         list.source = source; list.title = title
+        mutationDispatched=true
         do { try store.saveCalendar(list, commit: true) } catch { fail("mutation_failed_or_uncertain") }
         respond(["protocol_version": 1, "result": ["id": list.calendarIdentifier, "source_id": sourceID, "saved_locally": true]])
     }
@@ -257,6 +271,7 @@ if action == "apply" {
     reminder.priority = fields["priority"] as? Int ?? 0
     reminder.dueDateComponents = components(fields["due"])
     reminder.startDateComponents = components(fields["start"])
+    mutationDispatched=true
     do { try store.save(reminder, commit: true) } catch { fail("mutation_failed_or_uncertain") }
     respond(["protocol_version": 1, "result": ["id": reminder.calendarItemIdentifier, "list_id": listID,
              "source_id": sourceID, "saved_locally": true]])

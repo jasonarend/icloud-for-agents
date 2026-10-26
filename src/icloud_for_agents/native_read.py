@@ -8,13 +8,24 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import subprocess
 import tempfile
 
-from .core import SafetyError
+from .core import SafetyError, NativeOperationRefused, digest
 from .services import enabled
 
 
 READ_ACTIONS = {'notes': {'status', 'sources', 'folders', 'folder_get', 'query', 'get', 'search', 'attachments', 'diagnose_note'},
                 'reminders': {'status', 'sources', 'lists', 'query', 'get'}}
 MAX_OUTPUT = 2_000_000
+
+
+def _confirmed_refusal(name,request,response):
+    allowed={'permission_required','not_found_in_scope','invalid_fields','invalid_mutation','invalid_request',
+        'unsupported_operation','duplicate_folder','duplicate_list','shared_write_not_supported',
+        'unsupported_repair_target','unsupported_edit_target','snapshot_changed',
+        'snapshot_changed_or_recurrence_unsupported','notes_bridge_unavailable','notes_not_running'}
+    category=response.get('category',response.get('error'))
+    reason=category if isinstance(category,str) and category in allowed else 'helper_validation'
+    return NativeOperationRefused('Native '+name+' refused before mutation dispatch ('+reason+'); the consumed plan cannot be replayed',
+        evidence={'mutation_dispatched':False,'request_sha256':digest(request),'helper_response_sha256':digest(response),'reason':reason})
 
 
 def native_config(name):
@@ -149,6 +160,8 @@ class NativeReader:
                 from .native_app import application_request
                 response = application_request(path, request, timeout=75 if action=="request_access" else 25)
                 if 'error' in response:
+                    if action=='apply' and response.get('mutation_dispatched') is False:
+                        raise _confirmed_refusal(self.name,request,response)
                     if response['error']=='permission_check_timed_out':
                         raise SafetyError('Notes permission check timed out; OS access is unverified. No automatic retry.')
                     if response['error']=='notes_not_running':
@@ -194,6 +207,8 @@ class NativeReader:
         if not isinstance(response, dict) or response.get('protocol_version') != 1:
             raise SafetyError('Invalid native helper response')
         if 'error' in response:
+            if action=='apply' and response.get('mutation_dispatched') is False:
+                raise _confirmed_refusal(self.name,request,response)
             code = response['error']
             allowed = {'permission_required', 'not_found_in_scope', 'source_scope_required',
                        'invalid_page', 'response_limit', 'read_failed', 'read_timeout', 'query_limit'}

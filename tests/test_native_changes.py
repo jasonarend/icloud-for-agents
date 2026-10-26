@@ -127,3 +127,43 @@ class NativeChangesTests(unittest.TestCase):
         plan=self.engine.prepare([{'operation':'delete','id':'one'}])
         with self.assertRaises(FileNotFoundError):self.engine.execute(plan['plan_id'])
         self.assertEqual(self.adapter.calls,[])
+
+    def refusal(self,item,**override):
+        from icloud_for_agents.core import NativeOperationRefused,digest
+        request={'protocol_version':1,'service':'notes','action':'apply','source_ids':[item['source_id']],'change':item}
+        evidence={'mutation_dispatched':False,'request_sha256':digest(request),'helper_response_sha256':'a'*64}
+        evidence.update(override)
+        raise NativeOperationRefused('Synthetic helper refusal',evidence=evidence)
+    def test_confirmed_pre_dispatch_refusal_is_not_applied_and_cannot_replay(self):
+        original=self.adapter.apply;self.adapter.apply=self.refusal
+        plan=self.proposal();result=self.engine.execute(plan['plan_id'])
+        self.assertEqual(result['status'],'refused_without_dispatch');self.assertEqual(result['outcome'],'not_applied')
+        self.assertEqual(result['completed'],[]);self.assertTrue(self.store.operation_settled(plan['plan_id']))
+        self.assertEqual(self.adapter.objects['one']['title'],'before')
+        with self.assertRaises(SafetyError):self.engine.execute(plan['plan_id'])
+        self.adapter.apply=original
+        fresh=self.proposal();self.assertEqual(self.engine.execute(fresh['plan_id'])['status'],'applied')
+    def test_batch_refusal_reports_prior_verified_items_and_never_attempts_tail(self):
+        original=self.adapter.apply
+        self.adapter.apply=lambda item:self.refusal(item) if item['id']=='two' else original(item)
+        plan=self.engine.prepare([{'operation':'update','id':name,'fields':{'title':'after'}} for name in ('one','two')])
+        result=self.engine.execute(plan['plan_id'])
+        self.assertEqual(result['status'],'refused_without_dispatch');self.assertEqual(result['outcome'],'partially_applied_then_refused')
+        self.assertEqual(result['refused_index'],1);self.assertEqual(len(result['completed']),1)
+        self.assertEqual(self.adapter.objects['one']['title'],'after');self.assertEqual(self.adapter.objects['two']['title'],'before')
+        self.assertTrue(self.store.operation_settled(plan['plan_id']))
+    def test_mismatched_or_after_dispatch_evidence_keeps_uncertainty(self):
+        for override in ({'request_sha256':'b'*64},{'mutation_dispatched':True},{'helper_response_sha256':'g'*64}):
+            # Isolated audit roots avoid clearing any preceding uncertain result.
+            with tempfile.TemporaryDirectory() as directory:
+                engine=NativeChanges('notes',self.account,self.adapter,PlanStore(Path(directory)/'runtime'))
+                self.adapter.apply=lambda item:self.refusal(item,**override)
+                plan=engine.prepare([{'operation':'update','id':'one','fields':{'title':'after'}}])
+                result=engine.execute(plan['plan_id'])
+                self.assertEqual(result['status'],'failed_or_uncertain');self.assertFalse(engine.store.operation_settled(plan['plan_id']))
+    def test_corrupt_refusal_proof_does_not_release_admission(self):
+        self.adapter.apply=self.refusal;plan=self.proposal();self.engine.execute(plan['plan_id'])
+        path=self.store.path(plan['plan_id'],'.result');result=self.store.read(path)
+        result['refusal_evidence']['request_sha256']='f'*64;path.write_text(json.dumps(result))
+        self.assertFalse(self.store.operation_settled(plan['plan_id']))
+        with self.assertRaises(SafetyError):self.store.status(plan['plan_id'])
