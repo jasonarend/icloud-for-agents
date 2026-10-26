@@ -68,7 +68,7 @@ class NativeReader:
         sources = config.get('source_ids', [])
         if action not in {'status', 'sources'} and not sources:
             raise SafetyError('Select exact native source IDs before reading content')
-        if set(fields) - {'id', 'folder_id', 'list_id', 'limit', 'offset', 'completed', 'text', 'due_date', 'timezone', 'include_overdue'}:
+        if set(fields) - {'id', 'folder_id', 'list_id', 'limit', 'offset', 'completed', 'text', 'due_date', 'timezone', 'include_overdue', 'due_from', 'due_through', 'priorities'}:
             raise SafetyError('Unknown native read fields')
         limit, offset = fields.get('limit', 50), fields.get('offset', 0)
         if type(limit) is not int or not 1 <= limit <= 100 or type(offset) is not int or not 0 <= offset <= 100000:
@@ -79,14 +79,22 @@ class NativeReader:
                 raise SafetyError('Invalid native selector')
         if fields.get('completed') is not None and type(fields['completed']) is not bool:
             raise SafetyError('Invalid completion filter')
-        if fields.get('due_date') is not None:
+        dates={key:fields[key] for key in ('due_date','due_from','due_through') if fields.get(key) is not None}
+        if dates or fields.get('timezone') is not None:
             try:
-                due = fields['due_date']
-                if not isinstance(due, str) or date.fromisoformat(due).isoformat() != due:
-                    raise ValueError()
-                ZoneInfo(fields.get('timezone', ''))
-            except (ValueError, TypeError, ZoneInfoNotFoundError):
-                raise SafetyError('Use an ISO date and an explicit IANA timezone') from None
+                for value in dates.values():
+                    if not isinstance(value,str) or date.fromisoformat(value).isoformat()!=value:raise ValueError()
+                ZoneInfo(fields.get('timezone',''))
+                if 'due_date' in dates and len(dates)>1:raise ValueError()
+                if dates.get('due_from','0001-01-01')>dates.get('due_through','9999-12-31'):raise ValueError()
+            except (ValueError,TypeError,ZoneInfoNotFoundError):
+                raise SafetyError('Use ordered ISO dates, one daily/range filter and an explicit IANA timezone') from None
+        priorities=fields.get('priorities')
+        if priorities is not None and (not isinstance(priorities,list) or not 1<=len(priorities)<=4
+                or any(type(p) is not int or p not in {0,1,5,9} for p in priorities) or len(set(priorities))!=len(priorities)):
+            raise SafetyError('Priorities must select distinct none/high/medium/low values 0/1/5/9')
+        if fields.get('include_overdue') is True and 'due_date' not in dates:
+            raise SafetyError('Overdue expansion requires an exact due_date')
         if fields.get('include_overdue') is not None and type(fields['include_overdue']) is not bool:
             raise SafetyError('Invalid overdue filter')
         request = {'protocol_version': 1, 'action': action, 'source_ids': sources,
@@ -241,10 +249,12 @@ def register_read_tools(mcp):
         @mcp.tool(annotations=annotations)
         @guard
         def reminders_query(limit: int = 50, offset: int = 0, list_id: str | None = None,
-                            completed: bool | None = None, text: str | None = None) -> dict:
-            """Bounded live page; offsets may shift during external edits. No mutations."""
-            return NativeReader('reminders').read('query', limit=limit, offset=offset,
-                                                  list_id=list_id, completed=completed, text=text)
+                            completed: bool | None = None, text: str | None = None,
+                            due_from: str | None = None, due_through: str | None = None,
+                            timezone: str | None = None, priorities: list[int] | None = None) -> dict:
+            """Bounded tasks, with optional inclusive due-date range, timezone and priorities. No data changes."""
+            return NativeReader('reminders').read('query',limit=limit,offset=offset,list_id=list_id,
+                completed=completed,text=text,due_from=due_from,due_through=due_through,timezone=timezone,priorities=priorities)
 
         @mcp.tool(annotations=annotations)
         @guard

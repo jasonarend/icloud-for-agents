@@ -122,3 +122,18 @@ class NativeReadTests(unittest.TestCase):
         self.assertEqual(result['items'][0]['match_source'],'exported_table_text')
         self.assertNotIn('table_projection_candidates',result)
         self.assertNotIn('html',result['items'][0])
+
+    def test_due_range_and_priority_filters_refuse_invalid_values_before_sdk(self):
+        cases=[{'due_from':'2026-10-28','due_through':'2026-10-27','timezone':'UTC'},
+               {'due_from':'2026-10-27'}, {'due_date':'2026-10-27','due_from':'2026-10-26','timezone':'UTC'},
+               {'due_from':'2026-10-27T00:00','timezone':'UTC'}, {'priorities':[True]},
+               {'priorities':[1,1]}, {'priorities':[]}, {'priorities':[3]}, {'include_overdue':True}]
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps({'reminders':{'source_ids':['selected']}})),patch('platform.system',return_value='Darwin'),patch('subprocess.run',side_effect=AssertionError('No SDK')):
+            for fields in cases:
+                with self.subTest(fields=fields),self.assertRaises(SafetyError):NativeReader('reminders').read('query',**fields)
+    def test_valid_inclusive_range_and_priorities_are_forwarded_exactly(self):
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps({'reminders':{'source_ids':['selected']}})),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value={'items':[]}) as dispatch:
+            NativeReader('reminders').read('query',due_from='2026-10-26',due_through='2026-10-28',timezone='America/Chicago',priorities=[0,1])
+        request=dispatch.call_args.args[0]
+        self.assertEqual((request['due_from'],request['due_through']),( '2026-10-26','2026-10-28'))
+        self.assertEqual(request['priorities'],[0,1])

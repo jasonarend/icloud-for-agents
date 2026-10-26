@@ -348,8 +348,17 @@ guard !selected.isEmpty else {
     respond(["protocol_version": 1, "items": [], "done": true])
 }
 let dueFilter = req["due_date"] as? String
+let dueFrom = req["due_from"] as? String
+let dueThrough = req["due_through"] as? String
+let priorities = req["priorities"] as? [Int]
+if let priorities = priorities {
+    guard !priorities.isEmpty, priorities.count<=4, Set(priorities).count==priorities.count,
+          priorities.allSatisfy({ [0,1,5,9].contains($0) }) else { fail("invalid_priority_filter") }
+}
+if dueFilter != nil && (dueFrom != nil || dueThrough != nil) { fail("invalid_date_filter") }
+if let low=dueFrom, let high=dueThrough, low>high { fail("invalid_date_filter") }
 let zone = TimeZone(identifier: req["timezone"] as? String ?? "")
-if dueFilter != nil && zone == nil { fail("invalid_date_filter") }
+if (dueFilter != nil || dueFrom != nil || dueThrough != nil) && zone == nil { fail("invalid_date_filter") }
 func dueDay(_ reminder: EKReminder) -> String? {
     guard let d = reminder.dueDateComponents else { return nil }
     if d.hour == nil && d.minute == nil {
@@ -375,7 +384,9 @@ store.fetchReminders(matching: predicate) { reminders in
         let day = dueDay(r)
         let dueMatches = dueFilter == nil || (day != nil &&
             (req["include_overdue"] as? Bool == true ? day! <= dueFilter! : day! == dueFilter!))
-        return dueMatches && (completed == nil || r.isCompleted == completed) &&
+        let rangeMatches=(dueFrom == nil && dueThrough == nil) || (day != nil &&
+            (dueFrom == nil || day! >= dueFrom!) && (dueThrough == nil || day! <= dueThrough!))
+        return dueMatches && rangeMatches && (priorities == nil || priorities!.contains(r.priority)) && (completed == nil || r.isCompleted == completed) &&
         (text == nil || ((r.title ?? "") + "\n" + (r.notes ?? "")).localizedCaseInsensitiveContains(text!))
     }.sorted { $0.calendarItemIdentifier < $1.calendarItemIdentifier }
     let page = Array(filtered.dropFirst(offset).prefix(limit)).map(object)

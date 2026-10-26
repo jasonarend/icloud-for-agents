@@ -12,6 +12,7 @@ Use an isolated environment with the reviewed dependencies. From the root:
 .venv/bin/python tests/native_script_contract.py
 .venv/bin/python tests/native_write_contract.py
 .venv/bin/python tests/native_reminder_metadata_contract.py
+.venv/bin/python tests/native_reminder_dates_contract.py
 .venv/bin/python scripts/check-dependency-licenses.py
 ```
 
@@ -41,3 +42,5 @@ Use your own account for optional live verification and keep account details, cr
 For new transports or credential providers, describe authentication, local secret handling, connection lifecycle and how existing approval and account checks remain effective. Include synthetic regression coverage and setup documentation. The OpenAI private tunnel is specific to ChatGPT; other remote clients need their own verified connection path. These are contribution opportunities, not commitments that the project already supports those environments.
 
 The Reminders metadata contract compiles the shipped serializers against in-memory EventKit rules and alarms. It never opens an event store, requests OS access or changes reminder data.
+
+The date contract runs the shipped filtering logic on in-memory Foundation components, including timezone/DST boundaries, inclusive ranges, priorities, completion and undated items. It does not read a native account.
