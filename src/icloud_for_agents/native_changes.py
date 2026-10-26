@@ -101,6 +101,7 @@ class NativeChanges:
                     raise SafetyError('Native object changed since review; no writes admitted')
             plan=self.store.consume(plan_id,self.account)
             completed=[]
+            attempted=[]
             phase='pre_dispatch'
             try:
                 for index,item in enumerate(plan['payload']['changes']):
@@ -111,13 +112,17 @@ class NativeChanges:
                         raise SafetyError('Native object changed immediately before dispatch')
                     phase='mutation'
                     outcome=self.adapter.apply(item)
+                    attempt={'index':index,'operation':item['operation'],'result':outcome}
+                    attempted.append(attempt)
+                    self.store.write_once(self.store.path(plan_id,'.attempt-'+str(index)),
+                        {'plan_sha256':digest(plan),'attempt':attempt})
                     phase='verification'
                     if self.adapter.verify(item,outcome) is not True:
                         raise SafetyError('Native final readback did not verify')
                     completed.append({'index':index,'operation':item['operation'],'result':outcome})
-                result={'status':'applied','completed':completed,'do_not_retry':True,
+                result={'status':'applied','attempted':attempted,'completed':completed,'do_not_retry':True,
                         'sync_status':'unconfirmed','plan_sha256':digest(plan)}
             except Exception:
-                result={'status':'failed_or_uncertain','completed':completed,'do_not_retry':True,
+                result={'status':'failed_or_uncertain','attempted':attempted,'completed':completed,'do_not_retry':True,
                         'phase':phase,'message':'Inspect exact objects and reconcile; no automatic retry or rollback'}
             return self.store.finish(plan_id,result)

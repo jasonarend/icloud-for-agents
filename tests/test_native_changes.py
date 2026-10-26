@@ -76,7 +76,10 @@ class NativeChangesTests(unittest.TestCase):
         self.assertFalse(self.store.path(plan['plan_id'],'.started').exists())
     def test_failed_readback_blocks_followup_even_under_strict_policy(self):
         self.adapter.verify=lambda item,outcome:False
-        first=self.proposal();self.assertEqual(self.engine.execute(first['plan_id'])['status'],'failed_or_uncertain')
+        first=self.proposal();result=self.engine.execute(first['plan_id'])
+        self.assertEqual(result['status'],'failed_or_uncertain')
+        self.assertEqual(result['attempted'][0]['result']['id'],'one')
+        self.assertTrue(self.store.path(first['plan_id'],'.attempt-0').exists())
         os.environ['ICLOUD_APPROVAL_POLICY']='local-receipt';second=self.proposal()
         with self.assertRaises(SafetyError):self.engine.execute(second['plan_id'])
         self.assertEqual(self.adapter.calls,['one'])
