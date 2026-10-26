@@ -1,8 +1,9 @@
 // Fixed mutation protocol, invoked only by the approved-plan executor.
 // This module never accepts scripts, arbitrary commands, paths or approval flags.
 ObjC.import('Foundation');
-function applyNotes(app, req) {
+function applyNotes(app, req, beginMutation) {
     let stage='validation', mutationDispatched=false;
+    function markMutation(){if(typeof beginMutation!=='function' || !beginMutation())throw Error('native_dispatch_cancelled');mutationDispatched=true;}
     try {
     if (req.protocol_version!==1 || req.action!=='apply' || !Array.isArray(req.source_ids)) throw Error('invalid_request');
     const item=req.change;
@@ -13,14 +14,19 @@ function applyNotes(app, req) {
     const fields=item.fields;
     if(!fields || typeof fields.title!=='string' || fields.title.length<1 || fields.title.length>1000)throw Error('invalid_fields');
     const folders=[],seen=new Set();
-    function walk(parent,depth) {
-        if(depth>32 || folders.length>10000)throw Error('folder_limit');
-        parent.folders().forEach(f=>{
-            if(seen.has(f.id()))return;
-            seen.add(f.id());folders.push(f);walk(f,depth+1);
-        });
+    function collect(identity) {
+        let current=app.folders.byId(identity);const ancestry=new Set();
+        for(let depth=0;depth<32;depth++) {
+            const id=current.id();if(ancestry.has(id))throw Error('folder_limit');ancestry.add(id);
+            if(!seen.has(id)){seen.add(id);folders.push(current);}
+            const parent=current.container().id();if(parent===item.source_id)return;
+            current=app.folders.byId(parent);
+        }
+        throw Error('folder_limit');
     }
-    walk(account,0);
+    if(item.folder_id)collect(item.folder_id);
+    if(item.parent_folder_id)collect(item.parent_folder_id);
+    if(item.operation==='move_note')collect(fields.destination_folder_id);
     function requirePrivateFolder(folder) {
         const visited=new Set();let current=folder;
         for(let depth=0;depth<32;depth++) {
@@ -38,10 +44,10 @@ function applyNotes(app, req) {
             const matching=folders.filter(f=>f.id()===item.parent_folder_id);
             if(matching.length!==1)throw Error('not_found_in_scope');parent=matching[0];requirePrivateFolder(parent);
         }
-        if(folders.some(f=>f.container().id()===parent.id() && f.name()===fields.title))throw Error('duplicate_folder');
-        mutationDispatched=true;
+        if(parent.folders().some(f=>f.container().id()===parent.id() && f.name()===fields.title))throw Error('duplicate_folder');
+        markMutation();
         const folder=app.Folder({name:fields.title});
-        parent.folders.push(folder);
+        markMutation();parent.folders.push(folder);
         return JSON.stringify({protocol_version:1,result:{id:folder.id(),source_id:item.source_id,parent_id:parent.id(),saved_locally:true}});
     }
     const matches=folders.filter(f=>f.id()===item.folder_id);
@@ -61,7 +67,7 @@ function applyNotes(app, req) {
         const expectedInventory=(item.before.attachments || []).map(a=>({id:a.id,name:a.name,content_identifier:a.content_identifier,note_id:a.note_id})).sort((a,b)=>a.id.localeCompare(b.id));
         if(inventory.length>100 || JSON.stringify(inventory)!==JSON.stringify(expectedInventory))throw Error('snapshot_changed');
         if(typeof note.move!=='function')throw Error('unsupported_move_command');
-        stage='note_move';mutationDispatched=true;
+        stage='note_move';markMutation();
         note.move({to:destination});
         let visible=destination.notes.id().includes(item.id);
         for(let attempt=0;!visible && attempt<10;attempt++) { $.NSThread.sleepForTimeInterval(0.1);visible=destination.notes.id().includes(item.id); }
@@ -83,7 +89,7 @@ function applyNotes(app, req) {
         // native objects here too, before setting an existing note body.
         if(/<(object|img|audio|video|iframe|embed|table)\b/i.test(before.html))throw Error('unsupported_edit_target');
         stage='note_insert';
-        mutationDispatched=true;
+        markMutation();
         note.body=fields.html;
         return JSON.stringify({protocol_version:1,result:{id:note.id(),source_id:item.source_id,folder_id:item.folder_id,saved_locally:true}});
     }
@@ -99,17 +105,17 @@ function applyNotes(app, req) {
         if(note.name()!==before.title || note.body()!==before.html ||
            (modified?modified.toISOString():null)!==before.modified)throw Error('snapshot_changed');
         stage='note_insert';
-        mutationDispatched=true;
+        markMutation();
         note.body='<div>'+escapeText(fields.title)+'</div>'+fields.html;
         return JSON.stringify({protocol_version:1,result:{id:note.id(),source_id:item.source_id,folder_id:item.folder_id,saved_locally:true}});
     }
     stage='membership_before';
     const before=new Set(folder.notes.id());
     stage='note_constructor';
-    mutationDispatched=true;
+    markMutation();
     const draft=app.Note({body:'<div>'+escapeText(fields.title)+'</div>'+fields.html});
     stage='note_insert';
-    folder.notes.push(draft);
+    markMutation();folder.notes.push(draft);
     // Resolve through the destination collection, not the unbound constructor
     // object. Never issue another creation if the identity is uncertain.
     stage='membership_after';
@@ -126,7 +132,7 @@ function applyNotes(app, req) {
     return JSON.stringify({protocol_version:1,result:{id:createdID,source_id:item.source_id,folder_id:item.folder_id,saved_locally:true}});
     } catch(error) {
         const match=String(error).match(/-\d{3,6}/);
-        const known=['invalid_request','unsupported_operation','not_found_in_scope','invalid_fields','folder_limit','duplicate_folder','shared_write_not_supported','created_identity_uncertain','unsupported_repair_target','snapshot_changed','unsupported_edit_target','unsupported_move_command','moved_identity_uncertain','folder_ancestry_unavailable'];
+        const known=['invalid_request','unsupported_operation','not_found_in_scope','invalid_fields','folder_limit','duplicate_folder','shared_write_not_supported','created_identity_uncertain','unsupported_repair_target','snapshot_changed','unsupported_edit_target','unsupported_move_command','moved_identity_uncertain','folder_ancestry_unavailable','native_dispatch_cancelled'];
         const category=known.find(value=>String(error).includes(value)) || 'provider_exception';
         return JSON.stringify({protocol_version:1,error:'notes_operation_failed',stage:stage,category:category,mutation_dispatched:mutationDispatched,
             error_code:match?Number(match[0]):-2700});

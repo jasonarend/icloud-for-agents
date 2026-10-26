@@ -37,7 +37,7 @@ folder.notes={id:()=>saved.filter(id=>id!=='move-id' || !moved),byId:id=>id==='m
  if(makeAmbiguous)saved.push('other-new');
 }};
 const account={id:()=> 'selected',folders:roots};
-const app={accounts:()=>[account],
+const app={folders:{byId:id=>{const result=[folder,destination,parent].find(f=>f.id()===id);if(!result)throw Error('not_found_in_scope');return result;}},accounts:()=>[account],
  Note:props=>{if(makeConstructorFail)throw Error('factory_failure');if('name' in props)throw Error('conflicting_title_property');return {id:()=>{throw Error('unbound_reference');},body:()=>props.body};},
  Folder:props=>({id:()=> 'new-folder',name:()=>props.name})};
 '''
@@ -57,15 +57,19 @@ function run() {
  makeAmbiguous=req.synthetic_ambiguous===true;
  makeConstructorFail=req.synthetic_constructor_fail===true;makeEditFail=req.synthetic_edit_fail===true;
  requestedEditBody=req.change.fields.html;
- return applyNotes(app,req);
+ let gateCalls=0;
+ const result=JSON.parse(applyNotes(app,req,()=>{gateCalls++;return req.synthetic_gate_open!==false && (req.synthetic_gate_limit===null || gateCalls<=req.synthetic_gate_limit);}));
+ result.synthetic_gate_calls=gateCalls;result.synthetic_saved_ids=saved.slice();return JSON.stringify(result);
 }
 ''')
-        def call(change,ids=None,ambiguous=False,constructor_fail=False,edit_fail=False,destination_shared=False,move_fail=False,nameless=False,ancestor_shared=False):
+        def call(change,ids=None,ambiguous=False,constructor_fail=False,edit_fail=False,destination_shared=False,move_fail=False,nameless=False,ancestor_shared=False,gate_open=True,gate_limit=None):
             return subprocess.run(['/usr/bin/osascript','-l','JavaScript',str(script)],
-                input=json.dumps({'protocol_version':1,'action':'apply','source_ids':ids or ['selected'],'change':change,'synthetic_ambiguous':ambiguous,'synthetic_constructor_fail':constructor_fail,'synthetic_edit_fail':edit_fail,'synthetic_destination_shared':destination_shared,'synthetic_move_fail':move_fail,'synthetic_nameless_attachment':nameless,'synthetic_ancestor_shared':ancestor_shared}),
+                input=json.dumps({'protocol_version':1,'action':'apply','source_ids':ids or ['selected'],'change':change,'synthetic_ambiguous':ambiguous,'synthetic_constructor_fail':constructor_fail,'synthetic_edit_fail':edit_fail,'synthetic_destination_shared':destination_shared,'synthetic_move_fail':move_fail,'synthetic_nameless_attachment':nameless,'synthetic_ancestor_shared':ancestor_shared,'synthetic_gate_open':gate_open,'synthetic_gate_limit':gate_limit}),
                 capture_output=True,text=True,timeout=10)
         note={'operation':'create_note','source_id':'selected','folder_id':'folder',
               'fields':{'title':"'); Application('Mail'); //",'html':'<div>Body</div>'}}
+        cancelled=json.loads(call(note,gate_open=False).stdout);assert cancelled.get('mutation_dispatched') is False and cancelled.get('error')=='notes_operation_failed',cancelled
+        between=json.loads(call(note,gate_limit=1).stdout);assert between['mutation_dispatched'] is True and 'new-note' not in between['synthetic_saved_ids']
         response=call(note);assert response.returncode==0,response.stderr
         assert json.loads(response.stdout)['result']['id']=='new-note'
         ambiguous=call(note,ambiguous=True)

@@ -21,7 +21,23 @@ let ipcDirectory: URL? = {
 }()
 var responseRequestID: String?
 var requestAction: String?
+var requestService:String?
 var mutationDispatched=false
+@objc(ICloudAgentsMutationGate)
+class NativeMutationGate:NSObject {
+    private static let lock=NSLock()
+    private static var closed=false
+    private static var dispatched=false
+    @objc class func beginMutation()->Bool {
+        lock.lock();defer {lock.unlock()}
+        if closed {return false}
+        dispatched=true;return true
+    }
+    class func cancel()->Bool {
+        lock.lock();defer {lock.unlock()}
+        closed=true;return dispatched
+    }
+}
 func respond(_ value: [String: Any]) -> Never {
     var envelope = value
     if let id = responseRequestID { envelope["request_id"] = id }
@@ -110,9 +126,15 @@ func notesPermission(prompt: Bool) -> OSStatus {
 func fail(_ code: String) -> Never {
     var value:[String:Any]=["protocol_version":1,"error":code]
     if requestAction=="apply" {
-        // Timeouts/save errors are always uncertain, even if another callback
-        // could be just about to enter its native mutation primitive.
-        value["mutation_dispatched"]=code=="mutation_failed_or_uncertain" || mutationDispatched
+        // EventKit save/deadline failures stay uncertain. Notes atomically
+        // closes its shared gate before deciding whether any primitive began.
+        if requestService=="notes" {
+            let dispatched=NativeMutationGate.cancel()
+            value["mutation_dispatched"]=dispatched
+            if code=="mutation_failed_or_uncertain" && !dispatched {
+                value["error"]="notes_validation_timeout";value["stage"]="validation_before_dispatch"
+            }
+        } else {value["mutation_dispatched"]=code=="mutation_failed_or_uncertain" || mutationDispatched}
     }
     respond(value)
 }
@@ -132,6 +154,7 @@ guard data.count <= 65536, let req = (try? JSONSerialization.jsonObject(with: da
 responseRequestID = req["request_id"] as? String
 requestAction=action
 guard let service=req["service"] as? String, ["notes","reminders"].contains(service) else { fail("unsupported_service") }
+requestService=service
 if service == "notes" {
     guard ["status", "request_access", "sources", "folders", "folder_get", "query", "get", "search", "attachments", "diagnose_note", "contains", "apply", "diagnose_read_access"].contains(action) else { fail("unsupported_action") }
     if action == "diagnose_read_access" {
@@ -182,19 +205,22 @@ if service == "notes" {
     // Only base64 request data is inserted; caller text is never executable source.
     let encoded = data.base64EncodedString()
     let entry = action == "apply" ? "applyNotes" : "readNotes"
-    let bridge = "\nfunction run() { return " + entry + "(Application('com.apple.Notes'), JSON.parse(ObjC.unwrap($.NSString.alloc.initWithDataEncoding($.NSData.alloc.initWithBase64EncodedStringOptions('" + encoded + "',0), $.NSUTF8StringEncoding)))); }"
+    let gate = action == "apply" ? ",function(){return Boolean($.NSClassFromString('ICloudAgentsMutationGate').beginMutation);}" : ""
+    let bridge = "\nfunction run() { return " + entry + "(Application('com.apple.Notes'), JSON.parse(ObjC.unwrap($.NSString.alloc.initWithDataEncoding($.NSData.alloc.initWithBase64EncodedStringOptions('" + encoded + "',0), $.NSUTF8StringEncoding)))" + gate + "); }"
     // Keep the application run loop available while OSAKit sends Apple events.
     // A stalled script must not leave an indefinitely running helper behind.
     _ = NSApplication.shared
+    if action=="apply" {_ = NativeMutationGate()}
     DispatchQueue.global(qos: .userInitiated).async {
         guard let script = notesScript(source + bridge) else { fail("notes_bridge_unavailable") }
         var diagnostic: NSDictionary?
-        if action=="apply" { mutationDispatched=true }
         guard let output = script.executeAndReturnError(&diagnostic)?.stringValue,
               let value = (try? JSONSerialization.jsonObject(with: Data(output.utf8))) as? [String: Any] else {
             let code = diagnostic?[OSAScriptErrorNumberKey] as? Int ?? -1
             if code == -1743 || code == -1744 { fail("permission_required") }
-            respond(["protocol_version":1,"error":"notes_operation_failed","error_code":code])
+            var failure:[String:Any]=["protocol_version":1,"error":"notes_operation_failed","error_code":code]
+            if action=="apply" {failure["mutation_dispatched"]=NativeMutationGate.cancel()}
+            respond(failure)
         }
         var result=value;result["nonprompting_event_count"]=notesEventSendCount
         respond(result)
