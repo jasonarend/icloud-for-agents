@@ -60,7 +60,8 @@ def child_environment(settings, source):
                   ICLOUD_MAIL_ACCESS=settings["access_mode"],
                   ICLOUD_ENABLE_DAV_READ="1" if settings["dav_reads"] else "0")
     from .services import configured
-    for name, active in configured(settings).items():
+    selection = configured(settings)
+    for name, active in ({"notes": False, "reminders": False} | selection).items():
         result["ICLOUD_ENABLE_" + name.upper()] = "1" if active else "0"
     if settings.get("runtime_directory"):
         result["ICLOUD_RUNTIME_ROOT"] = settings["runtime_directory"]
