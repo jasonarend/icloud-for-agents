@@ -144,6 +144,13 @@ def register_read_tools(mcp):
     if enabled('reminders'):
         @mcp.tool(annotations=annotations)
         @guard
+        def reminders_access_status() -> dict:
+            """Inspect effective service scope and approval mode without contacting Apple."""
+            from .native_access import access_status
+            return access_status('reminders')
+
+        @mcp.tool(annotations=annotations)
+        @guard
         def reminders_status() -> dict:
             """Inspect existing OS grant without requesting permission or reading content."""
             return NativeReader('reminders').read('status')
@@ -175,6 +182,13 @@ def register_read_tools(mcp):
             return NativeReader('reminders').read('get', id=id)
 
     if enabled('notes'):
+        @mcp.tool(annotations=annotations)
+        @guard
+        def notes_access_status() -> dict:
+            """Inspect effective service scope and approval mode without requesting OS access."""
+            from .native_access import access_status
+            return access_status('notes')
+
         @mcp.tool(annotations=annotations)
         @guard
         def notes_sources() -> dict:
