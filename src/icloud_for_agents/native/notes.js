@@ -5,7 +5,7 @@ function readRequest() {
     const text = ObjC.unwrap($.NSString.alloc.initWithDataEncoding(data, $.NSUTF8StringEncoding));
     if (text.length > 65536) throw Error('invalid_request');
     const req = JSON.parse(text);
-    if (req.protocol_version !== 1 || !['sources','folders','folder_get','query','get','search','attachments'].includes(req.action)) throw Error('unsupported_action');
+    if (req.protocol_version !== 1 || !['sources','folders','folder_get','query','get','search','attachments','diagnose_note'].includes(req.action)) throw Error('unsupported_action');
     return req;
 }
 function run() { const req=readRequest(); return readNotes(Application('Notes'), req); }
@@ -68,7 +68,7 @@ function readNotes(app, req) {
     const folder = matches[0];
     if (req.action==='folder_get') return JSON.stringify({protocol_version:1,folder:{id:folder.object.id(),title:folder.object.name(),source_id:folder.source,parent_id:folder.object.container().id(),shared:folder.object.shared()}});
     const ids = folder.object.notes.id();
-    if (req.action === 'get' || req.action==='attachments') {
+    if (req.action === 'get' || req.action==='attachments' || req.action==='diagnose_note') {
         if (!ids.includes(req.id)) throw Error('not_found_in_scope');
         const n = folder.object.notes.byId(req.id);
         // Locked notes must not be read or implicitly unlocked.
@@ -77,6 +77,14 @@ function readNotes(app, req) {
         if (locked) {
             if(req.action==='attachments')return JSON.stringify({protocol_version:1,attachments:[],locked:true,content_available:false,done:true,excluded_locked_note:true});
             return JSON.stringify({protocol_version:1,item:{id:req.id,locked:true,content_available:false}});
+        }
+        if(req.action==='diagnose_note') {
+            const fields={};
+            ['id','name','passwordProtected','body','plaintext','modificationDate'].forEach(key=>{
+                try {const value=n[key]();fields[key]={type:typeof value,is_null:value===null,length:typeof value==='string'?value.length:null,is_date:value instanceof Date};}
+                catch(error) {const match=String(error).match(/-\d{3,6}/);fields[key]={error_code:match?Number(match[0]):null};}
+            });
+            return JSON.stringify({protocol_version:1,field_diagnostics:fields});
         }
         if(req.action==='attachments') {
             if(!Number.isInteger(req.limit) || req.limit<1 || req.limit>100 || !Number.isInteger(req.offset) || req.offset<0 || req.offset>100000)throw Error('invalid_page');
@@ -89,7 +97,7 @@ function readNotes(app, req) {
         const plain = n.plaintext();
         return JSON.stringify({protocol_version:1,item:{id:n.id(),source_id:folder.source,folder_id:req.folder_id,
             title:n.name().slice(0,1000),html:body.slice(0,100000),text:plain.slice(0,100000),
-            truncated:body.length>100000 || plain.length>100000,modified:n.modificationDate().toISOString(),
+            truncated:body.length>100000 || plain.length>100000,modified:n.modificationDate() ? n.modificationDate().toISOString() : null,
             locked:false,content_complete:false,omitted_features:['native_objects','attachments','collaboration_metadata']}});
     }
     if (!Number.isInteger(req.limit) || req.limit < 1 || req.limit > 100 || !Number.isInteger(req.offset) || req.offset < 0 || req.offset > 100000) throw Error('invalid_page');

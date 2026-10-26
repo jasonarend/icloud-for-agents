@@ -93,7 +93,7 @@ guard data.count <= 65536, let req = (try? JSONSerialization.jsonObject(with: da
       req["protocol_version"] as? Int == 1, let action = req["action"] as? String else { fail("invalid_request") }
 responseRequestID = req["request_id"] as? String
 if req["service"] as? String == "notes" {
-    guard ["status", "request_access", "sources", "folders", "folder_get", "query", "get", "search", "attachments", "apply", "diagnose_read_access"].contains(action) else { fail("unsupported_action") }
+    guard ["status", "request_access", "sources", "folders", "folder_get", "query", "get", "search", "attachments", "diagnose_note", "apply", "diagnose_read_access"].contains(action) else { fail("unsupported_action") }
     if action == "diagnose_read_access" {
         // Explicit operator setup probe: a real, minimal read through normal OS
         // enforcement. Does not inspect note bodies, alter policy or approve consent.
@@ -136,7 +136,7 @@ if req["service"] as? String == "notes" {
           let value = (try? JSONSerialization.jsonObject(with: Data(output.utf8))) as? [String: Any] else {
         let code = diagnostic?[OSAScriptErrorNumberKey] as? Int ?? -1
         if code == -1743 || code == -1744 { fail("permission_required") }
-        fail("notes_read_failed")
+        respond(["protocol_version":1,"error":"notes_operation_failed","error_code":code])
     }
     respond(value)
 }

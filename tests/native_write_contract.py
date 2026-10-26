@@ -9,10 +9,14 @@ FIXTURE=r'''
 const folder={id:()=> 'folder',name:()=> 'Existing',container:()=>({id:()=> 'selected'}),shared:()=>false,folders:()=>[]};
 const roots=()=>[folder];
 roots.push=f=>{if(f.name()!=='New folder')throw Error('unexpected_folder');};
-folder.notes={push:n=>{if(n.body()!=='<div>Body</div>')throw Error('unexpected_body');}};
+const saved=[];
+folder.notes={id:()=>saved.slice(),push:n=>{
+ if(n.body()!=="<div>&#39;); Application(&#39;Mail&#39;); //</div><div>Body</div>")throw Error('unexpected_body');
+ saved.push('new-note');
+}};
 const account={id:()=> 'selected',folders:roots};
 const app={accounts:()=>[account],
- Note:props=>({id:()=> 'new-note',name:()=>props.name,body:()=>props.body}),
+ Note:props=>{if('name' in props)throw Error('conflicting_title_property');return {id:()=>{throw Error('unbound_reference');},body:()=>props.body};},
  Folder:props=>({id:()=> 'new-folder',name:()=>props.name})};
 '''
 

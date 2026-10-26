@@ -12,7 +12,7 @@ from .core import SafetyError
 from .services import enabled
 
 
-READ_ACTIONS = {'notes': {'status', 'sources', 'folders', 'folder_get', 'query', 'get', 'search', 'attachments'},
+READ_ACTIONS = {'notes': {'status', 'sources', 'folders', 'folder_get', 'query', 'get', 'search', 'attachments', 'diagnose_note'},
                 'reminders': {'status', 'sources', 'lists', 'query', 'get'}}
 MAX_OUTPUT = 2_000_000
 

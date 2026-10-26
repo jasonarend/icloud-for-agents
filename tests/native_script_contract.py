@@ -14,7 +14,7 @@ FIXTURE = r'''
 const fixtureNotes = [
  {id:()=> 'note-1',name:()=> 'Synthetic plain',passwordProtected:()=> false,
   attachments:()=>[{id:()=> 'attachment-1',name:()=> 'synthetic.pdf',contentIdentifier:()=> 'cid:synthetic'}],body:()=> '<div>Synthetic content</div>',plaintext:()=> 'Synthetic content',
-  modificationDate:()=> new Date('2026-01-01T00:00:00Z')},
+  modificationDate:()=> null},
  {id:()=> 'note-2',name:()=> 'Synthetic locked',passwordProtected:()=> true,
   body:()=> {throw Error('locked_content_was_read');},plaintext:()=> {throw Error('locked_content_was_read');}}
 ];
@@ -68,6 +68,9 @@ print(result)
         assert first['items'][0]['id']!=second['items'][0]['id']
         note=call('get',folder_id='folder-1',id='note-1')['item']
         assert note['text']=='Synthetic content' and note['content_complete'] is False
+        assert note['modified'] is None
+        diagnostic=call('diagnose_note',folder_id='folder-1',id='note-2')['item']
+        assert diagnostic['locked'] is True and diagnostic['content_available'] is False
         locked=call('get',folder_id='folder-1',id='note-2')['item']
         assert locked['locked'] is True and locked['content_available'] is False
         assert 'html' not in locked and 'text' not in locked

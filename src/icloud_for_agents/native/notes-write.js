@@ -30,7 +30,14 @@ function applyNotes(app, req) {
     const folder=matches[0];
     if(folder.shared())throw Error('shared_write_not_supported');
     if(typeof fields.html!=='string' || fields.html.length>30000)throw Error('invalid_fields');
-    const note=app.Note({name:fields.title,body:fields.html});
-    folder.notes.push(note);
-    return JSON.stringify({protocol_version:1,result:{id:note.id(),source_id:item.source_id,folder_id:item.folder_id,saved_locally:true}});
+    // Notes derives its title from the first body paragraph. Supplying both name
+    // and body can leave a title-only draft, depending on property assignment order.
+    const escapeText=text=>text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    const before=new Set(folder.notes.id());
+    folder.notes.push(app.Note({body:'<div>'+escapeText(fields.title)+'</div>'+fields.html}));
+    // Resolve through the destination collection, not the unbound constructor
+    // object. Never issue another creation if the identity is uncertain.
+    const created=folder.notes.id().filter(id=>!before.has(id));
+    if(created.length!==1)throw Error('created_identity_uncertain');
+    return JSON.stringify({protocol_version:1,result:{id:created[0],source_id:item.source_id,folder_id:item.folder_id,saved_locally:true}});
 }
