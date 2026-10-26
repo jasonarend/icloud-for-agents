@@ -151,7 +151,8 @@ class RemindersCreateAdapter:
         if item['operation'] in {'update_reminder','set_completed','move_reminder'}:
             if outcome['id']!=item['id'] or note.get('source_id')!=item['source_id']:return False
             expected=dict(item['before']['item']);expected.update(item['fields'])
-            for key in ('title','notes','priority','due','start','list_id','completed','url','has_recurrence','has_alarms'):
+            for key in ('title','notes','priority','due','start','list_id','completed','url','has_recurrence','has_alarms','recurrence_rules','alarms'):
+                if key not in expected:continue
                 actual=note.get(key);wanted=expected.get(key)
                 if key in {'due','start'} and isinstance(wanted,dict):
                     if not isinstance(actual,dict) or any(actual.get(k)!=v for k,v in wanted.items()):return False

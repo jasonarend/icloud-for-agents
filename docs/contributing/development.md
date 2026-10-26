@@ -11,6 +11,7 @@ Use an isolated environment with the reviewed dependencies. From the root:
 .venv/bin/python tests/native_stdio_smoke.py
 .venv/bin/python tests/native_script_contract.py
 .venv/bin/python tests/native_write_contract.py
+.venv/bin/python tests/native_reminder_metadata_contract.py
 .venv/bin/python scripts/check-dependency-licenses.py
 ```
 
@@ -38,3 +39,5 @@ Open an issue or pull request with:
 Use your own account for optional live verification and keep account details, credentials and private content out of reports. Test writes only under separate explicit authorization and describe their results separately. A read-only connection report is a useful contribution on its own.
 
 For new transports or credential providers, describe authentication, local secret handling, connection lifecycle and how existing approval and account checks remain effective. Include synthetic regression coverage and setup documentation. The OpenAI private tunnel is specific to ChatGPT; other remote clients need their own verified connection path. These are contribution opportunities, not commitments that the project already supports those environments.
+
+The Reminders metadata contract compiles the shipped serializers against in-memory EventKit rules and alarms. It never opens an event store, requests OS access or changes reminder data.

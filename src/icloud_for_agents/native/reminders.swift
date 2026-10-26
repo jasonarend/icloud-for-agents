@@ -274,6 +274,42 @@ if action == "lists" {
        "pagination_consistency": "live_offset_may_shift"])
 }
 
+// Public metadata only; these serializers never fetch contacts or perform alarms.
+func recurrenceObject(_ rule: EKRecurrenceRule) -> [String: Any] {
+    let frequency: String
+    switch rule.frequency {
+    case .daily: frequency="daily"
+    case .weekly: frequency="weekly"
+    case .monthly: frequency="monthly"
+    case .yearly: frequency="yearly"
+    @unknown default: frequency="unknown"
+    }
+    let fieldCounts=[rule.daysOfTheWeek?.count ?? 0,rule.daysOfTheMonth?.count ?? 0,rule.daysOfTheYear?.count ?? 0,rule.weeksOfTheYear?.count ?? 0,rule.monthsOfTheYear?.count ?? 0,rule.setPositions?.count ?? 0]
+    return ["fields_complete":fieldCounts.allSatisfy { $0 <= 1000 },"frequency":frequency,"interval":rule.interval,"first_weekday":rule.firstDayOfTheWeek,
+        "calendar_identifier":rule.calendarIdentifier,
+        "days_of_week":(rule.daysOfTheWeek ?? []).prefix(1000).map { ["weekday":$0.dayOfTheWeek.rawValue,"week_number":$0.weekNumber] },
+        "days_of_month":Array((rule.daysOfTheMonth ?? []).prefix(1000)),
+        "days_of_year":Array((rule.daysOfTheYear ?? []).prefix(1000)),
+        "weeks_of_year":Array((rule.weeksOfTheYear ?? []).prefix(1000)),
+        "months_of_year":Array((rule.monthsOfTheYear ?? []).prefix(1000)),
+        "set_positions":Array((rule.setPositions ?? []).prefix(1000)),
+        "end":rule.recurrenceEnd.map { end -> [String: Any] in
+            ["count":end.occurrenceCount,"date":end.endDate?.timeIntervalSince1970 ?? NSNull() as Any]
+        } ?? NSNull() as Any]
+}
+func alarmObject(_ alarm: EKAlarm) -> [String: Any] {
+    var location: Any = NSNull()
+    if let place=alarm.structuredLocation {
+        location=["title":place.title ?? "","radius_meters":place.radius,
+            "latitude":place.geoLocation?.coordinate.latitude ?? NSNull() as Any,
+            "longitude":place.geoLocation?.coordinate.longitude ?? NSNull() as Any] as [String:Any]
+    }
+    return ["relative_offset_seconds":alarm.relativeOffset,
+        "absolute_date":alarm.absoluteDate?.timeIntervalSince1970 ?? NSNull() as Any,
+        "proximity":alarm.proximity.rawValue,"type":alarm.type.rawValue,
+        "structured_location":location,"email_address":alarm.emailAddress ?? NSNull() as Any,
+        "sound_name":alarm.soundName ?? NSNull() as Any]
+}
 func object(_ reminder: EKReminder) -> [String: Any] {
     ["id": reminder.calendarItemIdentifier, "source_id": reminder.calendar.source.sourceIdentifier,
      "list_id": reminder.calendar.calendarIdentifier, "title": reminder.title ?? "", "notes": reminder.notes ?? "",
@@ -284,6 +320,9 @@ func object(_ reminder: EKReminder) -> [String: Any] {
      "completion_date": reminder.completionDate?.timeIntervalSince1970 ?? NSNull() as Any,
      "url": reminder.url?.absoluteString ?? NSNull() as Any,
      "has_recurrence": reminder.hasRecurrenceRules, "has_alarms": reminder.hasAlarms,
+     "recurrence_rules":(reminder.recurrenceRules ?? []).prefix(100).map(recurrenceObject),
+     "alarms":(reminder.alarms ?? []).prefix(100).map(alarmObject),
+     "public_metadata_complete":(reminder.recurrenceRules?.count ?? 0)<=100 && (reminder.alarms?.count ?? 0)<=100 && (reminder.recurrenceRules ?? []).allSatisfy { recurrenceObject($0)["fields_complete"] as? Bool == true },
      "content_complete": false, "omitted_features": ["native_tags", "hierarchy", "attachments", "advanced_metadata"]]
 }
 if action == "get" {

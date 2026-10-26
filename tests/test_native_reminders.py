@@ -93,3 +93,11 @@ class NativeRemindersTests(unittest.TestCase):
         with self.assertRaises(SafetyError):self.existing(fields={'due':{'year':2026,'month':10,'day':26}})
         item=self.existing(fields={'due':None})
         self.assertEqual(item['fields'],{'due':None})
+
+    def test_unrequested_public_alarms_and_recurrence_metadata_must_survive_update(self):
+        self.reader.item['alarms']=[{'relative_offset_seconds':-900}]
+        self.reader.item['recurrence_rules']=[]
+        item=self.existing();self.reader.item['notes']='Edited body'
+        self.assertTrue(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
+        self.reader.item['alarms']=[]
+        self.assertFalse(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
