@@ -27,9 +27,12 @@ const parent = {shared:()=>false,id:()=> 'folder-1',name:()=> 'Synthetic',contai
 const unselected = {id:()=> 'unselected',name:()=> 'Other',folders:()=> {throw Error('unselected_account_read');}};
 const foreignFolder={id:()=> 'foreign-folder',container:()=>({id:()=> 'unselected'}),name:()=>{throw Error('foreign_metadata_read');}};
 const cycleFolder={id:()=> 'cycle-folder',container:()=>({id:()=> 'cycle-folder'})};
+const accountFolders=()=>{if(fixtureNoWalk)throw Error('unrelated_folder_walk');return [parent,child];};
+accountFolders.id=()=>['folder-1','folder-child'];
+accountFolders.byId=id=>{const f=[parent,child].find(f=>f.id()===id);if(!f)throw Error('not_found_in_scope');return f;};
 const fixtureApplication = name=>{
  if(name!=='Notes')throw Error('unexpected_app');
- return {folders:{byId:id=>{const f=[parent,child,foreignFolder,cycleFolder].find(f=>f.id()===id);if(!f)throw Error('not_found_in_scope');return f;}},accounts:()=>[{id:()=> 'selected',name:()=> 'Synthetic account',folders:()=>{if(fixtureNoWalk)throw Error('unrelated_folder_walk');return [parent,child];}},unselected]};
+ return {folders:{byId:id=>{throw Error('unqualified_app_folder_lookup');}},accounts:()=>[{id:()=> 'selected',name:()=> 'Synthetic account',folders:accountFolders},unselected]};
 };
 '''
 

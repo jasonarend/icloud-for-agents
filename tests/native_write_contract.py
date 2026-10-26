@@ -17,6 +17,7 @@ const moving={id:()=> 'move-id',container:()=>({id:()=>moved?'destination':'fold
  move:options=>{if(options.to.id()!=='destination')throw Error('wrong_destination');moved=true;if(moveFails)throw Error('failed_after_move');}};
 const children=()=>[];children.push=f=>{if(f.name()!=='New child')throw Error('wrong_child');};folder.folders=children;
 const roots=()=>[folder,destination,parent];
+roots.byId=id=>{const result=[folder,destination,parent].find(f=>f.id()===id);if(!result)throw Error('not_found_in_scope');return result;};
 roots.push=f=>{if(f.name()!=='New folder')throw Error('unexpected_folder');};
 let makeAmbiguous=false, makeConstructorFail=false, makeEditFail=false;
 let repairBody='<div>Synthetic partial</div>';
@@ -37,7 +38,7 @@ folder.notes={id:()=>saved.filter(id=>id!=='move-id' || !moved),byId:id=>id==='m
  if(makeAmbiguous)saved.push('other-new');
 }};
 const account={id:()=> 'selected',folders:roots};
-const app={folders:{byId:id=>{const result=[folder,destination,parent].find(f=>f.id()===id);if(!result)throw Error('not_found_in_scope');return result;}},accounts:()=>[account],
+const app={folders:{byId:id=>{throw Error('unqualified_app_folder_lookup');}},accounts:()=>[account],
  Note:props=>{if(makeConstructorFail)throw Error('factory_failure');if('name' in props)throw Error('conflicting_title_property');return {id:()=>{throw Error('unbound_reference');},body:()=>props.body};},
  Folder:props=>({id:()=> 'new-folder',name:()=>props.name})};
 '''

@@ -27,21 +27,30 @@ function readNotes(app, req) {
         });
     }
     if(req.folder_id && !['folders','search'].includes(req.action)) {
-        // Exact object reads need only the selected folder and its ancestry.
-        // Walking every folder before each metadata check multiplies Apple events
-        // for large accounts and can exhaust the one-shot helper deadline.
-        const target=app.folders.byId(req.folder_id);
+        // Bind the object specifier to the selected account. App-global folder
+        // lookup can address the wrong account context for a nested object.
+        const owners=selected.filter(a=>{const ids=a.folders.id();if(ids.length>10000)throw Error('folder_limit');return ids.includes(req.folder_id);});
+        let account,target,fromTree=false;
+        if(owners.length===1){account=owners[0];target=account.folders.byId(req.folder_id);}
+        else if(owners.length>1)throw Error('not_found_in_scope');
+        else {
+            selected.forEach(a=>walk(a,a.id(),0));
+            const matches=folders.filter(f=>f.object.id()===req.folder_id);
+            if(matches.length!==1)throw Error('not_found_in_scope');
+            target=matches[0].object;account=selected.find(a=>a.id()===matches[0].source);fromTree=true;
+        }
         if(target.id()!==req.folder_id)throw Error('not_found_in_scope');
         let current=target, source=null;const ancestors=new Set();
         for(let depth=0;depth<32;depth++) {
             const id=current.id();if(ancestors.has(id))throw Error('folder_limit');ancestors.add(id);targetPath.push(current);
             const parent=current.container().id();
-            if(req.source_ids.includes(parent)) {source=parent;break;}
+            if(parent===account.id()) {source=parent;break;}
             if(accounts.some(a=>a.id()===parent))throw Error('not_found_in_scope');
-            current=app.folders.byId(parent);
+            if(fromTree){const found=folders.filter(f=>f.source===account.id() && f.object.id()===parent);if(found.length!==1)throw Error('not_found_in_scope');current=found[0].object;}
+            else current=account.folders.byId(parent);
         }
         if(source===null)throw Error('not_found_in_scope');
-        folders.push({object:target,source:source});
+        folders.splice(0,folders.length,{object:target,source:source});
     } else selected.forEach(a => walk(a,a.id(),0));
     if (req.action==='search') {
         if(typeof req.text!=='string' || req.text.length<1 || req.text.length>1000 || !Number.isInteger(req.limit) || req.limit<1 || req.limit>100 || !Number.isInteger(req.offset) || req.offset<0 || req.offset>100000)throw Error('invalid_page');

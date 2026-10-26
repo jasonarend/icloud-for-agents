@@ -15,12 +15,12 @@ function applyNotes(app, req, beginMutation) {
     if(!fields || typeof fields.title!=='string' || fields.title.length<1 || fields.title.length>1000)throw Error('invalid_fields');
     const folders=[],seen=new Set();
     function collect(identity) {
-        let current=app.folders.byId(identity);const ancestry=new Set();
+        let current=account.folders.byId(identity);const ancestry=new Set();
         for(let depth=0;depth<32;depth++) {
             const id=current.id();if(ancestry.has(id))throw Error('folder_limit');ancestry.add(id);
             if(!seen.has(id)){seen.add(id);folders.push(current);}
             const parent=current.container().id();if(parent===item.source_id)return;
-            current=app.folders.byId(parent);
+            current=account.folders.byId(parent);
         }
         throw Error('folder_limit');
     }
