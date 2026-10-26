@@ -176,6 +176,14 @@ class NativeChanges:
         No retry, generic uncertainty clear, model-supplied proof or audit rewrite.
         Other failure phases and incomplete batches remain blocked.
         """
+        return self._reconcile_known(plan_id,{'create_note','create_folder','create_reminder','create_list'})
+
+    def reconcile_known_notes(self,plan_id):
+        """Read-only verification of complete returned-ID Notes edits and moves."""
+        if self.name!='notes':raise SafetyError('Known edit reconciliation is limited to Notes')
+        return self._reconcile_known(plan_id,{'append_note','prepend_note','replace_text','update_note','move_note'})
+
+    def _reconcile_known(self,plan_id,allowed):
         from .native_access import access_status
         status=access_status(self.name)
         if status['effective_access']=='disabled':raise SafetyError('Native access is disabled')
@@ -188,21 +196,23 @@ class NativeChanges:
                     or context.get('backend')!=self.adapter.backend_id):
                 raise SafetyError('Reconciliation scope, backend or account mismatch')
             items=plan['payload'].get('changes',[]);attempts=result.get('attempted',[])
-            allowed={'create_note','create_folder','create_reminder','create_list'}
             if (result.get('status')!='failed_or_uncertain' or result.get('phase')!='verification'
-                    or not items or len(attempts)!=len(items) or any(i.get('operation') not in allowed for i in items)):
-                raise SafetyError('Only complete known-ID creation batches with failed readback can be reconciled')
+                    or not items or len(attempts)!=len(items) or any(i.get('operation') not in allowed for i in items)
+                    or self.store.read(self.store.path(plan_id,'.started')).get('sha256')!=digest(plan)):
+                raise SafetyError('Only complete allowed known-ID batches with failed readback can be reconciled')
             hashes=[]
             for index,(item,attempt) in enumerate(zip(items,attempts)):
                 entry=self.store.read(self.store.path(plan_id,'.attempt-'+str(index)))
                 if (entry!={'plan_sha256':digest(plan),'attempt':attempt} or attempt.get('index')!=index
-                        or attempt.get('operation')!=item['operation'] or not self.adapter.verify(item,attempt['result'])):
-                    raise SafetyError('Known created object does not verify; uncertainty retained')
+                        or attempt.get('operation')!=item['operation']
+                        or (item['operation'] in {'append_note','prepend_note','replace_text','update_note','move_note'} and attempt.get('result',{}).get('id')!=item.get('id'))
+                        or not self.adapter.verify(item,attempt['result'])):
+                    raise SafetyError('Known native object does not verify; uncertainty retained')
                 hashes.append(digest(entry))
             self.store.write_once(self.store.path(plan_id,'.native-reconciled'),
                 {'status':'native_readback_verified','plan_sha256':digest(plan),'result_sha256':digest(result),
                  'attempts_sha256':digest(attempts),'attempt_record_hashes':hashes,'checked_at':self.store.clock(),
-                 'method':'independent adapter readback of exact returned creation identities; no mutation or human receipt'})
+                 'method':'independent adapter readback of exact returned native identities; no mutation or human receipt'})
             return self.store.status(plan_id)
 
     def finalize_stopped(self,plan_id):

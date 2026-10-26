@@ -7,7 +7,7 @@ function applyNotes(app, req, beginMutation) {
     try {
     if (req.protocol_version!==1 || req.action!=='apply' || !Array.isArray(req.source_ids)) throw Error('invalid_request');
     const item=req.change;
-    if (!item || !['create_note','create_folder','repair_note_body','append_note','update_note','move_note'].includes(item.operation) || !req.source_ids.includes(item.source_id)) throw Error('unsupported_operation');
+    if (!item || !['create_note','create_folder','repair_note_body','append_note','prepend_note','replace_text','update_note','move_note'].includes(item.operation) || !req.source_ids.includes(item.source_id)) throw Error('unsupported_operation');
     const accounts=app.accounts().filter(a=>a.id()===item.source_id);
     if(accounts.length!==1)throw Error('not_found_in_scope');
     const account=accounts[0];
@@ -78,7 +78,7 @@ function applyNotes(app, req, beginMutation) {
     // Notes derives its title from the first body paragraph. Supplying both name
     // and body can leave a title-only draft, depending on property assignment order.
     const escapeText=text=>text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-    if(['append_note','update_note'].includes(item.operation)) {
+    if(['append_note','prepend_note','replace_text','update_note'].includes(item.operation)) {
         const before=item.before && item.before.note;
         if(!before || !folder.notes.id().includes(item.id))throw Error('not_found_in_scope');
         const note=folder.notes.byId(item.id), modified=note.modificationDate();

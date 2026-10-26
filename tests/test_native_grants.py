@@ -222,3 +222,11 @@ class NativeGrantTests(unittest.TestCase):
         identity=self.activate();replacement=self.manager.prepare_replacement(identity,self.scope(scenario='Changed'));new_id=replacement['plan_id'];self.store.consume(new_id,self.engine.account);self.manager.revoke(identity)
         with self.assertRaises(SafetyError):self.manager.finalize(new_id)
         self.manager.revoke(new_id);self.assertTrue(self.store.operation_settled(new_id))
+
+    def test_literal_text_edit_grant_requires_exact_operation_and_input_fields(self):
+        scope=self.scope();scope['rules'][0].update(operation='replace_text',fields=['find','replacement','expected_matches'])
+        identity=self.activate(scope);grant=self.manager.checked(identity)
+        item={'operation':'replace_text','source_id':'selected','folder_id':'folder','fields':{'title':'Synthetic','html':'<div>New</div>'},'requested_fields':['find','replacement','expected_matches']}
+        self.manager.match(grant,item)
+        with self.assertRaises(SafetyError):self.manager.match(grant,dict(item,operation='update_note'))
+        with self.assertRaises(SafetyError):self.manager.match(grant,dict(item,requested_fields=['find','replacement','expected_matches','format']))

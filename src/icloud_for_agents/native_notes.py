@@ -51,7 +51,7 @@ def prepare_content(fields):
 
 
 class NotesCreateAdapter:
-    operations={'create_note','create_folder','append_note','update_note','move_note'}
+    operations={'create_note','create_folder','append_note','prepend_note','replace_text','update_note','move_note'}
     def __init__(self):self.reader=NativeReader('notes')
 
     @property
@@ -172,18 +172,31 @@ class NotesCreateAdapter:
                 raise SafetyError('Select an exact Notes folder and note ID')
         item={key:change[key] for key in ('operation','source_id','folder_id','id')}
         before=self.note_snapshot(item);fields=change.get('fields')
-        if item['operation']=='append_note':
+        if item['operation'] in {'append_note','prepend_note'}:
             if not isinstance(fields,dict) or set(fields)-{'body','format'} or not fields.get('body'):
                 raise SafetyError('Append requires nonempty body and optional format')
             content=prepare_content({'title':before['note']['title'],**fields})
-            html=before['note']['html']+content['html'];title=before['note']['title']
-            effect='Append the supplied body; retain supported existing text, links and basic formatting'
+            title=before['note']['title']
+            if item['operation']=='append_note':
+                html=before['note']['html']+content['html']
+                effect='Append the supplied body; retain supported existing text, links and basic formatting'
+            else:
+                from .notes_edit import split_title
+                prefix,body=split_title(before['note']['html'],title)
+                html=prefix+content['html']+body
+                effect='Insert the supplied body immediately after the existing title; preserve original exported body bytes'
+        elif item['operation']=='replace_text':
+            from .notes_edit import split_title,replace_text
+            title=before['note']['title'];prefix,body=split_title(before['note']['html'],title)
+            html=prefix+replace_text(body,fields)
+            effect='Replace exactly the reviewed literal text-node matches in the body; preserve the title and every other exported HTML byte'
         else:
             if not isinstance(fields,dict) or not {'title','body'}<=set(fields):
                 raise SafetyError('Replacement requires an explicit complete title and body')
             content=prepare_content(fields);title=content['title']
             html='<div>'+escape(title)+'</div>'+content['html']
             effect='Replace this entire supported title/body with the explicit supplied content'
+        if item['operation']=='replace_text':item['requested_edit']=dict(fields)
         if len(html.encode())>30000:raise SafetyError('Combined Notes body exceeds the native write limit')
         item.update(fields={'title':title,'html':html,'expected_text':project_html(html)['text']},before=before,
                     fidelity_verified=True,effects={'existing_content':effect,'native_objects':'Existing attachments, tables, checklists and unknown structures refused',
@@ -192,7 +205,7 @@ class NotesCreateAdapter:
 
     def prepare(self,change):
         if isinstance(change,dict) and change.get('operation')=='move_note':return self.prepare_move(change)
-        if isinstance(change,dict) and change.get('operation') in {'append_note','update_note'}:
+        if isinstance(change,dict) and change.get('operation') in {'append_note','prepend_note','replace_text','update_note'}:
             return self.prepare_existing(change)
         if not isinstance(change,dict) or set(change)-{'operation','source_id','folder_id','parent_folder_id','fields'}:
             raise SafetyError('Unknown Notes change fields')
@@ -229,7 +242,7 @@ class NotesCreateAdapter:
 
     def snapshot(self,item):
         if item['operation']=='move_note':return self.move_snapshot(item)
-        if item['operation'] in {'append_note','update_note'}:return self.note_snapshot(item)
+        if item['operation'] in {'append_note','prepend_note','replace_text','update_note'}:return self.note_snapshot(item)
         if item['operation']=='create_folder':
             parent=item.get('parent_folder_id',item['source_id'])
             parent_snapshot=self.private_folder(parent,item['source_id']) if 'parent_folder_id' in item else None
@@ -253,7 +266,7 @@ class NotesCreateAdapter:
         if item['operation']=='create_folder':
             return any(f['id']==outcome['id'] and f['title']==item['fields']['title']
                        and f['source_id']==item['source_id'] and f.get('parent_id')==item.get('parent_folder_id',item['source_id']) for f in self.folders())
-        if item['operation'] in {'append_note','update_note'} and outcome['id']!=item['id']:return False
+        if item['operation'] in {'append_note','prepend_note','replace_text','update_note'} and outcome['id']!=item['id']:return False
         note=self.reader.read('get',folder_id=item['folder_id'],id=outcome['id'])['item']
         if (note.get('id')!=outcome['id'] or note.get('source_id')!=item['source_id'] or note.get('folder_id')!=item['folder_id']):return False
         if note.get('locked') or note.get('truncated') or note.get('shared',False) or note.get('title')!=item['fields']['title']:return False
@@ -262,7 +275,10 @@ class NotesCreateAdapter:
         if not actual['text_projection_complete']:return False
         if actual['tables']!=expected['tables'] or actual['links']!=expected['links']:return False
         expected_text=expected['text']
-        if item['operation'] in {'append_note','update_note'} and note.get('created')!=item['before']['note'].get('created'):return False
+        if item['operation'] in {'append_note','prepend_note','replace_text','update_note'} and note.get('created')!=item['before']['note'].get('created'):return False
+        if item['operation'] in {'prepend_note','replace_text'}:
+            from .notes_edit import equivalent_export
+            if not equivalent_export(item['fields']['html'],note.get('html'),empty_paragraph_placeholder=item['operation']=='replace_text' and item.get('requested_edit',{}).get('replacement')==''):return False
         if item['operation']=='append_note' and not note.get('html','').startswith(item['before']['note']['html'].rstrip()):return False
-        if item['operation'] in {'append_note','update_note'}:return actual['text']==expected_text
+        if item['operation'] in {'append_note','prepend_note','replace_text','update_note'}:return actual['text']==expected_text
         return actual['text'] in {expected_text,' '.join((item['fields']['title']+' '+expected_text).split())}

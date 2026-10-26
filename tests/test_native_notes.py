@@ -195,3 +195,57 @@ class NativeNotesTests(unittest.TestCase):
         for values in ([],[dict(parent,shared=True)],[dict(parent,parent_id='parent')],[parent,parent],[parent,dict(parent,id='unrelated')],[dict(parent,source_id='other')]):
             self.reader.read=lambda action,**fields:{'folder':dict(self.reader.folder),'ancestors':values}
             with self.subTest(values=values),self.assertRaises(SafetyError):self.adapter.private_folder('folder','selected')
+
+    def test_prepend_retains_title_and_every_existing_body_byte(self):
+        before=self.reader.note['html'];item=self.edit('prepend_note',{'body':'First & second'})
+        self.assertEqual(item['fields']['html'],'<div>Spec</div><div>First &amp; second</div><div>Body</div>')
+        self.reader.note['html']=item['fields']['html']
+        self.assertTrue(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
+        self.reader.note['html']=self.reader.note['html'].replace('<div>Body</div>','<p>Body</p>')
+        self.assertFalse(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
+    def test_literal_replacement_preserves_markup_title_and_exact_review(self):
+        self.reader.note['html']='<div>Spec</div>\n<div><b>Body</b> &amp; Body</div>'
+        fields={'find':'Body','replacement':'Revised <literal>','expected_matches':2}
+        item=self.edit('replace_text',fields)
+        self.assertEqual(item['requested_edit'],fields)
+        self.assertEqual(item['fields']['html'],'<div>Spec</div>\n<div><b>Revised &lt;literal&gt;</b> &amp; Revised &lt;literal&gt;</div>')
+        self.reader.note['html']=item['fields']['html']
+        self.assertTrue(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
+    def test_literal_replacement_requires_exact_count_and_preserves_title(self):
+        for fields in ({'find':'Body','replacement':'New','expected_matches':2},
+                       {'find':'Spec','replacement':'New','expected_matches':1},
+                       {'find':'Body','replacement':'New','expected_matches':True},
+                       {'find':'Body','replacement':'Body','expected_matches':1},
+                       {'find':'','replacement':'New','expected_matches':1}):
+            with self.subTest(fields=fields),self.assertRaises(SafetyError):self.edit('replace_text',fields)
+    def test_entity_or_cross_format_matches_refuse_instead_of_rewriting_markup(self):
+        for html,find in [('<div>Spec</div><div>A&amp;B</div>','A&B'),
+                          ('<div>Spec</div><div>Bo<b>dy</b></div>','Body')]:
+            self.reader.note['html']=html
+            with self.subTest(html=html),self.assertRaises(SafetyError):
+                self.edit('replace_text',{'find':find,'replacement':'New','expected_matches':1})
+    def test_missing_separate_title_boundary_cannot_prepend_or_replace(self):
+        self.reader.note['html']='<div>Spec Body</div>'
+        for op,fields in [('prepend_note',{'body':'New'}),('replace_text',{'find':'Body','replacement':'New','expected_matches':1})]:
+            with self.subTest(op=op),self.assertRaises(SafetyError):self.edit(op,fields)
+    def test_literal_unicode_offsets_multiline_and_replacement_escaping(self):
+        self.reader.note['html']='<div>Spec</div>\n<div>😀 token</div>\n<div>token</div>'
+        item=self.edit('replace_text',{'find':'token','replacement':'one\ntwo & three','expected_matches':2})
+        self.assertEqual(item['fields']['html'],'<div>Spec</div>\n<div>😀 one<br>two &amp; three</div>\n<div>one<br>two &amp; three</div>')
+
+    def test_export_serialization_tolerates_only_block_separator_newlines(self):
+        from icloud_for_agents.notes_edit import equivalent_export
+        self.assertTrue(equivalent_export('<div>Title</div><div>Body</div>','<div>Title</div>\n<div>Body</div>\n'))
+        for a,b in [('<div>A B</div>','<div>A  B</div>'),('<div><b>B</b></div>','<div><i>B</i></div>'),
+                    ('<pre><div>A</div><div>B</div></pre>','<pre><div>A</div>\n<div>B</div></pre>'),
+                    ('<div>A</div><span>B</span>','<div>A</div>\n<span>B</span>'),
+                    ('<div>A</div><div>B</div>','<div>A</div> <div>B</div>')]:
+            with self.subTest(a=a,b=b):self.assertFalse(equivalent_export(a,b))
+
+    def test_empty_text_deletion_accepts_only_plain_empty_paragraph_placeholder(self):
+        from icloud_for_agents.notes_edit import equivalent_export
+        expected='<div>Title</div><div></div>';actual='<div>Title</div>\n<div><br></div>'
+        self.assertFalse(equivalent_export(expected,actual))
+        self.assertTrue(equivalent_export(expected,actual,empty_paragraph_placeholder=True))
+        self.assertFalse(equivalent_export(actual,expected,empty_paragraph_placeholder=True))
+        self.assertFalse(equivalent_export('<div><b></b></div>','<div><br></div>',empty_paragraph_placeholder=True))

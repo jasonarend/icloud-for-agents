@@ -85,9 +85,11 @@ function run() {
         changed=dict(repair,before={'note':{'title':'Synthetic partial','html':'Other content','modified':None}})
         assert json.loads(call(changed).stdout)['category']=='snapshot_changed'
         for operation,html in [('append_note','<div>Existing</div><div>Body</div><div>Append</div>'),
-                               ('update_note','<div>Replacement</div><div>Body</div>')]:
+                               ('update_note','<div>Replacement</div><div>Body</div>'),
+                               ('prepend_note','<div>Existing</div><div>Prepend</div><div>Body</div>'),
+                               ('replace_text','<div>Existing</div><div>Changed body</div>')]:
             edit={'operation':operation,'source_id':'selected','folder_id':'folder','id':'edit-id',
-                  'fields':{'title':'Existing' if operation=='append_note' else 'Replacement','html':html},
+                  'fields':{'title':'Replacement' if operation=='update_note' else 'Existing','html':html},
                   'before':{'note':{'title':'Existing','html':'<div>Existing</div><div>Body</div>',
                                     'modified':'2026-10-26T12:00:00.000Z'}}}
             result=call(edit);assert result.returncode==0,result.stderr

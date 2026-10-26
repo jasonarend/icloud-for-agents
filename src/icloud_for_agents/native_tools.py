@@ -129,7 +129,7 @@ def register_change_tools(mcp):
         @mcp.tool(annotations=WRITE)
         @guard
         def notes_prepare_changes(changes:list[dict])->dict:
-            """Prepare <=20 exact creations, supported body edits or same-source native-object moves; unsupported body rewrites refused."""
+            """Prepare <=20 exact creations, supported append/prepend/literal body edits or same-source native-object moves; unsupported body rewrites refused."""
             return editor('notes',write=True).prepare(changes)
 
         @mcp.tool(annotations=WRITE)
@@ -152,6 +152,13 @@ def register_change_tools(mcp):
             """Read back known creation IDs and record verified effects; no retry, mutation or approval minting."""
             check_plan_scope('notes',plan_id)
             return editor('notes').reconcile_created(plan_id)
+
+        @mcp.tool(annotations=WRITE)
+        @guard
+        def notes_reconcile_known_changes(plan_id:str)->dict:
+            """Independently verify complete returned-ID Notes edits or moves after failed readback; no mutation or replay."""
+            check_plan_scope('notes',plan_id)
+            return editor('notes').reconcile_known_notes(plan_id)
 
         @mcp.tool(annotations=WRITE)
         @guard

@@ -47,3 +47,11 @@ class NativeProtocolTests(unittest.TestCase):
         item={'operation':'rename_list','source_id':'selected','list_id':'list','id':'list','fields':{'title':'New'},'before':{'list':{'id':'list'},'siblings':[],'membership':{'sha256':'a'*64,'count':2}},'effects':{'list':'Review only'}}
         request=mutation_request('reminders',item)
         self.assertEqual(request['change']['before'],item['before']);self.assertEqual(request['change']['list_id'],'list');self.assertNotIn('effects',request['change'])
+
+    def test_literal_edit_review_and_query_are_not_interpreted_by_native_helper(self):
+        item=self.item();item['operation']='replace_text';item['requested_edit']={'find':'body','replacement':'new','expected_matches':1}
+        request=mutation_request('notes',item)
+        self.assertEqual(request['change']['operation'],'replace_text')
+        self.assertNotIn('requested_edit',request['change'])
+        self.assertEqual(request['change']['fields']['html'],item['fields']['html'])
+        self.assertEqual(request['change']['before']['note']['html'],item['before']['note']['html'])

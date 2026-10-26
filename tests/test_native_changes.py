@@ -167,3 +167,25 @@ class NativeChangesTests(unittest.TestCase):
         result['refusal_evidence']['request_sha256']='f'*64;path.write_text(json.dumps(result))
         self.assertFalse(self.store.operation_settled(plan['plan_id']))
         with self.assertRaises(SafetyError):self.store.status(plan['plan_id'])
+
+    def known_note_failure(self,returned_id='one',phase='verification'):
+        from icloud_for_agents.core import digest
+        item={'operation':'prepend_note','source_id':'selected','id':'one','folder_id':'folder','fields':{'title':'Synthetic','html':'<div>Synthetic</div><div>Body</div>'},'before':{'note':{'title':'Synthetic','html':'<div>Synthetic</div>','modified':'before'}},'fidelity_verified':True,'effects':{}}
+        p=self.store.prepare('notes_change',{'account':self.account,'context':self.engine.context(True),'changes':[item]});plan=self.store.consume(p['plan_id'],self.account)
+        attempt={'index':0,'operation':'prepend_note','result':{'id':returned_id,'source_id':'selected'}}
+        self.store.write_once(self.store.path(p['plan_id'],'.attempt-0'),{'plan_sha256':digest(plan),'attempt':attempt})
+        self.store.finish(p['plan_id'],{'status':'failed_or_uncertain','phase':phase,'attempted':[attempt],'completed':[]})
+        return p['plan_id']
+    def test_known_notes_readback_finalizer_uses_returned_identity_and_retains_failure(self):
+        identity=self.known_note_failure();before=self.store.path(identity,'.result').read_bytes();self.adapter.verify=lambda item,outcome:True
+        with patch.dict(os.environ,{'ICLOUD_MAIL_ACCESS':'read-only'}):
+            self.assertEqual(self.engine.reconcile_known_notes(identity)['status'],'applied_after_readback_reconciliation')
+        self.assertEqual(self.store.path(identity,'.result').read_bytes(),before);self.assertEqual(self.adapter.calls,[])
+        with self.assertRaises(SafetyError):self.engine.execute(identity)
+    def assert_known_refused(self,returned,phase,verified):
+        identity=self.known_note_failure(returned,phase);self.adapter.verify=lambda item,outcome:verified
+        with self.assertRaises(SafetyError):self.engine.reconcile_known_notes(identity)
+        self.assertFalse(self.store.path(identity,'.native-reconciled').exists());self.assertEqual(self.adapter.calls,[])
+    def test_known_notes_finalizer_refuses_wrong_returned_identity(self):self.assert_known_refused('other','verification',True)
+    def test_known_notes_finalizer_refuses_unknown_dispatch_phase(self):self.assert_known_refused('one','mutation',True)
+    def test_known_notes_finalizer_refuses_failed_verification(self):self.assert_known_refused('one','verification',False)
