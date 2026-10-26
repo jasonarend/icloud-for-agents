@@ -32,7 +32,8 @@ def editor(name,write=False):
 def check_plan_scope(name,plan_id):
     status=access_status(name)
     plan=PlanStore().read(PlanStore().path(plan_id,'.json'))
-    if plan.get('kind')!=name+'_change' or plan.get('payload',{}).get('account')!=owner():
+    allowed={name+'_change'} | ({'notes_recovery'} if name=='notes' else set())
+    if plan.get('kind') not in allowed or plan.get('payload',{}).get('account')!=owner():
         raise SafetyError('Plan belongs to another service or owner')
     if not set(plan['payload'].get('context',{}).get('source_ids',[]))<=set(status['source_ids']):
         raise SafetyError('Plan lies outside current source access')
@@ -89,6 +90,30 @@ def register_change_tools(mcp):
             """Read back known creation IDs and record verified effects; no retry, mutation or approval minting."""
             check_plan_scope('notes',plan_id)
             return editor('notes').reconcile_created(plan_id)
+
+        @mcp.tool(annotations=WRITE)
+        @guard
+        def notes_prepare_creation_recovery(plan_id:str,candidate_id:str,action:str)->dict:
+            """Review one explicit observed-note association or title-only repair after uncertain creation; no replay."""
+            from .native_recovery import NotesCreationRecovery
+            require_write('notes');check_plan_scope('notes',plan_id)
+            return NotesCreationRecovery(owner()).prepare(plan_id,candidate_id,action)
+
+        @mcp.tool(annotations=WRITE)
+        @guard
+        def notes_execute_creation_recovery(plan_id:str)->dict:
+            """Consume an exact reviewed recovery under strict/trusted policy; preserve the original failed result."""
+            from .native_recovery import NotesCreationRecovery
+            require_write('notes');check_plan_scope('notes',plan_id)
+            return NotesCreationRecovery(owner()).execute(plan_id)
+
+        @mcp.tool(annotations=WRITE)
+        @guard
+        def notes_finalize_creation_recovery(plan_id:str)->dict:
+            """Read back a successful recovery to finish an interrupted audit proof; no native mutation or replay."""
+            from .native_recovery import NotesCreationRecovery
+            require_write('notes');check_plan_scope('notes',plan_id)
+            return NotesCreationRecovery(owner()).finalize(plan_id)
 
     if enabled('reminders'):
         @mcp.tool(annotations=WRITE)

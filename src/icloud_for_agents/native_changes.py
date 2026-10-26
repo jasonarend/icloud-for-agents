@@ -79,7 +79,7 @@ class NativeChanges:
                 continue
             result=self.store.path(started.stem,'.result')
             if not result.exists() or self.store.read(result).get('status') not in {'applied','moved','sent','completed'}:
-                if not (self.store._reconciliation_completed(started.stem) or (correction and correction.get('native_correction_of')==started.stem and self.store._native_correction_for(started.stem,correction))):
+                if not (self.store._reconciliation_completed(started.stem) or (correction and correction.get('native_recovery_of')==started.stem and self.store._native_recovery_for(started.stem,correction)) or (correction and correction.get('native_correction_of')==started.stem and self.store._native_correction_for(started.stem,correction))):
                     raise SafetyError('Prior write unfinished or uncertain; reconcile before another native write')
 
     def prepare_update_correction(self,original_id):

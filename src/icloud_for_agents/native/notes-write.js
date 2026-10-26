@@ -6,7 +6,7 @@ function applyNotes(app, req) {
     try {
     if (req.protocol_version!==1 || req.action!=='apply' || !Array.isArray(req.source_ids)) throw Error('invalid_request');
     const item=req.change;
-    if (!item || !['create_note','create_folder'].includes(item.operation) || !req.source_ids.includes(item.source_id)) throw Error('unsupported_operation');
+    if (!item || !['create_note','create_folder','repair_note_body'].includes(item.operation) || !req.source_ids.includes(item.source_id)) throw Error('unsupported_operation');
     const accounts=app.accounts().filter(a=>a.id()===item.source_id);
     if(accounts.length!==1)throw Error('not_found_in_scope');
     const account=accounts[0];
@@ -36,6 +36,20 @@ function applyNotes(app, req) {
     // Notes derives its title from the first body paragraph. Supplying both name
     // and body can leave a title-only draft, depending on property assignment order.
     const escapeText=text=>text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    if(item.operation==='repair_note_body') {
+        const before=item.before && item.before.note;
+        if(!before || !folder.notes.id().includes(item.id))throw Error('not_found_in_scope');
+        const note=folder.notes.byId(item.id);
+        if(note.passwordProtected() || note.shared() || note.attachments().length!==0)throw Error('unsupported_repair_target');
+        const canonical='<div>'+note.name().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</div>';
+        if(note.body().trim()!==canonical)throw Error('unsupported_repair_target');
+        const modified=note.modificationDate();
+        if(note.name()!==before.title || note.body()!==before.html ||
+           (modified?modified.toISOString():null)!==before.modified)throw Error('snapshot_changed');
+        stage='note_insert';
+        note.body='<div>'+escapeText(fields.title)+'</div>'+fields.html;
+        return JSON.stringify({protocol_version:1,result:{id:note.id(),source_id:item.source_id,folder_id:item.folder_id,saved_locally:true}});
+    }
     stage='membership_before';
     const before=new Set(folder.notes.id());
     stage='note_constructor';
@@ -58,7 +72,7 @@ function applyNotes(app, req) {
     return JSON.stringify({protocol_version:1,result:{id:createdID,source_id:item.source_id,folder_id:item.folder_id,saved_locally:true}});
     } catch(error) {
         const match=String(error).match(/-\d{3,6}/);
-        const known=['invalid_request','unsupported_operation','not_found_in_scope','invalid_fields','folder_limit','duplicate_folder','shared_write_not_supported','created_identity_uncertain'];
+        const known=['invalid_request','unsupported_operation','not_found_in_scope','invalid_fields','folder_limit','duplicate_folder','shared_write_not_supported','created_identity_uncertain','unsupported_repair_target','snapshot_changed'];
         const category=known.find(value=>String(error).includes(value)) || 'provider_exception';
         return JSON.stringify({protocol_version:1,error:'notes_operation_failed',stage:stage,category:category,
             error_code:match?Number(match[0]):-2700});

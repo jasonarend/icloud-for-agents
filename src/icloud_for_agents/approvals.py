@@ -23,7 +23,7 @@ import uuid
 from .core import SafetyError, canonical, digest
 
 
-PLAN_KINDS = frozenset({"trash", "send", "calendar_change", "contact_change", "notes_change", "reminders_change", "notes_access", "reminders_access"})
+PLAN_KINDS = frozenset({"trash", "send", "calendar_change", "contact_change", "notes_change", "reminders_change", "notes_access", "reminders_access", "notes_recovery"})
 
 
 def runtime_root():
@@ -188,6 +188,35 @@ class PlanStore:
                         {"status":"reconciled_retry_verified", "retry_id":retry_id,
                          "retry_result_sha256":digest(result), "record_sha256":digest(record), "verification":verification})
 
+    def _native_recovery_for(self,original_id,recovery):
+        path=self.path(original_id,'.native-recovery')
+        if not path.exists():return False
+        record=self.read(path);original=self.read(self.path(original_id,'.json'));result=self.read(self.path(original_id,'.result'))
+        changes=original.get('payload',{}).get('changes',[]);payload=recovery.get('payload',{})
+        return (record.get('status')=='reserved_reviewed_notes_association'
+                and record.get('original_sha256')==digest(original) and record.get('original_result_sha256')==digest(result)
+                and record.get('recovery_id')==recovery.get('plan_id') and record.get('recovery_sha256')==digest(recovery)
+                and recovery.get('native_recovery_of')==original_id and recovery.get('kind')=='notes_recovery'
+                and original.get('kind')=='notes_change' and len(changes)==1 and changes[0].get('operation')=='create_note'
+                and result.get('status')=='failed_or_uncertain' and result.get('phase')=='mutation'
+                and result.get('attempted')==[] and result.get('completed')==[]
+                and payload.get('account')==original['payload'].get('account')
+                and payload.get('original_sha256')==digest(original) and payload.get('original_result_sha256')==digest(result)
+                and payload.get('source_id')==changes[0].get('source_id') and payload.get('folder_id')==changes[0].get('folder_id')
+                and payload.get('requested_fields')==changes[0].get('fields')
+                and payload.get('operation') in {'accept_observed_creation','repair_title_only_candidate'}
+                and isinstance(payload.get('candidate_id'),str) and bool(payload.get('candidate_id')))
+
+    def _native_recovery_completed(self,original_id):
+        path=self.path(original_id,'.native-recovery-result')
+        if not path.exists():return False
+        proof=self.read(path);recovery=self.read(self.path(proof['recovery_id'],'.json'));result=self.read(self.path(proof['recovery_id'],'.result'))
+        return (self._native_recovery_for(original_id,recovery) and proof.get('status')=='reviewed_observed_notes_state_verified'
+                and proof.get('recovery_result_sha256')==digest(result) and result.get('status')=='completed'
+                and result.get('recovery_state')=='observed_state_accepted_after_review'
+                and proof.get('after_sha256')==result.get('after_sha256')
+                and proof.get('original_result_sha256')==digest(self.read(self.path(original_id,'.result'))))
+
     def _native_correction_for(self, original_id, correction):
         """Exact reserved correction of one known-ID reminder update, never a create retry."""
         path=self.path(original_id,'.native-correction')
@@ -230,7 +259,7 @@ class PlanStore:
                 and record.get('attempt_record_hashes')==[digest(self.read(self.path(plan_id,'.attempt-'+str(i)))) for i in range(len(attempts))])
 
     def _reconciliation_completed(self, original_id):
-        if self._native_reconciliation_completed(original_id) or self._native_correction_completed(original_id):return True
+        if self._native_reconciliation_completed(original_id) or self._native_correction_completed(original_id) or self._native_recovery_completed(original_id):return True
         path = self.path(original_id, ".reconciled-result")
         if not path.exists():
             return False
@@ -277,7 +306,7 @@ class PlanStore:
                         continue
                     result_path = self.path(started.stem, ".result")
                     if not result_path.exists() or self.read(result_path).get("status") not in {"applied", "moved", "sent", "completed"}:
-                        if not (self._reconciliation_completed(started.stem) or (plan.get("native_correction_of")==started.stem and self._native_correction_for(started.stem,plan)) or (plan.get("reconciliation_of") == started.stem and self._reconciled_for(started.stem, plan))):
+                        if not (self._reconciliation_completed(started.stem) or (plan.get("native_recovery_of")==started.stem and self._native_recovery_for(started.stem,plan)) or (plan.get("native_correction_of")==started.stem and self._native_correction_for(started.stem,plan)) or (plan.get("reconciliation_of") == started.stem and self._reconciled_for(started.stem, plan))):
                             raise SafetyError("Prior write unfinished or uncertain; reconcile before a new write")
                 authority = "trusted-client-policy; not an independent human receipt"
             else:
@@ -296,6 +325,8 @@ class PlanStore:
         return result
 
     def status(self, plan_id):
+        if self._native_recovery_completed(plan_id):
+            return {"status":"observed_state_accepted_after_review","original_status":"failed_or_uncertain","identity_provenance":"reviewed association under selected policy, not a returned creation ID or independent human proof","do_not_retry":True}
         if self._native_correction_completed(plan_id):
             return {"status":"verified_after_explicit_correction","original_status":"failed_or_uncertain","do_not_retry":True}
         if self._native_reconciliation_completed(plan_id):
@@ -321,7 +352,7 @@ def approve_interactively(store, plan_id):
     # Escape all controls in mail-derived text before rendering it in a terminal.
     review = json.dumps(plan, ensure_ascii=True, indent=2)
     fingerprint = digest(plan)
-    labels = {"trash": "TRASH", "send": "SEND", "calendar_change": "APPROVE CALENDAR", "contact_change": "APPROVE CONTACTS", "notes_change": "APPROVE NOTES", "reminders_change": "APPROVE REMINDERS", "notes_access":"ALLOW NOTES OS REQUEST", "reminders_access":"ALLOW REMINDERS OS REQUEST"}
+    labels = {"trash": "TRASH", "send": "SEND", "calendar_change": "APPROVE CALENDAR", "contact_change": "APPROVE CONTACTS", "notes_change": "APPROVE NOTES", "reminders_change": "APPROVE REMINDERS", "notes_access":"ALLOW NOTES OS REQUEST", "reminders_access":"ALLOW REMINDERS OS REQUEST", "notes_recovery":"APPROVE NOTES RECOVERY"}
     label = labels[plan["kind"]]
     if any(item.get("operation") == "delete" for item in plan["payload"].get("changes", [])):
         label = "IRREVERSIBLE DELETE " + label

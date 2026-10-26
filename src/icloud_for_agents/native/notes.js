@@ -109,7 +109,7 @@ function readNotes(app, req) {
         return JSON.stringify({protocol_version:1,item:{id:n.id(),source_id:folder.source,folder_id:req.folder_id,
             title:n.name().slice(0,1000),html:body.slice(0,100000),text:plain.slice(0,100000),
             truncated:body.length>100000 || plain.length>100000,modified:n.modificationDate() ? n.modificationDate().toISOString() : null,
-            locked:false,content_complete:false,omitted_features:['native_objects','attachments','collaboration_metadata']}});
+            locked:false,shared:n.shared(),content_complete:false,omitted_features:['native_objects','attachments','collaboration_metadata']}});
     }
     if (!Number.isInteger(req.limit) || req.limit < 1 || req.limit > 100 || !Number.isInteger(req.offset) || req.offset < 0 || req.offset > 100000) throw Error('invalid_page');
     const sorted = ids.slice().sort();

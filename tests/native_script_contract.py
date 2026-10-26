@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 FIXTURE = r'''
 const fixtureNotes = [
- {id:()=> 'note-1',name:()=> 'Synthetic plain',passwordProtected:()=> false,
+ {id:()=> 'note-1',name:()=> 'Synthetic plain',passwordProtected:()=> false,shared:()=>false,
   attachments:()=>[{id:()=> 'attachment-1',name:()=> 'synthetic.pdf',contentIdentifier:()=> 'cid:synthetic'}],body:()=> '<div>Synthetic content</div><object><table><tr><td>Table-only token</td></tr></table></object>',plaintext:()=> 'Synthetic content',
   modificationDate:()=> null},
  {id:()=> 'note-2',name:()=> 'Synthetic locked',passwordProtected:()=> true,

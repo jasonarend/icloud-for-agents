@@ -131,7 +131,7 @@ class NotesCreateAdapter:
             return any(f['id']==outcome['id'] and f['title']==item['fields']['title']
                        and f['source_id']==item['source_id'] and f.get('parent_id')==item['source_id'] for f in self.folders())
         note=self.reader.read('get',folder_id=item['folder_id'],id=outcome['id'])['item']
-        if note.get('locked') or note.get('truncated') or note.get('title')!=item['fields']['title']:return False
+        if note.get('locked') or note.get('truncated') or note.get('shared',False) or note.get('title')!=item['fields']['title']:return False
         expected=project_html(item['fields']['html'])
         actual=project_html(note.get('html',''))
         if not actual['text_projection_complete']:return False
