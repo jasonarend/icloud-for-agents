@@ -15,7 +15,7 @@ class PlanDispatchTests(unittest.TestCase):
     def test_mail_refuses_dav_before_receipt_or_started_marker(self):
         with tempfile.TemporaryDirectory() as directory:
             store=PlanStore(Path(directory)/'runtime')
-            for kind in ('calendar_change','contact_change'):
+            for kind in ('calendar_change','contact_change','notes_change','reminders_change'):
                 plan=store.prepare(kind,{'account':'synthetic@example.com','changes':[]})
                 owner=MailService('synthetic@example.com','synthetic',store=store)
                 with patch.object(owner,'_send',side_effect=AssertionError('No send')):
@@ -26,7 +26,7 @@ class PlanDispatchTests(unittest.TestCase):
     def test_dav_refuses_mail_before_receipt_or_started_marker(self):
         with tempfile.TemporaryDirectory() as directory:
             store=PlanStore(Path(directory)/'runtime')
-            for kind in ('send','trash'):
+            for kind in ('send','trash','notes_change','reminders_change'):
                 plan=store.prepare(kind,{'account':'synthetic@example.com'})
                 editor=DAVChanges(SimpleNamespace(account='synthetic@example.com'),store)
                 with self.assertRaisesRegex(SafetyError,'Not a calendar/contact proposal'):editor.execute(plan['plan_id'])

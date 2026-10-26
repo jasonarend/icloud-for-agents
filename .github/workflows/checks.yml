@@ -33,6 +33,7 @@ jobs:
           .venv/bin/python tests/policy_stdio_smoke.py
           .venv/bin/python tests/native_stdio_smoke.py
           .venv/bin/python tests/native_script_contract.py
+          .venv/bin/python tests/native_write_contract.py
           .venv/bin/python scripts/check-dependency-licenses.py
       - name: Compile native read helper without requesting access
         run: |

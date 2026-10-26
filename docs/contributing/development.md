@@ -10,6 +10,7 @@ Use an isolated environment with the reviewed dependencies. From the root:
 .venv/bin/python tests/policy_stdio_smoke.py
 .venv/bin/python tests/native_stdio_smoke.py
 .venv/bin/python tests/native_script_contract.py
+.venv/bin/python tests/native_write_contract.py
 .venv/bin/python scripts/check-dependency-licenses.py
 ```
 
