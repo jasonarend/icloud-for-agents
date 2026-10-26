@@ -1,7 +1,4 @@
-"""Concrete approved Notes creation adapter. No existing-note rewrites or deletes.
-
-Not registered for live writes until read-only acceptance and owner enablement.
-"""
+"""Concrete scoped Notes changes with exact previews and native-content guards."""
 import hashlib
 import json
 from html import escape
@@ -54,7 +51,7 @@ def prepare_content(fields):
 
 
 class NotesCreateAdapter:
-    operations={'create_note','create_folder'}
+    operations={'create_note','create_folder','append_note','update_note'}
     def __init__(self):self.reader=NativeReader('notes')
 
     @property
@@ -80,7 +77,59 @@ class NotesCreateAdapter:
                 raise SafetyError('Folder discovery is incomplete; no write')
             offset=next_offset
 
+    def note_snapshot(self,item):
+        folder=self.reader.read('folder_get',folder_id=item['folder_id'])['folder']
+        note=self.reader.read('get',folder_id=item['folder_id'],id=item['id'])['item']
+        if (folder.get('source_id')!=item['source_id'] or folder.get('shared') is not False
+                or note.get('id')!=item['id'] or note.get('folder_id')!=item['folder_id']
+                or note.get('source_id')!=item['source_id'] or note.get('locked') is not False
+                or note.get('shared') is not False or note.get('truncated') is not False
+                or not isinstance(note.get('modified'),str)):
+            raise SafetyError('Editing requires one saved, unlocked, unshared note in the selected folder')
+        attachments=self.reader.read('attachments',folder_id=item['folder_id'],id=item['id'],limit=1,offset=0)
+        if attachments.get('attachments')!=[] or attachments.get('done') is not True or attachments.get('locked'):
+            raise SafetyError('Existing native attachments cannot be rewritten by this adapter')
+        try:
+            # Refuse unsupported exported structures/attributes. Native objects,
+            # checklists and tables need their own preservation-capable route.
+            parser=SafeHTML();parser.feed(note['html']);parser.close()
+            projection=project_html(note['html'])
+            if projection['tables'] or not projection['text_projection_complete']:
+                raise SafetyError('Existing native objects need a preservation-capable edit route')
+        except ValueError:raise SafetyError('Existing Notes HTML cannot be safely edited') from None
+        return {'folder':folder,'note':note,'attachments':[]}
+
+    def prepare_existing(self,change):
+        if set(change)-{'operation','source_id','folder_id','id','fields'}:
+            raise SafetyError('Unknown existing-note change fields')
+        source=change.get('source_id')
+        if source not in require_write('notes')['source_ids']:raise SafetyError('Select an exact Notes source')
+        for key in ('folder_id','id'):
+            if not isinstance(change.get(key),str) or not 1<=len(change[key])<=1000:
+                raise SafetyError('Select an exact Notes folder and note ID')
+        item={key:change[key] for key in ('operation','source_id','folder_id','id')}
+        before=self.note_snapshot(item);fields=change.get('fields')
+        if item['operation']=='append_note':
+            if not isinstance(fields,dict) or set(fields)-{'body','format'} or not fields.get('body'):
+                raise SafetyError('Append requires nonempty body and optional format')
+            content=prepare_content({'title':before['note']['title'],**fields})
+            html=before['note']['html']+content['html'];title=before['note']['title']
+            effect='Append the supplied body; retain supported existing text, links and basic formatting'
+        else:
+            if not isinstance(fields,dict) or not {'title','body'}<=set(fields):
+                raise SafetyError('Replacement requires an explicit complete title and body')
+            content=prepare_content(fields);title=content['title']
+            html='<div>'+escape(title)+'</div>'+content['html']
+            effect='Replace this entire supported title/body with the explicit supplied content'
+        if len(html.encode())>30000:raise SafetyError('Combined Notes body exceeds the native write limit')
+        item.update(fields={'title':title,'html':html,'expected_text':project_html(html)['text']},before=before,
+                    fidelity_verified=True,effects={'existing_content':effect,'native_objects':'Existing attachments, tables, checklists and unknown structures refused',
+                    'sharing':'none','sync_status':'unconfirmed'})
+        return item
+
     def prepare(self,change):
+        if isinstance(change,dict) and change.get('operation') in {'append_note','update_note'}:
+            return self.prepare_existing(change)
         if not isinstance(change,dict) or set(change)-{'operation','source_id','folder_id','fields'}:
             raise SafetyError('Unknown Notes change fields')
         operation=change.get('operation');source=change.get('source_id')
@@ -110,6 +159,7 @@ class NotesCreateAdapter:
         return item
 
     def snapshot(self,item):
+        if item['operation'] in {'append_note','update_note'}:return self.note_snapshot(item)
         if item['operation']=='create_folder':
             folders=[f for f in self.folders() if f['source_id']==item['source_id'] and f['parent_id']==item['source_id']]
             return {'source_id':item['source_id'],'membership_sha256':digest(sorted(folders,key=lambda f:f['id'])),
@@ -130,11 +180,15 @@ class NotesCreateAdapter:
         if item['operation']=='create_folder':
             return any(f['id']==outcome['id'] and f['title']==item['fields']['title']
                        and f['source_id']==item['source_id'] and f.get('parent_id')==item['source_id'] for f in self.folders())
+        if item['operation'] in {'append_note','update_note'} and outcome['id']!=item['id']:return False
         note=self.reader.read('get',folder_id=item['folder_id'],id=outcome['id'])['item']
+        if (note.get('id')!=outcome['id'] or note.get('source_id')!=item['source_id'] or note.get('folder_id')!=item['folder_id']):return False
         if note.get('locked') or note.get('truncated') or note.get('shared',False) or note.get('title')!=item['fields']['title']:return False
         expected=project_html(item['fields']['html'])
         actual=project_html(note.get('html',''))
         if not actual['text_projection_complete']:return False
         if actual['tables']!=expected['tables'] or actual['links']!=expected['links']:return False
         expected_text=expected['text']
+        if item['operation']=='append_note' and not note.get('html','').startswith(item['before']['note']['html'].rstrip()):return False
+        if item['operation'] in {'append_note','update_note'}:return actual['text']==expected_text
         return actual['text'] in {expected_text,' '.join((item['fields']['title']+' '+expected_text).split())}

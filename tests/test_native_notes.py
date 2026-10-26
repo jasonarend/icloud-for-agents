@@ -11,11 +11,12 @@ from icloud_for_agents.native_notes import NotesCreateAdapter, prepare_content
 class Reader:
     def __init__(self):
         self.folder={'id':'folder','title':'Synthetic','source_id':'selected','parent_id':'selected','shared':False}
-        self.note={'id':'created','title':'Spec','text':'Spec Body','html':'<div>Spec</div><div>Body</div>','locked':False,'truncated':False}
+        self.note={'id':'created','title':'Spec','text':'Spec Body','html':'<div>Spec</div><div>Body</div>','locked':False,'truncated':False,'shared':False,'source_id':'selected','folder_id':'folder','modified':'2026-10-26T12:00:00Z'}
     def read(self,action,**fields):
         if action=='folders':return {'folders':[dict(self.folder)],'done':True}
         if action=='folder_get':return {'folder':dict(self.folder)}
         if action=='get':return {'item':dict(self.note)}
+        if action=='attachments':return {'attachments':[],'done':True}
         raise AssertionError(action)
 
 
@@ -69,3 +70,52 @@ class NativeNotesTests(unittest.TestCase):
         for fields in ({'title':'Spec','format':'markdown'}, {'title':' '}, {'title':'x\ny'},
                        {'title':'Spec','body':'😀'*6000}):
             with self.subTest(fields=fields),self.assertRaises(SafetyError):prepare_content(fields)
+
+    def edit(self,operation='append_note',fields=None):
+        return self.adapter.prepare({'operation':operation,'source_id':'selected','folder_id':'folder','id':'created',
+                                     'fields':fields or {'body':'Decision & details'}})
+    def test_append_preserves_existing_html_and_escapes_new_text(self):
+        before=self.reader.note['html'];item=self.edit()
+        self.assertEqual(item['before']['note'],self.reader.note)
+        self.assertTrue(item['fields']['html'].startswith(before))
+        self.assertIn('Decision &amp; details',item['fields']['html'])
+        self.reader.note['html']=item['fields']['html']
+        self.assertTrue(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
+    def test_full_replacement_requires_both_title_and_body(self):
+        for fields in ({'title':'New'},{'body':'Body'}):
+            with self.assertRaises(SafetyError):self.edit('update_note',fields)
+        item=self.edit('update_note',{'title':'New','body':'Body'})
+        self.assertIn('Replace this entire',item['effects']['existing_content'])
+        self.reader.note.update(title='New',html=item['fields']['html'])
+        self.assertTrue(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
+    def test_native_objects_and_unknown_formatting_are_not_silently_rewritten(self):
+        for html in ('<object><table><tr><td>Native cell</td></tr></table></object>',
+                     '<table><tr><td>Native cell</td></tr></table>', '<div style="font-size:24px">Styled</div>',
+                     '<ul class="Apple-checkbox"><li>Native checklist</li></ul>', '<img src="private-asset">'):
+            self.reader.note['html']=html
+            with self.subTest(html=html),self.assertRaises(SafetyError):self.edit()
+    def test_shared_locked_unsaved_and_wrong_scope_notes_refuse_before_write(self):
+        for key,value in [('shared',True),('locked',True),('modified',None),('truncated',True),
+                          ('source_id','other'),('folder_id','other')]:
+            prior=self.reader.note[key];self.reader.note[key]=value
+            with self.subTest(key=key),self.assertRaises(SafetyError):self.edit()
+            self.reader.note[key]=prior
+    def test_attachments_and_oversized_combined_body_refuse(self):
+        original=self.reader.read
+        def attached(action,**fields):
+            return {'attachments':[{'id':'native'}],'done':True} if action=='attachments' else original(action,**fields)
+        self.reader.read=attached
+        with self.assertRaises(SafetyError):self.edit()
+        self.reader.read=original;self.reader.note['html']='<div>'+('a'*29000)+'</div>'
+        with self.assertRaises(SafetyError):self.edit(fields={'body':'b'*2000})
+    def test_existing_note_identity_and_exact_complete_content_are_verified(self):
+        item=self.edit();self.reader.note['html']=item['fields']['html']
+        self.assertFalse(self.adapter.verify(item,{'id':'other','source_id':'selected'}))
+        self.reader.note['html']='<div>Spec</div><div>Missing original body</div>'
+        self.assertFalse(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
+
+    def test_append_cannot_claim_preservation_when_old_formatting_is_lost(self):
+        self.reader.note['html']='<div>Spec</div><div><b>Body</b></div>'
+        item=self.edit()
+        self.reader.note['html']=item['fields']['html'].replace('<b>Body</b>','Body')
+        self.assertFalse(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
