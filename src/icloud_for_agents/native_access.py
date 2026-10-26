@@ -25,15 +25,19 @@ def access_status(name):
             'os_permission': 'not_checked', 'writes_implemented': True,
             'implemented_write_operations':(['create_note','create_folder','append_note','update_note','move_note'] if name=='notes' else ['create_list','create_reminder','update_reminder','set_completed','move_reminder']),
             'implemented_recovery_operations':(['accept_observed_creation','repair_title_only_candidate'] if name=='notes' else ['known_update_correction']),
-            'standing_grants_implemented': False,
+            'standing_grants_implemented': False,'one_time_elevation_implemented':True,
             'read_actions': sorted(READ_ACTIONS[name])}
 
 
-def require_write(name):
+def require_write(name,item=None):
     """Refuse before any backend or proposal side effect unless both modes allow writes."""
     status = access_status(name)
     if status['effective_access'] != 'write-enabled':
-        raise SafetyError('Native service is not separately write-enabled')
+        from .native_once import permits
+        if status['effective_access']=='disabled' or not permits(name,item):
+            raise SafetyError('Native service is not separately write-enabled')
     if not status['scope_selected']:
         raise SafetyError('Select exact native source IDs before preparing writes')
+    if item is not None and (not isinstance(item,dict) or item.get('source_id') not in status['source_ids']):
+        raise SafetyError('Native target source is outside current write scope')
     return status

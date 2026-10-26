@@ -3,7 +3,7 @@
 No native write adapter is registered by this module. Adapters must implement fixed
 operations, preserve unrelated native data, and provide independent readback.
 """
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 import fcntl
 import os
 import json
@@ -21,13 +21,20 @@ class NativeChanges:
         self.name, self.account, self.adapter, self.store = name, account, adapter, store
         self.kind = name + '_change'
 
-    def context(self):
-        status = require_write(self.name)
-        return {'service':self.name,'source_ids':sorted(status['source_ids']),
+    def context(self,temporary=False):
+        from .native_once import selected_read_access
+        status = selected_read_access(self.name) if temporary else require_write(self.name)
+        context={'service':self.name,'source_ids':sorted(status['source_ids']),
                 'backend':self.adapter.backend_id,'approval_policy':status['approval_policy']}
+        if temporary:context.update(temporary_elevation='exact-batch-once',configured_access=status['configured_access'],runtime_access=status['runtime_access'])
+        return context
 
-    def prepare(self, changes):
-        context = self.context()
+    def prepare_once(self,changes):
+        from .native_once import planning
+        with planning(self.name):return self.prepare(changes,_temporary=True)
+
+    def prepare(self, changes, *, _temporary=False):
+        context = self.context(_temporary)
         if not isinstance(changes,list) or not 1 <= len(changes) <= 20:
             raise SafetyError('Prepare 1..20 exact native changes')
         if len(canonical(changes)) > 100000:
@@ -184,10 +191,26 @@ class NativeChanges:
                  'method':'independent adapter readback of exact returned creation identities; no mutation or human receipt'})
             return self.store.status(plan_id)
 
+    def cancel(self,plan_id):
+        from .native_once import selected_read_access
+        selected_read_access(self.name)
+        with self.serialized():
+            plan=self.store.read(self.store.path(plan_id,'.json'))
+            if plan.get('kind')!=self.kind or plan.get('payload',{}).get('account')!=self.account:
+                raise SafetyError('Cancellation belongs to another service or owner')
+            if self.store.path(plan_id,'.started').exists():
+                raise SafetyError('A started native action cannot be recalled; inspect its outcome')
+            path=self.store.path(plan_id,'.cancelled')
+            if not path.exists():self.store.write_once(path,{'plan_sha256':digest(plan),'cancelled_at':self.store.clock()})
+            return self.store.status(plan_id)
+
     def execute(self,plan_id):
-        context=self.context()
+        from .native_once import selected_read_access
+        selected_read_access(self.name)
         with self.serialized():
             candidate=self.store.proposal(plan_id)
+            temporary=candidate.get('payload',{}).get('context',{}).get('temporary_elevation')=='exact-batch-once'
+            context=self.context(temporary)
             self.assert_settled(candidate)
             payload=candidate['payload']
             if candidate['kind']!=self.kind or payload.get('account')!=self.account:
@@ -207,13 +230,17 @@ class NativeChanges:
             phase='pre_dispatch'
             try:
                 for index,item in enumerate(plan['payload']['changes']):
-                    if self.context()!=context:
+                    if self.context(temporary)!=context:
                         raise SafetyError('Native access changed between items')
                     phase='snapshot_recheck'
                     if self.adapter.snapshot(item)!=item.get('before'):
                         raise SafetyError('Native object changed immediately before dispatch')
+                    if self.context(temporary)!=context:
+                        raise SafetyError('Native access changed during the final snapshot check')
                     phase='mutation'
-                    outcome=self.adapter.apply(item)
+                    from .native_once import dispatch
+                    with dispatch(self.name,item) if temporary else nullcontext():
+                        outcome=self.adapter.apply(item)
                     attempt={'index':index,'operation':item['operation'],'result':outcome}
                     attempted.append(attempt)
                     self.store.write_once(self.store.path(plan_id,'.attempt-'+str(index)),

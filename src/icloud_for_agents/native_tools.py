@@ -60,6 +60,15 @@ def register_change_tools(mcp):
             return NativePermissions(name,owner()).execute(plan_id)
         mcp.tool(name=name+'_prepare_os_access',annotations=WRITE)(guard(prepare_os_access))
         mcp.tool(name=name+'_request_os_access',annotations=WRITE)(guard(request_os_access))
+        def prepare_once(changes:list[dict])->dict:
+            """Propose one exact temporary write batch from read-only access; no persistent elevation. Ordinary approval required."""
+            return editor(name).prepare_once(changes)
+        mcp.tool(name=name+'_prepare_once',annotations=WRITE)(guard(prepare_once))
+        def cancel_plan(plan_id:str)->dict:
+            """Cancel an unstarted exact native change plan. Cannot recall an in-flight write."""
+            check_plan_scope(name,plan_id)
+            return editor(name).cancel(plan_id)
+        mcp.tool(name=name+'_cancel_plan',annotations=WRITE)(guard(cancel_plan))
     for name in ('notes','reminders'):
         if enabled(name):register_permissions(name)
 
@@ -74,8 +83,8 @@ def register_change_tools(mcp):
         @guard
         def notes_execute_approved(plan_id:str)->dict:
             """Execute one exact Notes plan under the selected strict/trusted policy; never replay."""
-            require_write('notes');check_plan_scope('notes',plan_id)
-            return editor('notes',write=True).execute(plan_id)
+            check_plan_scope('notes',plan_id)
+            return editor('notes').execute(plan_id)
 
         @mcp.tool(annotations=READ)
         @guard
@@ -126,8 +135,8 @@ def register_change_tools(mcp):
         @guard
         def reminders_execute_approved(plan_id:str)->dict:
             """Execute an exact scoped Reminders plan with owner policy and one-shot admission."""
-            require_write('reminders');check_plan_scope('reminders',plan_id)
-            return editor('reminders',write=True).execute(plan_id)
+            check_plan_scope('reminders',plan_id)
+            return editor('reminders').execute(plan_id)
 
         @mcp.tool(annotations=READ)
         @guard

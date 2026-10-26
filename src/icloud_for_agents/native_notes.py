@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .core import SafetyError, digest
 from .native_access import require_write
+from .native_once import planning_access
 from .native_read import NativeReader, native_config
 from .notes_content import project_html
 from .native_protocol import mutation_request
@@ -132,7 +133,7 @@ class NotesCreateAdapter:
     def prepare_move(self,change):
         if set(change)-{'operation','source_id','folder_id','id','fields'}:
             raise SafetyError('Unknown move fields')
-        if change.get('source_id') not in require_write('notes')['source_ids']:raise SafetyError('Select an exact source')
+        if change.get('source_id') not in planning_access('notes')['source_ids']:raise SafetyError('Select an exact source')
         fields=change.get('fields')
         if not isinstance(fields,dict) or set(fields)!={'destination_folder_id'}:
             raise SafetyError('A move requires one exact destination folder')
@@ -163,7 +164,7 @@ class NotesCreateAdapter:
         if set(change)-{'operation','source_id','folder_id','id','fields'}:
             raise SafetyError('Unknown existing-note change fields')
         source=change.get('source_id')
-        if source not in require_write('notes')['source_ids']:raise SafetyError('Select an exact Notes source')
+        if source not in planning_access('notes')['source_ids']:raise SafetyError('Select an exact Notes source')
         for key in ('folder_id','id'):
             if not isinstance(change.get(key),str) or not 1<=len(change[key])<=1000:
                 raise SafetyError('Select an exact Notes folder and note ID')
@@ -194,7 +195,7 @@ class NotesCreateAdapter:
         if not isinstance(change,dict) or set(change)-{'operation','source_id','folder_id','parent_folder_id','fields'}:
             raise SafetyError('Unknown Notes change fields')
         operation=change.get('operation');source=change.get('source_id')
-        if operation not in self.operations or source not in require_write('notes')['source_ids']:
+        if operation not in self.operations or source not in planning_access('notes')['source_ids']:
             raise SafetyError('Unselected Notes operation/source')
         fields=change.get('fields')
         if operation!='create_folder' and 'parent_folder_id' in change:raise SafetyError('Parent selection applies only to folder creation')
@@ -239,7 +240,7 @@ class NotesCreateAdapter:
         return folder
 
     def apply(self,item):
-        require_write('notes')
+        require_write('notes',item)
         config=native_config('notes')
         request=mutation_request('notes',item)
         return self.reader._dispatch(request,config)['result']

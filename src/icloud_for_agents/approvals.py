@@ -111,6 +111,8 @@ class PlanStore:
             raise SafetyError("Invalid proposal")
         if self.clock() > plan["expires"]:
             raise SafetyError("Plan expired; prepare a new proposal")
+        if self.path(plan_id, ".cancelled").exists():
+            raise SafetyError("Plan cancelled; prepare a new proposal if needed")
         if self.path(plan_id, ".started").exists():
             raise SafetyError("Plan already started: inspect its result; never replay automatically")
         return plan
@@ -346,6 +348,10 @@ class PlanStore:
         return result
 
     def status(self, plan_id):
+        if self.path(plan_id,'.cancelled').exists():
+            record=self.read(self.path(plan_id,'.cancelled'));plan=self.read(self.path(plan_id,'.json'))
+            if record.get('plan_sha256')!=digest(plan):raise SafetyError('Cancellation does not bind this exact plan')
+            return {'status':'cancelled','plan_sha256':digest(plan),'do_not_retry':True}
         if self._native_recovery_completed(plan_id):
             return {"status":"observed_state_accepted_after_review","original_status":"failed_or_uncertain","identity_provenance":"reviewed association under selected policy, not a returned creation ID or independent human proof","do_not_retry":True}
         if self._native_correction_completed(plan_id):

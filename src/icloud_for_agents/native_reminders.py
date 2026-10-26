@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .core import SafetyError, digest
 from .native_access import require_write
+from .native_once import planning_access
 from .native_read import NativeReader, native_config
 from .native_protocol import mutation_request
 
@@ -56,7 +57,7 @@ class RemindersCreateAdapter:
         if set(change)-allowed or not isinstance(change.get('id'),str) or not change['id']:
             raise SafetyError('Existing reminder changes require one exact ID')
         operation=change['operation'];source=change.get('source_id');fields=change.get('fields')
-        if source not in require_write('reminders')['source_ids'] or not isinstance(fields,dict) or not fields:
+        if source not in planning_access('reminders')['source_ids'] or not isinstance(fields,dict) or not fields:
             raise SafetyError('Select an exact source and nonempty fields')
         if operation=='set_completed':
             if set(fields)!={'completed'} or type(fields['completed']) is not bool:
@@ -92,7 +93,7 @@ class RemindersCreateAdapter:
         if not isinstance(change,dict) or set(change)-{'operation','source_id','list_id','fields'}:
             raise SafetyError('Unknown Reminders change fields')
         source=change.get('source_id');operation=change.get('operation');fields=change.get('fields')
-        if operation not in self.operations or source not in require_write('reminders')['source_ids']:
+        if operation not in self.operations or source not in planning_access('reminders')['source_ids']:
             raise SafetyError('Unselected Reminders source or operation')
         allowed={'title'} if operation=='create_list' else {'title','notes','priority','due','start'}
         if not isinstance(fields,dict) or set(fields)-allowed:raise SafetyError('Unsupported reminder fields')
@@ -142,7 +143,7 @@ class RemindersCreateAdapter:
         if len(matches)!=1 or not matches[0].get('writable'):raise SafetyError('Reminder list is absent, unselected or read-only')
         return matches[0]
     def apply(self,item):
-        require_write('reminders');config=native_config('reminders')
+        require_write('reminders',item);config=native_config('reminders')
         request=mutation_request('reminders',item)
         return self.reader._dispatch(request,config)['result']
     def verify(self,item,outcome):
