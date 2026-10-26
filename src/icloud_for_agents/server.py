@@ -32,6 +32,7 @@ Never invoke the operator approval CLI yourself; the user reviews and runs it lo
 Native Notes and Reminders have independent opt-ins, exact source allowlists and
 application access modes. Native consent tools propose one user-handled macOS dialog;
 OS access does not enable application writes. Native standing grants remain incomplete.
+Follow native next_offset pages until done=true, including empty filtered pages.
 Inspect the corresponding plan_status after interruption; do not replay consumed plans.
 A native refused_without_dispatch result confirms no mutation for the refused item;
 earlier verified items and unattempted tail are reported separately. Resolve the cause

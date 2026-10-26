@@ -67,7 +67,7 @@ def register_change_tools(mcp):
         @mcp.tool(annotations=WRITE)
         @guard
         def notes_prepare_changes(changes:list[dict])->dict:
-            """Prepare <=20 exact creations, supported-note appends or explicit title/body replacements; native-object edits refused."""
+            """Prepare <=20 exact creations, supported body edits or same-source native-object moves; unsupported body rewrites refused."""
             return editor('notes',write=True).prepare(changes)
 
         @mcp.tool(annotations=WRITE)

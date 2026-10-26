@@ -52,7 +52,7 @@ def prepare_content(fields):
 
 
 class NotesCreateAdapter:
-    operations={'create_note','create_folder','append_note','update_note'}
+    operations={'create_note','create_folder','append_note','update_note','move_note'}
     def __init__(self):self.reader=NativeReader('notes')
 
     @property
@@ -80,8 +80,26 @@ class NotesCreateAdapter:
                 raise SafetyError('Folder discovery is incomplete; no write')
             offset=next_offset
 
-    def note_snapshot(self,item):
-        folder=self.reader.read('folder_get',folder_id=item['folder_id'])['folder']
+    def private_folder(self,folder_id,source_id):
+        initial=None;ancestors=[];seen=set();current=folder_id
+        for _ in range(32):
+            if current in seen:raise SafetyError('Cyclic Notes folder ancestry')
+            seen.add(current)
+            folder=self.reader.read('folder_get',folder_id=current)['folder']
+            if folder.get('id')!=current or folder.get('source_id')!=source_id or folder.get('shared') is not False:
+                raise SafetyError('The exact folder and every ancestor must be unshared in the selected source')
+            if initial is None:initial=dict(folder)
+            else:ancestors.append(folder)
+            parent=folder.get('parent_id')
+            if parent==source_id:
+                if ancestors:initial['private_ancestors']=ancestors
+                return initial
+            if not isinstance(parent,str) or not parent:raise SafetyError('Notes folder ancestry is unavailable')
+            current=parent
+        raise SafetyError('Notes folder ancestry exceeds the verified bound')
+
+    def note_snapshot(self,item,*,rewrite=True):
+        folder=self.private_folder(item['folder_id'],item['source_id'])
         note=self.reader.read('get',folder_id=item['folder_id'],id=item['id'])['item']
         if (folder.get('source_id')!=item['source_id'] or folder.get('shared') is not False
                 or note.get('id')!=item['id'] or note.get('folder_id')!=item['folder_id']
@@ -89,18 +107,57 @@ class NotesCreateAdapter:
                 or note.get('shared') is not False or note.get('truncated') is not False
                 or not isinstance(note.get('modified'),str)):
             raise SafetyError('Editing requires one saved, unlocked, unshared note in the selected folder')
-        attachments=self.reader.read('attachments',folder_id=item['folder_id'],id=item['id'],limit=1,offset=0)
-        if attachments.get('attachments')!=[] or attachments.get('done') is not True or attachments.get('locked'):
+        attachments=self.reader.read('attachments',folder_id=item['folder_id'],id=item['id'],limit=1 if rewrite else 100,offset=0)
+        if (rewrite and attachments.get('attachments')!=[]) or attachments.get('done') is not True or attachments.get('locked'):
             raise SafetyError('Existing native attachments cannot be rewritten by this adapter')
-        try:
-            # Refuse unsupported exported structures/attributes. Native objects,
-            # checklists and tables need their own preservation-capable route.
-            parser=SafeHTML();parser.feed(note['html']);parser.close()
-            projection=project_html(note['html'])
-            if projection['tables'] or not projection['text_projection_complete']:
-                raise SafetyError('Existing native objects need a preservation-capable edit route')
-        except ValueError:raise SafetyError('Existing Notes HTML cannot be safely edited') from None
-        return {'folder':folder,'note':note,'attachments':[]}
+        if rewrite:
+            try:
+                # Refuse unsupported exported structures/attributes. Native objects,
+                # checklists and tables need their own preservation-capable route.
+                parser=SafeHTML();parser.feed(note['html']);parser.close()
+                projection=project_html(note['html'])
+                if projection['tables'] or not projection['text_projection_complete']:
+                    raise SafetyError('Existing native objects need a preservation-capable edit route')
+            except ValueError:raise SafetyError('Existing Notes HTML cannot be safely edited') from None
+        return {'folder':folder,'note':note,'attachments':attachments['attachments']}
+
+    def move_snapshot(self,item):
+        before=self.note_snapshot(item,rewrite=False)
+        destination=self.private_folder(item['fields']['destination_folder_id'],item['source_id'])
+        if destination.get('source_id')!=item['source_id'] or destination.get('shared') is not False:
+            raise SafetyError('Move destination must be an unshared folder in the same source')
+        before['destination']=destination
+        return before
+
+    def prepare_move(self,change):
+        if set(change)-{'operation','source_id','folder_id','id','fields'}:
+            raise SafetyError('Unknown move fields')
+        if change.get('source_id') not in require_write('notes')['source_ids']:raise SafetyError('Select an exact source')
+        fields=change.get('fields')
+        if not isinstance(fields,dict) or set(fields)!={'destination_folder_id'}:
+            raise SafetyError('A move requires one exact destination folder')
+        for value in (change.get('id'),change.get('folder_id'),fields['destination_folder_id']):
+            if not isinstance(value,str) or not 1<=len(value)<=1000:raise SafetyError('Use exact note and folder IDs')
+        if change['folder_id']==fields['destination_folder_id']:raise SafetyError('Note is already in the requested folder')
+        item={key:change[key] for key in ('operation','source_id','folder_id','id')}
+        item['fields']=dict(fields);item['before']=self.move_snapshot(item)
+        item['fields']['title']=item['before']['note']['title']
+        item.update(fidelity_verified=True,effects={'existing_content':'Move the existing native object; no body or attachment rewrite',
+            'sharing':'same source and unshared note/folders only','verification':'exact exported HTML, text, creation metadata and exposed attachment identities',
+            'native_metadata':'unexposed native metadata and cloud sync remain unverified'})
+        return item
+
+    def verify_move(self,item,outcome):
+        destination=item['fields']['destination_folder_id']
+        if outcome.get('id')!=item['id'] or outcome.get('folder_id')!=destination:return False
+        self.private_folder(destination,item['source_id'])
+        note=self.reader.read('get',folder_id=destination,id=item['id'])['item'];before=item['before']['note']
+        if note.get('source_id')!=item['source_id'] or note.get('folder_id')!=destination:return False
+        if any(note.get(key)!=before.get(key) for key in ('id','title','html','text','created','locked','shared')):return False
+        if note.get('locked') is not False or note.get('shared') is not False or note.get('truncated'):return False
+        attachments=self.reader.read('attachments',folder_id=destination,id=item['id'],limit=100,offset=0)
+        if attachments.get('done') is not True or attachments.get('attachments')!=item['before']['attachments']:return False
+        return self.reader.read('contains',folder_id=item['folder_id'],id=item['id']).get('exists') is False
 
     def prepare_existing(self,change):
         if set(change)-{'operation','source_id','folder_id','id','fields'}:
@@ -131,6 +188,7 @@ class NotesCreateAdapter:
         return item
 
     def prepare(self,change):
+        if isinstance(change,dict) and change.get('operation')=='move_note':return self.prepare_move(change)
         if isinstance(change,dict) and change.get('operation') in {'append_note','update_note'}:
             return self.prepare_existing(change)
         if not isinstance(change,dict) or set(change)-{'operation','source_id','folder_id','fields'}:
@@ -162,13 +220,13 @@ class NotesCreateAdapter:
         return item
 
     def snapshot(self,item):
+        if item['operation']=='move_note':return self.move_snapshot(item)
         if item['operation'] in {'append_note','update_note'}:return self.note_snapshot(item)
         if item['operation']=='create_folder':
             folders=[f for f in self.folders() if f['source_id']==item['source_id'] and f['parent_id']==item['source_id']]
             return {'source_id':item['source_id'],'membership_sha256':digest(sorted(folders,key=lambda f:f['id'])),
                     'root_folder_count':len(folders),'matching_titles':sum(f['title']==item['fields']['title'] for f in folders)}
-        folder=self.reader.read('folder_get',folder_id=item['folder_id'])['folder']
-        if folder['source_id']!=item['source_id']:raise SafetyError('Folder belongs to another Notes source')
+        folder=self.private_folder(item['folder_id'],item['source_id'])
         return folder
 
     def apply(self,item):
@@ -179,6 +237,7 @@ class NotesCreateAdapter:
 
     def verify(self,item,outcome):
         if outcome.get('source_id')!=item['source_id'] or not isinstance(outcome.get('id'),str):return False
+        if item['operation']=='move_note':return self.verify_move(item,outcome)
         if item['operation']=='create_folder':
             return any(f['id']==outcome['id'] and f['title']==item['fields']['title']
                        and f['source_id']==item['source_id'] and f.get('parent_id')==item['source_id'] for f in self.folders())
@@ -191,6 +250,7 @@ class NotesCreateAdapter:
         if not actual['text_projection_complete']:return False
         if actual['tables']!=expected['tables'] or actual['links']!=expected['links']:return False
         expected_text=expected['text']
+        if item['operation'] in {'append_note','update_note'} and note.get('created')!=item['before']['note'].get('created'):return False
         if item['operation']=='append_note' and not note.get('html','').startswith(item['before']['note']['html'].rstrip()):return False
         if item['operation'] in {'append_note','update_note'}:return actual['text']==expected_text
         return actual['text'] in {expected_text,' '.join((item['fields']['title']+' '+expected_text).split())}

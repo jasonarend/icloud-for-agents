@@ -12,10 +12,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 FIXTURE = r'''
 const fixtureNotes = [
- {id:()=> 'note-1',name:()=> 'Synthetic plain',passwordProtected:()=> false,shared:()=>false,
-  attachments:()=>[{id:()=> 'attachment-1',name:()=> 'synthetic.pdf',contentIdentifier:()=> 'cid:synthetic'}],body:()=> '<div>Synthetic content</div><object><table><tr><td>Table-only token</td></tr></table></object>',plaintext:()=> 'Synthetic content',
-  modificationDate:()=> null},
- {id:()=> 'note-2',name:()=> 'Synthetic locked',passwordProtected:()=> true,
+ {id:()=> 'note-1',name:()=> 'Synthetic plain',container:()=>({id:()=> 'folder-1'}),passwordProtected:()=> false,shared:()=>false,
+  attachments:()=>[{id:()=> 'attachment-1',name:()=> null,contentIdentifier:()=> 'cid:synthetic'}],body:()=> '<div>Synthetic content</div><object><table><tr><td>Table-only token</td></tr></table></object>',plaintext:()=> 'Synthetic content',
+  creationDate:()=> new Date('2026-01-01T00:00:00Z'),modificationDate:()=> null},
+ {id:()=> 'note-2',name:()=> 'Synthetic locked',container:()=>({id:()=> 'folder-1'}),passwordProtected:()=> true,
   body:()=> {throw Error('locked_content_was_read');},plaintext:()=> {throw Error('locked_content_was_read');}}
 ];
 const notesCollection = ()=>fixtureNotes;
@@ -57,6 +57,11 @@ print(result)
         embedded=subprocess.run([str(bridge),str(script)],input=json.dumps({'protocol_version':1,'action':'get','source_ids':['selected'],'folder_id':'folder-1','id':'note-1'}),capture_output=True,text=True,timeout=10)
         assert embedded.returncode==0,embedded.stderr
         assert json.loads(embedded.stdout)['item']['text']=='Synthetic content'
+        assert call('contains',folder_id='folder-1',id='note-1')['exists'] is True
+        assert call('contains',folder_id='folder-1',id='missing')['exists'] is False
+        assert call('contains',folder_id='folder-child',id='note-1')['exists'] is False
+        child_page=call('query',folder_id='folder-child',limit=1,offset=0)
+        assert child_page['items']==[] and child_page['next_offset']==1 and child_page['done'] is False
         folders=call('folders')['folders']
         assert len(folders)==2 and len({f['id'] for f in folders})==2,folders
         assert next(f for f in folders if f['id']=='folder-child')['parent_id']=='folder-1'
@@ -82,15 +87,18 @@ print(result)
         assert len(table_search['table_projection_candidates'])==1
         attachments=call('attachments',folder_id='folder-1',id='note-1',limit=1,offset=0)
         assert attachments['attachments'][0]['id']=='attachment-1' and attachments['content_downloaded'] is False
+        assert attachments['attachments'][0]['name'] is None
         locked_attachments=call('attachments',folder_id='folder-1',id='note-2',limit=1,offset=0)
         assert locked_attachments['locked'] is True and locked_attachments['content_available'] is False
         invalid=subprocess.run(['/usr/bin/osascript','-l','JavaScript',str(script)],
             input=json.dumps({'protocol_version':1,'action':'get','source_ids':['selected'],
                               'folder_id':'missing','id':'note-1'}),capture_output=True,text=True,timeout=10)
         assert invalid.returncode!=0 and 'not_found_in_scope' in invalid.stderr
+        alias=subprocess.run(['/usr/bin/osascript','-l','JavaScript',str(script)],input=json.dumps({'protocol_version':1,'action':'get','source_ids':['selected'],'folder_id':'folder-child','id':'note-1'}),capture_output=True,text=True,timeout=10)
+        assert alias.returncode!=0 and 'not_found_in_scope' in alias.stderr
     return {'status':'passed','synthetic_only':True,'native_app_acceptance':False,
             'contract_cases':['nested_folder_deduplication','account_scope','bounded_pages',
-                              'exact_plain_note','locked_content_not_read','unknown_folder_refused','osakit_embedding','scoped_plaintext_search','locked_search_exclusion','attachment_metadata_only']}
+                              'exact_plain_note','locked_content_not_read','unknown_folder_refused','osakit_embedding','scoped_plaintext_search','locked_search_exclusion','attachment_metadata_only','nullable_native_attachment_name','exact_physical_container','empty_filtered_page_progression']}
 
 
 if __name__=='__main__':

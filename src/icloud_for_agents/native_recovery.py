@@ -34,7 +34,7 @@ class NotesCreationRecovery:
         return plan,result,changes[0]
 
     def snapshot(self,item,candidate_id):
-        folder=self.adapter.reader.read('folder_get',folder_id=item['folder_id'])['folder']
+        folder=self.adapter.private_folder(item['folder_id'],item['source_id'])
         if folder.get('source_id')!=item['source_id'] or folder.get('shared') is not False:
             raise SafetyError('Recovery folder is outside scope or shared')
         note=self.adapter.reader.read('get',folder_id=item['folder_id'],id=candidate_id)['item']

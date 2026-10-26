@@ -95,7 +95,7 @@ responseRequestID = req["request_id"] as? String
 requestAction=action
 guard let service=req["service"] as? String, ["notes","reminders"].contains(service) else { fail("unsupported_service") }
 if service == "notes" {
-    guard ["status", "request_access", "sources", "folders", "folder_get", "query", "get", "search", "attachments", "diagnose_note", "apply", "diagnose_read_access"].contains(action) else { fail("unsupported_action") }
+    guard ["status", "request_access", "sources", "folders", "folder_get", "query", "get", "search", "attachments", "diagnose_note", "contains", "apply", "diagnose_read_access"].contains(action) else { fail("unsupported_action") }
     if action == "diagnose_read_access" {
         // Explicit operator setup probe: a real, minimal read through normal OS
         // enforcement. Does not inspect note bodies, alter policy or approve consent.

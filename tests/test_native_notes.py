@@ -11,12 +11,17 @@ from icloud_for_agents.native_notes import NotesCreateAdapter, prepare_content
 class Reader:
     def __init__(self):
         self.folder={'id':'folder','title':'Synthetic','source_id':'selected','parent_id':'selected','shared':False}
-        self.note={'id':'created','title':'Spec','text':'Spec Body','html':'<div>Spec</div><div>Body</div>','locked':False,'truncated':False,'shared':False,'source_id':'selected','folder_id':'folder','modified':'2026-10-26T12:00:00Z'}
+        self.destination={'id':'destination','title':'Destination','source_id':'selected','parent_id':'selected','shared':False}
+        self.parents={};self.attachments=[]
+        self.note={'id':'created','title':'Spec','text':'Spec Body','html':'<div>Spec</div><div>Body</div>','locked':False,'truncated':False,'shared':False,'source_id':'selected','folder_id':'folder','modified':'2026-10-26T12:00:00Z','created':'2026-10-25T12:00:00Z'}
     def read(self,action,**fields):
         if action=='folders':return {'folders':[dict(self.folder)],'done':True}
-        if action=='folder_get':return {'folder':dict(self.folder)}
+        if action=='folder_get':
+            value=self.destination if fields['folder_id']=='destination' else self.parents.get(fields['folder_id'],self.folder)
+            return {'folder':dict(value)}
         if action=='get':return {'item':dict(self.note)}
-        if action=='attachments':return {'attachments':[],'done':True}
+        if action=='attachments':return {'attachments':list(self.attachments),'done':True}
+        if action=='contains':return {'exists':fields['folder_id']==self.note['folder_id'] and fields['id']==self.note['id']}
         raise AssertionError(action)
 
 
@@ -119,3 +124,40 @@ class NativeNotesTests(unittest.TestCase):
         item=self.edit()
         self.reader.note['html']=item['fields']['html'].replace('<b>Body</b>','Body')
         self.assertFalse(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
+
+    def move(self):
+        return self.adapter.prepare({'operation':'move_note','source_id':'selected','folder_id':'folder','id':'created',
+                                     'fields':{'destination_folder_id':'destination'}})
+    def test_native_move_preserves_rich_html_and_attachment_identities(self):
+        self.reader.note['html']='<div>Spec</div><object><table><tr><td>Native cell</td></tr></table></object>'
+        self.reader.attachments=[{'id':'asset','name':'synthetic.pdf','content_identifier':'cid:asset','note_id':'created'}]
+        item=self.move();self.assertNotIn('html',item['fields'])
+        self.assertEqual(item['before']['attachments'],self.reader.attachments)
+        self.reader.note['folder_id']='destination'
+        outcome={'id':'created','source_id':'selected','folder_id':'destination'}
+        self.assertTrue(self.adapter.verify(item,outcome))
+        self.reader.note['html']='<div>Missing table</div>'
+        self.assertFalse(self.adapter.verify(item,outcome))
+    def test_move_refuses_other_sources_shared_destinations_and_noop(self):
+        for key,value in [('source_id','other'),('shared',True)]:
+            previous=self.reader.destination[key];self.reader.destination[key]=value
+            with self.subTest(key=key),self.assertRaises(SafetyError):self.move()
+            self.reader.destination[key]=previous
+        with self.assertRaises(SafetyError):
+            self.adapter.prepare({'operation':'move_note','source_id':'selected','folder_id':'folder','id':'created','fields':{'destination_folder_id':'folder'}})
+    def test_shared_or_unavailable_ancestors_refuse_before_content_access(self):
+        parent={'id':'parent','title':'Parent','source_id':'selected','parent_id':'selected','shared':True}
+        self.reader.parents['parent']=parent;self.reader.destination['parent_id']='parent'
+        with self.assertRaises(SafetyError):self.move()
+        parent['shared']=False;item=self.move()
+        self.assertEqual(item['before']['destination']['private_ancestors'],[parent])
+        parent['parent_id']='parent'
+        with self.assertRaises(SafetyError):self.move()
+    def test_move_readback_rejects_changed_assets_creation_or_destination(self):
+        self.reader.attachments=[{'id':'asset','name':'synthetic.pdf','content_identifier':'cid:asset','note_id':'created'}]
+        item=self.move();self.reader.note['folder_id']='destination';outcome={'id':'created','source_id':'selected','folder_id':'destination'}
+        self.assertTrue(self.adapter.verify(item,outcome))
+        self.reader.attachments=[];self.assertFalse(self.adapter.verify(item,outcome))
+        self.reader.attachments=item['before']['attachments'];self.reader.note['created']='changed'
+        self.assertFalse(self.adapter.verify(item,outcome))
+        self.assertFalse(self.adapter.verify(item,dict(outcome,folder_id='folder')))

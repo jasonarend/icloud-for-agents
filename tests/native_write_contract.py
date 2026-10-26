@@ -7,24 +7,32 @@ import tempfile
 ROOT=Path(__file__).resolve().parents[1]
 FIXTURE=r'''
 const folder={id:()=> 'folder',name:()=> 'Existing',container:()=>({id:()=> 'selected'}),shared:()=>false,folders:()=>[]};
-const roots=()=>[folder];
+let moved=false,destinationShared=false,moveFails=false,namelessAttachment=false,ancestorShared=false;
+const parent={id:()=> 'parent',name:()=> 'Parent',container:()=>({id:()=> 'selected'}),shared:()=>ancestorShared,folders:()=>[]};
+const destination={id:()=> 'destination',name:()=> 'Destination',container:()=>({id:()=>ancestorShared?'parent':'selected'}),shared:()=>destinationShared,folders:()=>[],notes:{id:()=>moved?['move-id']:[]}};
+const moving={id:()=> 'move-id',container:()=>({id:()=>moved?'destination':'folder'}),name:()=> 'Rich move fixture',passwordProtected:()=>false,shared:()=>false,
+ modificationDate:()=>new Date('2026-10-26T12:00:00Z'),
+ body:()=> '<div>Rich move fixture</div><object><table><tr><td>Cell</td></tr></table></object>',
+ attachments:()=>[{id:()=> 'asset',name:()=>namelessAttachment?null:'synthetic.pdf',contentIdentifier:()=> 'cid:asset'}],
+ move:options=>{if(options.to.id()!=='destination')throw Error('wrong_destination');moved=true;if(moveFails)throw Error('failed_after_move');}};
+const roots=()=>[folder,destination,parent];
 roots.push=f=>{if(f.name()!=='New folder')throw Error('unexpected_folder');};
 let makeAmbiguous=false, makeConstructorFail=false, makeEditFail=false;
 let repairBody='<div>Synthetic partial</div>';
-const repair={name:()=> 'Synthetic partial',passwordProtected:()=>false,shared:()=>false,
+const repair={container:()=>({id:()=> 'folder'}),name:()=> 'Synthetic partial',passwordProtected:()=>false,shared:()=>false,
  attachments:()=>[],modificationDate:()=>null,id:()=>{
  if(repairBody!=='<div>Synthetic partial</div><div>Repaired body</div>')throw Error('repair_body_mismatch');
  return 'repair-id';}};
 Object.defineProperty(repair,'body',{get:()=>()=>repairBody,set:value=>{repairBody=value;}});
 let editBody='<div>Existing</div><div>Body</div>', requestedEditBody='';
-const editable={name:()=> 'Existing',passwordProtected:()=>false,shared:()=>false,
+const editable={container:()=>({id:()=> 'folder'}),name:()=> 'Existing',passwordProtected:()=>false,shared:()=>false,
  attachments:()=>[],modificationDate:()=>new Date('2026-10-26T12:00:00Z'),id:()=>{
  if(editBody!==requestedEditBody)throw Error('edit_body_mismatch');return 'edit-id';}};
 Object.defineProperty(editable,'body',{get:()=>()=>editBody,set:value=>{editBody=value;if(makeEditFail)throw Error('setter_failed_after_write');}});
-const saved=['temporary-old','repair-id','edit-id'];
-folder.notes={id:()=>saved.slice(),byId:id=>id==='edit-id'?editable:id==='repair-id'?repair:({name:()=>(id==='new-note' || id==='other-new')?"'); Application('Mail'); //":'Old draft'}),push:n=>{
+const saved=['temporary-old','repair-id','edit-id','move-id'];
+folder.notes={id:()=>saved.filter(id=>id!=='move-id' || !moved),byId:id=>id==='move-id'?moving:id==='edit-id'?editable:id==='repair-id'?repair:({name:()=>(id==='new-note' || id==='other-new')?"'); Application('Mail'); //":'Old draft'}),push:n=>{
  if(n.body()!=="<div>&#39;); Application(&#39;Mail&#39;); //</div><div>Body</div>")throw Error('unexpected_body');
- saved.splice(0,saved.length,'permanent-old','repair-id','edit-id','new-note');
+ saved.splice(0,saved.length,'permanent-old','repair-id','edit-id','move-id','new-note');
  if(makeAmbiguous)saved.push('other-new');
 }};
 const account={id:()=> 'selected',folders:roots};
@@ -42,15 +50,18 @@ def run():
 function run() {
  const data=$.NSFileHandle.fileHandleWithStandardInput.readDataToEndOfFile;
  const req=JSON.parse(ObjC.unwrap($.NSString.alloc.initWithDataEncoding(data,$.NSUTF8StringEncoding)));
+ ancestorShared=req.synthetic_ancestor_shared===true;
+ namelessAttachment=req.synthetic_nameless_attachment===true;
+ destinationShared=req.synthetic_destination_shared===true;moveFails=req.synthetic_move_fail===true;
  makeAmbiguous=req.synthetic_ambiguous===true;
  makeConstructorFail=req.synthetic_constructor_fail===true;makeEditFail=req.synthetic_edit_fail===true;
  requestedEditBody=req.change.fields.html;
  return applyNotes(app,req);
 }
 ''')
-        def call(change,ids=None,ambiguous=False,constructor_fail=False,edit_fail=False):
+        def call(change,ids=None,ambiguous=False,constructor_fail=False,edit_fail=False,destination_shared=False,move_fail=False,nameless=False,ancestor_shared=False):
             return subprocess.run(['/usr/bin/osascript','-l','JavaScript',str(script)],
-                input=json.dumps({'protocol_version':1,'action':'apply','source_ids':ids or ['selected'],'change':change,'synthetic_ambiguous':ambiguous,'synthetic_constructor_fail':constructor_fail,'synthetic_edit_fail':edit_fail}),
+                input=json.dumps({'protocol_version':1,'action':'apply','source_ids':ids or ['selected'],'change':change,'synthetic_ambiguous':ambiguous,'synthetic_constructor_fail':constructor_fail,'synthetic_edit_fail':edit_fail,'synthetic_destination_shared':destination_shared,'synthetic_move_fail':move_fail,'synthetic_nameless_attachment':nameless,'synthetic_ancestor_shared':ancestor_shared}),
                 capture_output=True,text=True,timeout=10)
         note={'operation':'create_note','source_id':'selected','folder_id':'folder',
               'fields':{'title':"'); Application('Mail'); //",'html':'<div>Body</div>'}}
@@ -79,6 +90,21 @@ function run() {
             assert json.loads(call(changed).stdout)['category']=='snapshot_changed'
             assert json.loads(call(changed).stdout)['mutation_dispatched'] is False
             assert json.loads(call(edit,edit_fail=True).stdout)['mutation_dispatched'] is True
+        move={'operation':'move_note','source_id':'selected','folder_id':'folder','id':'move-id',
+              'fields':{'title':'Rich move fixture','destination_folder_id':'destination'},
+              'before':{'note':{'title':'Rich move fixture','html':'<div>Rich move fixture</div><object><table><tr><td>Cell</td></tr></table></object>',
+                                'modified':'2026-10-26T12:00:00.000Z'},
+                        'attachments':[{'note_id':'move-id','content_identifier':'cid:asset','name':'synthetic.pdf','id':'asset'}]}}
+        result=call(move);assert result.returncode==0,result.stderr
+        nameless_move=dict(move,before={**move['before'],'attachments':[dict(move['before']['attachments'][0],name=None)]})
+        assert json.loads(call(nameless_move,nameless=True).stdout)['result']['id']=='move-id'
+        assert json.loads(result.stdout)['result']['folder_id']=='destination'
+        inherited=json.loads(call(move,ancestor_shared=True).stdout)
+        assert inherited['category']=='shared_write_not_supported' and inherited['mutation_dispatched'] is False
+        refused=json.loads(call(move,destination_shared=True).stdout)
+        assert refused['category']=='shared_write_not_supported' and refused['mutation_dispatched'] is False
+        uncertain=json.loads(call(move,move_fail=True).stdout)
+        assert uncertain['mutation_dispatched'] is True and 'result' not in uncertain
         folder={'operation':'create_folder','source_id':'selected','fields':{'title':'New folder'}}
         response=call(folder);assert response.returncode==0,response.stderr
         assert json.loads(response.stdout)['result']['id']=='new-folder'
@@ -93,7 +119,7 @@ function run() {
         assert response.returncode==0 and json.loads(response.stdout)['category']=='duplicate_folder'
     return {'status':'passed','synthetic_only':True,'native_app_acceptance':False,
             'contract_cases':['create_note','create_folder','title_is_data','source_scope',
-                              'unknown_folder','unknown_operation','duplicate_folder','unrelated_temporary_identity_transition','ambiguous_creation_identity','exact_title_only_repair','changed_repair_snapshot_refused','existing_note_append_and_replace','changed_edit_snapshot_refused','dispatch_evidence_before_constructor_and_setter','validation_refusal_before_dispatch']}
+                              'unknown_folder','unknown_operation','duplicate_folder','unrelated_temporary_identity_transition','ambiguous_creation_identity','exact_title_only_repair','changed_repair_snapshot_refused','existing_note_append_and_replace','changed_edit_snapshot_refused','dispatch_evidence_before_constructor_and_setter','validation_refusal_before_dispatch','native_move_with_attachment_inventory','shared_destination_refused','move_failure_after_effect_uncertain','shared_ancestor_refused','nullable_native_attachment_preserved']}
 
 
 if __name__=='__main__':

@@ -5,7 +5,7 @@ function readRequest() {
     const text = ObjC.unwrap($.NSString.alloc.initWithDataEncoding(data, $.NSUTF8StringEncoding));
     if (text.length > 65536) throw Error('invalid_request');
     const req = JSON.parse(text);
-    if (req.protocol_version !== 1 || !['sources','folders','folder_get','query','get','search','attachments','diagnose_note'].includes(req.action)) throw Error('unsupported_action');
+    if (req.protocol_version !== 1 || !['sources','folders','folder_get','query','get','search','attachments','diagnose_note','contains'].includes(req.action)) throw Error('unsupported_action');
     return req;
 }
 function run() { const req=readRequest(); return readNotes(Application('Notes'), req); }
@@ -42,7 +42,9 @@ function readNotes(app, req) {
         while(offset<refs.length && scanned<100 && items.length+projections.length<req.limit) {
             const ref=refs[offset++];scanned++;
             try {
-                const note=ref.folder.object.notes.byId(ref.id), title=note.name(), locked=note.passwordProtected();
+                const note=ref.folder.object.notes.byId(ref.id);
+                if(note.container().id()!==ref.folder.object.id())continue;
+                const title=note.name(), locked=note.passwordProtected();
                 let body='';
                 if(locked)lockedSkipped++;
                 else {const full=note.plaintext();body=full.slice(0,100000);if(full.length>100000)truncatedBodies++;}
@@ -79,9 +81,11 @@ function readNotes(app, req) {
     const folder = matches[0];
     if (req.action==='folder_get') return JSON.stringify({protocol_version:1,folder:{id:folder.object.id(),title:folder.object.name(),source_id:folder.source,parent_id:folder.object.container().id(),shared:folder.object.shared()}});
     const ids = folder.object.notes.id();
+    if(req.action==='contains')return JSON.stringify({protocol_version:1,exists:ids.includes(req.id) && folder.object.notes.byId(req.id).container().id()===req.folder_id,source_id:folder.source,folder_id:req.folder_id});
     if (req.action === 'get' || req.action==='attachments' || req.action==='diagnose_note') {
         if (!ids.includes(req.id)) throw Error('not_found_in_scope');
         const n = folder.object.notes.byId(req.id);
+        if(n.container().id()!==req.folder_id)throw Error('not_found_in_scope');
         // Locked notes must not be read or implicitly unlocked.
         let locked;
         try { locked = n.passwordProtected(); } catch (_) { throw Error('lock_status_unavailable'); }
@@ -95,12 +99,23 @@ function readNotes(app, req) {
                 try {const value=n[key]();fields[key]={type:typeof value,is_null:value===null,length:typeof value==='string'?value.length:null,is_date:value instanceof Date};}
                 catch(error) {const match=String(error).match(/-\d{3,6}/);fields[key]={error_code:match?Number(match[0]):null};}
             });
-            return JSON.stringify({protocol_version:1,field_diagnostics:fields});
+            const attachmentDiagnostics=[];
+            try {
+                const all=n.attachments();
+                all.slice(0,10).forEach(a=>{
+                    const item={};['id','name','contentIdentifier'].forEach(key=>{
+                        try {const value=a[key]();item[key]={type:typeof value,is_null:value===null,length:typeof value==='string'?value.length:null};}
+                        catch(error) {const match=String(error).match(/-\d{3,6}/);item[key]={error_code:match?Number(match[0]):null};}
+                    });attachmentDiagnostics.push(item);
+                });
+                fields.attachment_count={count:all.length};
+            } catch(error) {const match=String(error).match(/-\d{3,6}/);fields.attachment_count={error_code:match?Number(match[0]):null};}
+            return JSON.stringify({protocol_version:1,field_diagnostics:fields,attachment_diagnostics:attachmentDiagnostics});
         }
         if(req.action==='attachments') {
             if(!Number.isInteger(req.limit) || req.limit<1 || req.limit>100 || !Number.isInteger(req.offset) || req.offset<0 || req.offset>100000)throw Error('invalid_page');
             const all=n.attachments().slice().sort((a,b)=>a.id().localeCompare(b.id()));
-            const page=all.slice(req.offset,req.offset+req.limit).map(a=>({id:a.id(),name:a.name().slice(0,1000),content_identifier:a.contentIdentifier(),note_id:req.id}));
+            const page=all.slice(req.offset,req.offset+req.limit).map(a=>{const name=a.name();return {id:a.id(),name:typeof name==='string'?name.slice(0,1000):null,content_identifier:a.contentIdentifier(),note_id:req.id};});
             return JSON.stringify({protocol_version:1,attachments:page,done:req.offset+page.length>=all.length,
                 next_offset:req.offset+page.length,content_downloaded:false,metadata_complete:false});
         }
@@ -108,15 +123,17 @@ function readNotes(app, req) {
         const plain = n.plaintext();
         return JSON.stringify({protocol_version:1,item:{id:n.id(),source_id:folder.source,folder_id:req.folder_id,
             title:n.name().slice(0,1000),html:body.slice(0,100000),text:plain.slice(0,100000),
-            truncated:body.length>100000 || plain.length>100000 || n.name().length>1000,modified:n.modificationDate() ? n.modificationDate().toISOString() : null,
+            truncated:body.length>100000 || plain.length>100000 || n.name().length>1000,created:n.creationDate()?n.creationDate().toISOString():null,modified:n.modificationDate() ? n.modificationDate().toISOString() : null,
             locked:false,shared:n.shared(),content_complete:false,omitted_features:['native_objects','attachments','collaboration_metadata']}});
     }
     if (!Number.isInteger(req.limit) || req.limit < 1 || req.limit > 100 || !Number.isInteger(req.offset) || req.offset < 0 || req.offset > 100000) throw Error('invalid_page');
     const sorted = ids.slice().sort();
-    const page = sorted.slice(req.offset,req.offset+req.limit).map(id => {
+    const scanned=sorted.slice(req.offset,req.offset+req.limit);
+    const page = scanned.map(id => {
         const n=folder.object.notes.byId(id);
+        if(n.container().id()!==req.folder_id)return null;
         return {id:id,title:n.name().slice(0,1000),source_id:folder.source,folder_id:req.folder_id};
-    });
-    return JSON.stringify({protocol_version:1,items:page,done:req.offset+page.length>=sorted.length,
-        next_offset:req.offset+page.length,pagination_consistency:'live_offset_may_shift'});
+    }).filter(n=>n!==null);
+    return JSON.stringify({protocol_version:1,items:page,done:req.offset+scanned.length>=sorted.length,
+        next_offset:req.offset+scanned.length,pagination_consistency:'live_offset_may_shift'});
 }

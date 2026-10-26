@@ -12,7 +12,7 @@ from .core import SafetyError, NativeOperationRefused, digest
 from .services import enabled
 
 
-READ_ACTIONS = {'notes': {'status', 'sources', 'folders', 'folder_get', 'query', 'get', 'search', 'attachments', 'diagnose_note'},
+READ_ACTIONS = {'notes': {'status', 'sources', 'folders', 'folder_get', 'query', 'get', 'search', 'attachments', 'diagnose_note', 'contains'},
                 'reminders': {'status', 'sources', 'lists', 'query', 'get'}}
 MAX_OUTPUT = 2_000_000
 
@@ -170,7 +170,7 @@ class NativeReader:
                         raise SafetyError('Notes Automation permission is required for the native helper app')
                     code=response.get('error_code')
                     detail=(' (Apple event code '+str(code)+')') if type(code) is int else ''
-                    if response.get('stage') in {'validation','folder_lookup','membership_before','note_constructor','note_insert','membership_after'}:detail+=' at '+response['stage']
+                    if response.get('stage') in {'validation','folder_lookup','membership_before','note_constructor','note_insert','membership_after','note_move'}:detail+=' at '+response['stage']
                     raise SafetyError('Native Notes operation failed'+detail+'; no automatic retry')
                 return response
             command = [str(path)]
@@ -314,7 +314,7 @@ def register_read_tools(mcp):
         @mcp.tool(annotations=annotations)
         @guard
         def notes_query(folder_id: str, limit: int = 50, offset: int = 0) -> dict:
-            """Read a bounded title page in one exact folder; use notes_search for content."""
+            """Read a bounded title page in one exact physical folder; follow next_offset even on empty pages."""
             return NativeReader('notes').read('query', folder_id=folder_id, limit=limit, offset=offset)
 
         @mcp.tool(annotations=annotations)
