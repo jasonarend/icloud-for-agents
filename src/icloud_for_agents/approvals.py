@@ -288,8 +288,8 @@ class PlanStore:
                 or not isinstance(evidence.get('helper_response_sha256'),str)
                 or not re.fullmatch(r'[0-9a-f]{64}',evidence['helper_response_sha256'])
                 or len(attempts)!=index or result.get('completed')!=attempts):return False
-        expected={'protocol_version':1,'service':plan['kind'].removesuffix('_change'),'action':'apply',
-                  'source_ids':[changes[index]['source_id']],'change':changes[index]}
+        from .native_protocol import mutation_request
+        expected=mutation_request(plan['kind'].removesuffix('_change'),changes[index])
         if evidence.get('request_sha256')!=digest(expected):return False
         for position,attempt in enumerate(attempts):
             if (attempt.get('index')!=position or attempt.get('operation')!=changes[position].get('operation')

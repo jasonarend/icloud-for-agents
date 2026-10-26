@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from .core import SafetyError, digest
 from .native_access import require_write
 from .native_read import NativeReader, native_config
+from .native_protocol import mutation_request
 
 
 def validate_date(value):
@@ -142,7 +143,7 @@ class RemindersCreateAdapter:
         return matches[0]
     def apply(self,item):
         require_write('reminders');config=native_config('reminders')
-        request={'protocol_version':1,'service':'reminders','action':'apply','source_ids':[item['source_id']],'change':item}
+        request=mutation_request('reminders',item)
         return self.reader._dispatch(request,config)['result']
     def verify(self,item,outcome):
         if outcome.get('source_id')!=item['source_id'] or not isinstance(outcome.get('id'),str):return False

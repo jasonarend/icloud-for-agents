@@ -6,10 +6,12 @@ operations, preserve unrelated native data, and provide independent readback.
 from contextlib import contextmanager
 import fcntl
 import os
+import json
 import stat
 
 from .core import SafetyError, NativeOperationRefused, canonical, digest
 from .native_access import require_write
+from .native_protocol import mutation_request
 
 
 class NativeChanges:
@@ -56,6 +58,8 @@ class NativeChanges:
             raise SafetyError('Native operation cannot preserve required content')
         if not isinstance(item.get('effects'),dict):
             raise SafetyError('Native operation must describe its effects')
+        if len(json.dumps(mutation_request(self.name,item),ensure_ascii=False).encode())>65000:
+            raise SafetyError('Native operation exceeds the fixed request limit; narrow the content or attachment scope')
 
     @contextmanager
     def serialized(self):
@@ -224,7 +228,7 @@ class NativeChanges:
                 result={'status':'failed_or_uncertain','attempted':attempted,'completed':completed,'do_not_retry':True,
                         'phase':phase,'message':'Inspect exact objects and reconcile; no automatic retry or rollback'}
                 if isinstance(exc,SafetyError):result['safety_reason']=str(exc)
-                expected_request={'protocol_version':1,'service':self.name,'action':'apply','source_ids':[item['source_id']],'change':item}
+                expected_request=mutation_request(self.name,item)
                 if (isinstance(exc,NativeOperationRefused) and phase=='mutation'
                         and exc.evidence.get('mutation_dispatched') is False
                         and exc.evidence.get('request_sha256')==digest(expected_request)

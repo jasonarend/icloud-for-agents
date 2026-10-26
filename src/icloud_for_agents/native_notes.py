@@ -9,6 +9,7 @@ from .core import SafetyError, digest
 from .native_access import require_write
 from .native_read import NativeReader, native_config
 from .notes_content import project_html
+from .native_protocol import mutation_request
 
 
 class SafeHTML(HTMLParser):
@@ -173,8 +174,7 @@ class NotesCreateAdapter:
     def apply(self,item):
         require_write('notes')
         config=native_config('notes')
-        request={'protocol_version':1,'service':'notes','action':'apply',
-                 'source_ids':[item['source_id']],'change':item}
+        request=mutation_request('notes',item)
         return self.reader._dispatch(request,config)['result']
 
     def verify(self,item,outcome):
