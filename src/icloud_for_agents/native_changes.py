@@ -157,7 +157,8 @@ class NativeChanges:
                     completed.append({'index':index,'operation':item['operation'],'result':outcome})
                 result={'status':'applied','attempted':attempted,'completed':completed,'do_not_retry':True,
                         'sync_status':'unconfirmed','plan_sha256':digest(plan)}
-            except Exception:
+            except Exception as exc:
                 result={'status':'failed_or_uncertain','attempted':attempted,'completed':completed,'do_not_retry':True,
                         'phase':phase,'message':'Inspect exact objects and reconcile; no automatic retry or rollback'}
+                if isinstance(exc,SafetyError):result['safety_reason']=str(exc)
             return self.store.finish(plan_id,result)

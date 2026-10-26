@@ -35,6 +35,7 @@ class NativeAccessTests(unittest.TestCase):
         with patch.dict(os.environ,{'ICLOUD_ENABLE_NOTES':'1'},clear=True):
             status=access_status('notes')
             self.assertEqual(status['os_permission'],'not_checked')
-            self.assertFalse(status['writes_implemented'])
+            self.assertTrue(status['writes_implemented'])
+            self.assertEqual(status['effective_access'],'read-only')
             self.assertFalse(status['standing_grants_implemented'])
             self.assertNotIn('helper_path',status)

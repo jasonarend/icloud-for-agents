@@ -1,0 +1,106 @@
+"""Client-neutral exact native creation plans and read-only outcome reconciliation."""
+from functools import wraps
+import os
+from fastmcp.exceptions import ToolError
+
+from .approvals import PlanStore
+from .core import SafetyError
+from .native_access import access_status,require_write
+from .native_changes import NativeChanges
+from .native_notes import NotesCreateAdapter
+from .native_reminders import RemindersCreateAdapter
+from .services import enabled
+
+READ={'readOnlyHint':True,'destructiveHint':False,'idempotentHint':True,'openWorldHint':True}
+WRITE={'readOnlyHint':False,'destructiveHint':True,'idempotentHint':False,'openWorldHint':True}
+
+
+def owner():
+    account=os.environ.get('ICLOUD_MAIL_ACCOUNT','')
+    if not account or len(account)>254 or any(ord(c)<33 for c in account):
+        raise SafetyError('Configure the nonsecret instance owner/account label before native plans')
+    return account
+
+
+def editor(name,write=False):
+    if write:require_write(name)
+    else:access_status(name)
+    adapter=NotesCreateAdapter() if name=='notes' else RemindersCreateAdapter()
+    return NativeChanges(name,owner(),adapter,PlanStore())
+
+
+def check_plan_scope(name,plan_id):
+    status=access_status(name)
+    plan=PlanStore().read(PlanStore().path(plan_id,'.json'))
+    if plan.get('kind')!=name+'_change' or plan.get('payload',{}).get('account')!=owner():
+        raise SafetyError('Plan belongs to another service or owner')
+    if not set(plan['payload'].get('context',{}).get('source_ids',[]))<=set(status['source_ids']):
+        raise SafetyError('Plan lies outside current source access')
+    return plan
+
+
+def guard(fn):
+    @wraps(fn)
+    def wrapped(*args,**kwargs):
+        try:return fn(*args,**kwargs)
+        except SafetyError as exc:raise ToolError(str(exc)) from None
+        except Exception:raise ToolError('Native proposal/status operation failed. Inspect exact access and outcome; no automatic retry.') from None
+    return wrapped
+
+
+def register_change_tools(mcp):
+    if enabled('notes'):
+        @mcp.tool(annotations=WRITE)
+        @guard
+        def notes_prepare_changes(changes:list[dict])->dict:
+            """Prepare <=20 exact create_note/create_folder changes; no writes during preparation."""
+            return editor('notes',write=True).prepare(changes)
+
+        @mcp.tool(annotations=WRITE)
+        @guard
+        def notes_execute_approved(plan_id:str)->dict:
+            """Execute one exact Notes plan under the selected strict/trusted policy; never replay."""
+            require_write('notes');check_plan_scope('notes',plan_id)
+            return editor('notes',write=True).execute(plan_id)
+
+        @mcp.tool(annotations=READ)
+        @guard
+        def notes_plan_status(plan_id:str)->dict:
+            """Inspect exact scoped plan outcome and reconciliation without contacting Notes."""
+            check_plan_scope('notes',plan_id)
+            return PlanStore().status(plan_id)
+
+        @mcp.tool(annotations=WRITE)
+        @guard
+        def notes_reconcile_created(plan_id:str)->dict:
+            """Read back known creation IDs and record verified effects; no retry, mutation or approval minting."""
+            check_plan_scope('notes',plan_id)
+            return editor('notes').reconcile_created(plan_id)
+
+    if enabled('reminders'):
+        @mcp.tool(annotations=WRITE)
+        @guard
+        def reminders_prepare_changes(changes:list[dict])->dict:
+            """Prepare <=20 exact create_list/create_reminder changes; default read-only refuses."""
+            return editor('reminders',write=True).prepare(changes)
+
+        @mcp.tool(annotations=WRITE)
+        @guard
+        def reminders_execute_approved(plan_id:str)->dict:
+            """Execute an exact scoped Reminders plan with owner policy and one-shot admission."""
+            require_write('reminders');check_plan_scope('reminders',plan_id)
+            return editor('reminders',write=True).execute(plan_id)
+
+        @mcp.tool(annotations=READ)
+        @guard
+        def reminders_plan_status(plan_id:str)->dict:
+            """Inspect scoped durable outcome without credentials or native calls."""
+            check_plan_scope('reminders',plan_id)
+            return PlanStore().status(plan_id)
+
+        @mcp.tool(annotations=WRITE)
+        @guard
+        def reminders_reconcile_created(plan_id:str)->dict:
+            """Verify known created objects after failed readback; no automatic retry or generic uncertainty clear."""
+            check_plan_scope('reminders',plan_id)
+            return editor('reminders').reconcile_created(plan_id)

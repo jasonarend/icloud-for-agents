@@ -190,6 +190,8 @@ if enabled("calendar") or enabled("contacts"):
 if enabled("notes") or enabled("reminders"):
     from .native_read import register_read_tools as register_native_reads
     register_native_reads(mcp)
+    from .native_tools import register_change_tools as register_native_changes
+    register_native_changes(mcp)
 
 from .managed_policy import feature_enabled
 if feature_enabled() and enabled("mail"):

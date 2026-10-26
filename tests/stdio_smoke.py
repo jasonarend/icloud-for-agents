@@ -63,7 +63,9 @@ def run(native=False):
                             "calendar_list", "calendar_events", "contacts_addressbooks", "contacts_list", "contacts_get",
                             "calendar_prepare_changes", "contacts_prepare_changes", "dav_execute_approved"}
                 if native:
-                    expected |= {"notes_search", "notes_attachments", "notes_status", "notes_sources", "notes_folders", "notes_query", "notes_get",
+                    expected |= {"notes_prepare_changes", "notes_execute_approved", "notes_plan_status", "notes_reconcile_created",
+                                 "reminders_prepare_changes", "reminders_execute_approved", "reminders_plan_status", "reminders_reconcile_created",
+                                 "notes_search", "notes_attachments", "notes_status", "notes_sources", "notes_folders", "notes_query", "notes_get",
                                  "notes_access_status", "reminders_access_status", "reminders_daily", "reminders_status", "reminders_sources", "reminders_lists", "reminders_query", "reminders_get"}
                 assert {tool["name"] for tool in tools} == expected
                 schemas = {tool["name"]: tool["inputSchema"] for tool in tools}
@@ -100,7 +102,9 @@ def run(native=False):
                 if native:
                     for request_id, name, arguments in [(8, "notes_query", {"folder_id":"synthetic"}),
                                                         (9, "reminders_get", {"id":"synthetic"}),
-                                                        (10, "notes_query", {"folder_id":"synthetic", "limit":True})]:
+                                                        (10, "notes_query", {"folder_id":"synthetic", "limit":True}),
+                                                        (11,"notes_prepare_changes",{"changes":[{"operation":"create_note"}]}),
+                                                        (12,"reminders_prepare_changes",{"changes":[{"operation":"create_reminder"}]})]:
                         send({"jsonrpc":"2.0", "id":request_id, "method":"tools/call",
                               "params":{"name":name,"arguments":arguments}})
                         response = receive(request_id)
