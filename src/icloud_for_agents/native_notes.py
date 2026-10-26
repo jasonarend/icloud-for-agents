@@ -11,6 +11,7 @@ from pathlib import Path
 from .core import SafetyError, digest
 from .native_access import require_write
 from .native_read import NativeReader, native_config
+from .notes_content import project_html
 
 
 class SafeHTML(HTMLParser):
@@ -128,9 +129,12 @@ class NotesCreateAdapter:
         if outcome.get('source_id')!=item['source_id'] or not isinstance(outcome.get('id'),str):return False
         if item['operation']=='create_folder':
             return any(f['id']==outcome['id'] and f['title']==item['fields']['title']
-                       and f['source_id']==item['source_id'] for f in self.folders())
+                       and f['source_id']==item['source_id'] and f.get('parent_id')==item['source_id'] for f in self.folders())
         note=self.reader.read('get',folder_id=item['folder_id'],id=outcome['id'])['item']
         if note.get('locked') or note.get('truncated') or note.get('title')!=item['fields']['title']:return False
-        actual=' '.join(note.get('text','').split())
-        expected=item['fields']['expected_text']
-        return actual in {expected,' '.join((item['fields']['title']+' '+expected).split())}
+        expected=project_html(item['fields']['html'])
+        actual=project_html(note.get('html',''))
+        if not actual['text_projection_complete']:return False
+        if actual['tables']!=expected['tables'] or actual['links']!=expected['links']:return False
+        expected_text=expected['text']
+        return actual['text'] in {expected_text,' '.join((item['fields']['title']+' '+expected_text).split())}

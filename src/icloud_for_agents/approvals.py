@@ -188,7 +188,19 @@ class PlanStore:
                         {"status":"reconciled_retry_verified", "retry_id":retry_id,
                          "retry_result_sha256":digest(result), "record_sha256":digest(record), "verification":verification})
 
+    def _native_reconciliation_completed(self, plan_id):
+        path=self.path(plan_id,'.native-reconciled')
+        if not path.exists():return False
+        record=self.read(path);plan=self.read(self.path(plan_id,'.json'));result=self.read(self.path(plan_id,'.result'))
+        if plan.get('kind') not in {'notes_change','reminders_change'}:return False
+        attempts=result.get('attempted',[])
+        return (record.get('status')=='native_readback_verified' and record.get('plan_sha256')==digest(plan)
+                and record.get('result_sha256')==digest(result) and record.get('attempts_sha256')==digest(attempts)
+                and len(attempts)==len(plan['payload'].get('changes',[])) and bool(attempts)
+                and record.get('attempt_record_hashes')==[digest(self.read(self.path(plan_id,'.attempt-'+str(i)))) for i in range(len(attempts))])
+
     def _reconciliation_completed(self, original_id):
+        if self._native_reconciliation_completed(original_id):return True
         path = self.path(original_id, ".reconciled-result")
         if not path.exists():
             return False
@@ -254,6 +266,8 @@ class PlanStore:
         return result
 
     def status(self, plan_id):
+        if self._native_reconciliation_completed(plan_id):
+            return {"status":"applied_after_readback_reconciliation","original_status":"failed_or_uncertain","do_not_retry":True}
         result = self.path(plan_id, ".result")
         if result.exists():
             return self.read(result)

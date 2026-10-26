@@ -92,6 +92,37 @@ class NativeChangesTests(unittest.TestCase):
         result=self.engine.execute(plan['plan_id'])
         self.assertEqual(result['status'],'failed_or_uncertain');self.assertEqual(len(result['completed']),1)
         self.assertEqual(self.adapter.objects['two']['title'],'before')
+    def test_known_creation_readback_reconciliation_preserves_audit_and_prevents_replay(self):
+        self.adapter.operations.add('create_note')
+        self.adapter.verify=lambda item,outcome:False
+        plan=self.engine.prepare([{'operation':'create_note','id':'one','fields':{'title':'after'}}])
+        self.assertEqual(self.engine.execute(plan['plan_id'])['status'],'failed_or_uncertain')
+        original=self.store.read(self.store.path(plan['plan_id'],'.result'))
+        self.adapter.verify=lambda item,outcome:self.adapter.objects[item['id']]==item['fields']
+        resolved=self.engine.reconcile_created(plan['plan_id'])
+        self.assertEqual(resolved['status'],'applied_after_readback_reconciliation')
+        self.assertEqual(self.store.read(self.store.path(plan['plan_id'],'.result')),original)
+        with self.assertRaises(SafetyError):self.engine.execute(plan['plan_id'])
+        next_plan=self.proposal()
+        self.assertEqual(self.engine.execute(next_plan['plan_id'])['status'],'applied')
+        self.assertEqual(self.adapter.calls,['one','one'])
+
+    def test_reconciliation_does_not_clear_unknown_or_unverified_effects(self):
+        self.adapter.operations.add('create_note')
+        self.adapter.verify=lambda item,outcome:False
+        plan=self.engine.prepare([{'operation':'create_note','id':'one','fields':{'title':'after'}}])
+        self.engine.execute(plan['plan_id'])
+        with self.assertRaises(SafetyError):self.engine.reconcile_created(plan['plan_id'])
+        self.assertFalse(self.store.path(plan['plan_id'],'.native-reconciled').exists())
+        with patch.dict(os.environ,{'ICLOUD_NATIVE_CONFIG':json.dumps({'notes':{'source_ids':['other']}})}):
+            with self.assertRaises(SafetyError):self.engine.reconcile_created(plan['plan_id'])
+
+    def test_reconciliation_rejects_noncreation_even_with_known_identity(self):
+        self.adapter.verify=lambda item,outcome:False
+        plan=self.proposal();self.engine.execute(plan['plan_id'])
+        self.adapter.verify=lambda item,outcome:True
+        with self.assertRaises(SafetyError):self.engine.reconcile_created(plan['plan_id'])
+
     def test_permanent_delete_requires_receipt_even_in_trusted_mode(self):
         plan=self.engine.prepare([{'operation':'delete','id':'one'}])
         with self.assertRaises(FileNotFoundError):self.engine.execute(plan['plan_id'])

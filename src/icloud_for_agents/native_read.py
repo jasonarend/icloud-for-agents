@@ -91,7 +91,18 @@ class NativeReader:
             raise SafetyError('Invalid overdue filter')
         request = {'protocol_version': 1, 'action': action, 'source_ids': sources,
                    **{k: v for k, v in fields.items() if v is not None}}
-        return self._dispatch(request, config)
+        result = self._dispatch(request, config)
+        if self.name == 'notes' and action == 'get' and 'html' in result.get('item', {}):
+            from .notes_content import project_html
+            try:
+                projection = project_html(result['item']['html'])
+                result['item']['derived_text'] = projection['text']
+                result['item']['native_table_exports'] = projection['tables']
+                result['item']['text_projection_complete'] = projection['text_projection_complete'] and not result['item'].get('truncated')
+            except ValueError:
+                result['item']['text_projection_complete'] = False
+                result['item']['projection_error'] = 'unsupported_html_structure'
+        return result
 
     def _dispatch(self, request, config):
         """Internal transport; callers enforce fixed read or approved-write actions."""

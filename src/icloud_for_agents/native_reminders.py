@@ -98,7 +98,7 @@ class RemindersCreateAdapter:
         return self.reader._dispatch(request,config)['result']
     def verify(self,item,outcome):
         if outcome.get('source_id')!=item['source_id'] or not isinstance(outcome.get('id'),str):return False
-        if item['operation']=='create_list':return any(c['id']==outcome['id'] and c['title']==item['fields']['title'] for c in self.lists())
+        if item['operation']=='create_list':return any(c['id']==outcome['id'] and c['title']==item['fields']['title'] and c['source_id']==item['source_id'] for c in self.lists())
         note=self.reader.read('get',id=outcome['id'])['item']
         if note.get('source_id')!=item['source_id'] or note.get('list_id')!=item['list_id'] or note.get('completed') is not False:return False
         if any(note.get(k)!=item['fields'][k] for k in ('title','notes','priority')):return False

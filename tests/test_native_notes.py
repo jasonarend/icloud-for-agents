@@ -11,7 +11,7 @@ from icloud_for_agents.native_notes import NotesCreateAdapter, prepare_content
 class Reader:
     def __init__(self):
         self.folder={'id':'folder','title':'Synthetic','source_id':'selected','parent_id':'selected','shared':False}
-        self.note={'id':'created','title':'Spec','text':'Spec Body','locked':False,'truncated':False}
+        self.note={'id':'created','title':'Spec','text':'Spec Body','html':'<div>Spec</div><div>Body</div>','locked':False,'truncated':False}
     def read(self,action,**fields):
         if action=='folders':return {'folders':[dict(self.folder)],'done':True}
         if action=='folder_get':return {'folder':dict(self.folder)}
@@ -62,7 +62,7 @@ class NativeNotesTests(unittest.TestCase):
         item=self.prepare();outcome={'id':'created','source_id':'selected'}
         self.assertTrue(self.adapter.verify(item,outcome))
         self.assertFalse(self.adapter.verify(item,dict(outcome,source_id='other')))
-        for key,value in [('title','Wrong'),('text','Missing content'),('truncated',True),('locked',True)]:
+        for key,value in [('title','Wrong'),('html','<div>Missing content</div>'),('truncated',True),('locked',True)]:
             prior=self.reader.note[key];self.reader.note[key]=value
             self.assertFalse(self.adapter.verify(item,outcome));self.reader.note[key]=prior
     def test_unknown_formats_overlong_unicode_and_blank_titles_refused(self):
