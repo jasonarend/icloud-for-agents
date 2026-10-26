@@ -63,7 +63,7 @@ def run(native=False):
                             "calendar_list", "calendar_events", "contacts_addressbooks", "contacts_list", "contacts_get",
                             "calendar_prepare_changes", "contacts_prepare_changes", "dav_execute_approved"}
                 if native:
-                    expected |= {"notes_sources", "notes_folders", "notes_query", "notes_get",
+                    expected |= {"notes_status", "notes_sources", "notes_folders", "notes_query", "notes_get",
                                  "notes_access_status", "reminders_access_status", "reminders_daily", "reminders_status", "reminders_sources", "reminders_lists", "reminders_query", "reminders_get"}
                 assert {tool["name"] for tool in tools} == expected
                 schemas = {tool["name"]: tool["inputSchema"] for tool in tools}

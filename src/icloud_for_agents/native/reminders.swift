@@ -1,6 +1,9 @@
-// Fixed read-only EventKit protocol. No save/remove or implicit permission requests.
+// Fixed native protocol: EventKit reads and Notes creation transport.
+// The Python approved-plan executor enforces mutation authorization; no implicit permission requests.
 import Foundation
 import EventKit
+import OSAKit
+import ApplicationServices
 
 func respond(_ value: [String: Any]) -> Never {
     guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]), data.count <= 2_000_000 else {
@@ -32,6 +35,31 @@ case .writeOnly: permission = "write_only"
 let data = FileHandle.standardInput.readData(ofLength: 65537)
 guard data.count <= 65536, let req = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
       req["protocol_version"] as? Int == 1, let action = req["action"] as? String else { fail("invalid_request") }
+if req["service"] as? String == "notes" {
+    guard ["status", "request_access", "sources", "folders", "folder_get", "query", "get", "apply"].contains(action) else { fail("unsupported_action") }
+    if action == "status" || action == "request_access" {
+        let target = NSAppleEventDescriptor(bundleIdentifier: "com.apple.Notes")
+        let result = AEDeterminePermissionToAutomateTarget(target.aeDesc, typeWildCard, typeWildCard, action == "request_access")
+        respond(["protocol_version": 1, "service": "notes", "permission_status": result,
+                 "permission_granted": result == noErr, "application_writes_enabled": false])
+    }
+    guard let url = Bundle.main.url(forResource: action == "apply" ? "notes-write" : "notes", withExtension: "js"),
+          let source = try? String(contentsOf: url, encoding: .utf8),
+          let language = OSALanguage(forName: "JavaScript") else { fail("notes_bridge_unavailable") }
+    // Only base64 request data is inserted; caller text is never executable source.
+    let encoded = data.base64EncodedString()
+    let entry = action == "apply" ? "applyNotes" : "readNotes"
+    let bridge = "\nfunction run() { return " + entry + "(Application('Notes'), JSON.parse(ObjC.unwrap($.NSString.alloc.initWithDataEncoding($.NSData.alloc.initWithBase64EncodedStringOptions('" + encoded + "',0), $.NSUTF8StringEncoding)))); }"
+    let script = OSAScript(source: source + bridge, language: language)
+    var diagnostic: NSDictionary?
+    guard let output = script.executeAndReturnError(&diagnostic)?.stringValue,
+          let value = (try? JSONSerialization.jsonObject(with: Data(output.utf8))) as? [String: Any] else {
+        let code = diagnostic?[OSAScriptErrorNumberKey] as? Int ?? -1
+        if code == -1743 || code == -1744 { fail("permission_required") }
+        fail("notes_read_failed")
+    }
+    respond(value)
+}
 // This operator-only action is deliberately absent from the MCP read bridge.
 if action == "request_access" {
     let store = EKEventStore()
@@ -42,7 +70,7 @@ if action == "request_access" {
     RunLoop.current.run(until: Date(timeIntervalSinceNow: 60))
     fail("permission_timeout")
 }
-let actions = ["status", "sources", "lists", "query", "get"]
+let actions = ["status", "sources", "lists", "query", "get", "apply"]
 guard actions.contains(action) else { fail("unsupported_action") }
 if action == "status" {
     respond(["protocol_version": 1, "service": "reminders", "access": permission,
@@ -62,6 +90,41 @@ if action == "sources" {
 }
 guard let sourceIDs = req["source_ids"] as? [String], !sourceIDs.isEmpty, sourceIDs.count <= 100 else { fail("source_scope_required") }
 let lists = allLists.filter { sourceIDs.contains($0.source.sourceIdentifier) }
+if action == "apply" {
+    guard let item = req["change"] as? [String: Any], let operation = item["operation"] as? String,
+          let sourceID = item["source_id"] as? String, sourceIDs.contains(sourceID),
+          let fields = item["fields"] as? [String: Any], let title = fields["title"] as? String,
+          !title.isEmpty, title.count <= 1000 else { fail("invalid_mutation") }
+    if operation == "create_list" {
+        guard let source = store.sources.first(where: { $0.sourceIdentifier == sourceID }) else { fail("not_found_in_scope") }
+        guard !lists.contains(where: { $0.source.sourceIdentifier == sourceID && $0.title == title }) else { fail("duplicate_list") }
+        let list = EKCalendar(for: .reminder, eventStore: store)
+        list.source = source; list.title = title
+        do { try store.saveCalendar(list, commit: true) } catch { fail("mutation_failed_or_uncertain") }
+        respond(["protocol_version": 1, "result": ["id": list.calendarIdentifier, "source_id": sourceID, "saved_locally": true]])
+    }
+    guard operation == "create_reminder", let listID = item["list_id"] as? String,
+          let list = lists.first(where: { $0.calendarIdentifier == listID && $0.source.sourceIdentifier == sourceID }),
+          list.allowsContentModifications else { fail("not_found_in_scope") }
+    func components(_ value: Any?) -> DateComponents? {
+        guard let fields = value as? [String: Any] else { return nil }
+        var result = DateComponents()
+        result.calendar = Calendar(identifier: .gregorian)
+        result.year = fields["year"] as? Int; result.month = fields["month"] as? Int; result.day = fields["day"] as? Int
+        result.hour = fields["hour"] as? Int; result.minute = fields["minute"] as? Int
+        if let timezone = fields["timezone"] as? String { result.timeZone = TimeZone(identifier: timezone) }
+        return result
+    }
+    let reminder = EKReminder(eventStore: store)
+    reminder.calendar = list; reminder.title = title
+    reminder.notes = fields["notes"] as? String ?? ""
+    reminder.priority = fields["priority"] as? Int ?? 0
+    reminder.dueDateComponents = components(fields["due"])
+    reminder.startDateComponents = components(fields["start"])
+    do { try store.save(reminder, commit: true) } catch { fail("mutation_failed_or_uncertain") }
+    respond(["protocol_version": 1, "result": ["id": reminder.calendarItemIdentifier, "list_id": listID,
+             "source_id": sourceID, "saved_locally": true]])
+}
 if action == "lists" {
     let limit = req["limit"] as? Int ?? 100
     let offset = req["offset"] as? Int ?? 0

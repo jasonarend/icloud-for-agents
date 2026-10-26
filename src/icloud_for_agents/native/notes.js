@@ -5,7 +5,7 @@ function readRequest() {
     const text = ObjC.unwrap($.NSString.alloc.initWithDataEncoding(data, $.NSUTF8StringEncoding));
     if (text.length > 65536) throw Error('invalid_request');
     const req = JSON.parse(text);
-    if (req.protocol_version !== 1 || !['sources','folders','query','get'].includes(req.action)) throw Error('unsupported_action');
+    if (req.protocol_version !== 1 || !['sources','folders','folder_get','query','get'].includes(req.action)) throw Error('unsupported_action');
     return req;
 }
 function run() { const req=readRequest(); return readNotes(Application('Notes'), req); }
@@ -37,6 +37,7 @@ function readNotes(app, req) {
     const matches = folders.filter(f => f.object.id() === req.folder_id);
     if (matches.length !== 1) throw Error('not_found_in_scope');
     const folder = matches[0];
+    if (req.action==='folder_get') return JSON.stringify({protocol_version:1,folder:{id:folder.object.id(),title:folder.object.name(),source_id:folder.source,parent_id:folder.object.container().id(),shared:folder.object.shared()}});
     const ids = folder.object.notes.id();
     if (req.action === 'get') {
         if (!ids.includes(req.id)) throw Error('not_found_in_scope');

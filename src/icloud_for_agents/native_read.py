@@ -12,7 +12,7 @@ from .core import SafetyError
 from .services import enabled
 
 
-READ_ACTIONS = {'notes': {'sources', 'folders', 'query', 'get'},
+READ_ACTIONS = {'notes': {'status', 'sources', 'folders', 'folder_get', 'query', 'get'},
                 'reminders': {'status', 'sources', 'lists', 'query', 'get'}}
 MAX_OUTPUT = 2_000_000
 
@@ -45,7 +45,7 @@ def validate_config(config):
                 or len(set(ids)) != len(ids)):
             raise ValueError('Invalid native source IDs')
         helper = value.get('helper_path')
-        if helper is not None and (name != 'reminders' or not isinstance(helper, str)
+        if helper is not None and (not isinstance(helper, str)
                                    or not Path(helper).is_absolute() or any(ord(c) < 32 for c in helper)):
             raise ValueError('Invalid native helper path')
 
@@ -91,7 +91,13 @@ class NativeReader:
             raise SafetyError('Invalid overdue filter')
         request = {'protocol_version': 1, 'action': action, 'source_ids': sources,
                    **{k: v for k, v in fields.items() if v is not None}}
-        if self.name == 'reminders':
+        return self._dispatch(request, config)
+
+    def _dispatch(self, request, config):
+        """Internal transport; callers enforce fixed read or approved-write actions."""
+        action = request["action"]
+        if self.name == 'reminders' or config.get('helper_path'):
+            request['service'] = self.name
             helper = config.get('helper_path')
             if not helper:
                 raise SafetyError('Native Reminders helper is not configured')
@@ -103,13 +109,19 @@ class NativeReader:
                 raise SafetyError('Native helper must be owner-controlled and executable')
             command = [str(path)]
         else:
+            if action == 'status':
+                return {'protocol_version': 1, 'service': 'notes', 'os_permission': 'not_checked',
+                        'reason': 'Configure the native helper for a nonprompting permission check'}
             command = ['/usr/bin/osascript', '-l', 'JavaScript',
                        str(Path(__file__).parent / 'native/notes.js')]
         # Temporary files bound memory and keep potentially private output out of logs.
         env = {k: os.environ[k] for k in ('HOME', 'PATH', 'TMPDIR', 'LANG') if k in os.environ}
         try:
             with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
-                process = subprocess.run(command, input=json.dumps(request).encode(), stdout=output, stderr=errors,
+                encoded = json.dumps(request, ensure_ascii=False).encode()
+                if len(encoded) > 65536:
+                    raise SafetyError('Native request exceeds input limit')
+                process = subprocess.run(command, input=encoded, stdout=output, stderr=errors,
                                timeout=25, check=False, env=env)
                 if process.returncode:
                     errors.seek(0)
@@ -132,6 +144,8 @@ class NativeReader:
             code = response['error']
             allowed = {'permission_required', 'not_found_in_scope', 'source_scope_required',
                        'invalid_page', 'response_limit', 'read_failed', 'read_timeout', 'query_limit'}
+            if self.name == 'notes' and code == 'permission_required':
+                raise SafetyError('Notes Automation permission is required; the user must approve access in macOS Privacy & Security.')
             raise SafetyError('Native read refused: ' + (code if code in allowed else 'helper_error'))
         return response
 
@@ -208,6 +222,12 @@ def register_read_tools(mcp):
             """Inspect effective service scope and approval mode without requesting OS access."""
             from .native_access import access_status
             return access_status('notes')
+
+        @mcp.tool(annotations=annotations)
+        @guard
+        def notes_status() -> dict:
+            """Check Notes OS grant through the configured helper without requesting consent."""
+            return NativeReader('notes').read('status')
 
         @mcp.tool(annotations=annotations)
         @guard

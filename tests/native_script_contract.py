@@ -42,6 +42,21 @@ def run():
             if process.returncode:
                 raise AssertionError('Synthetic JXA failed: '+process.stderr)
             return json.loads(process.stdout)
+        # Exercise OSAKit too: this is the embedding API used by our signed helper.
+        swift=Path(directory)/'bridge.swift'
+        swift.write_text("""import Foundation
+import OSAKit
+let source = try String(contentsOfFile: CommandLine.arguments[1], encoding: .utf8)
+let script = OSAScript(source: source, language: OSALanguage(forName: \"JavaScript\"))
+var error: NSDictionary?
+guard let result = script.executeAndReturnError(&error)?.stringValue else { exit(2) }
+print(result)
+""")
+        bridge=Path(directory)/'bridge'
+        subprocess.run(['/usr/bin/swiftc',str(swift),'-o',str(bridge)],capture_output=True,check=True,timeout=60)
+        embedded=subprocess.run([str(bridge),str(script)],input=json.dumps({'protocol_version':1,'action':'get','source_ids':['selected'],'folder_id':'folder-1','id':'note-1'}),capture_output=True,text=True,timeout=10)
+        assert embedded.returncode==0,embedded.stderr
+        assert json.loads(embedded.stdout)['item']['text']=='Synthetic content'
         folders=call('folders')['folders']
         assert len(folders)==2 and len({f['id'] for f in folders})==2,folders
         assert next(f for f in folders if f['id']=='folder-child')['parent_id']=='folder-1'
@@ -62,7 +77,7 @@ def run():
         assert invalid.returncode!=0 and 'not_found_in_scope' in invalid.stderr
     return {'status':'passed','synthetic_only':True,'native_app_acceptance':False,
             'contract_cases':['nested_folder_deduplication','account_scope','bounded_pages',
-                              'exact_plain_note','locked_content_not_read','unknown_folder_refused']}
+                              'exact_plain_note','locked_content_not_read','unknown_folder_refused','osakit_embedding']}
 
 
 if __name__=='__main__':

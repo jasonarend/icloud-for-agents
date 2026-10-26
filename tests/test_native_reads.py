@@ -94,7 +94,7 @@ class NativeReadTests(unittest.TestCase):
                 with self.env(ICLOUD_ENABLE_NOTES=str(int(notes)),ICLOUD_ENABLE_REMINDERS=str(int(reminders))):
                     importlib.reload(server)
                     tools = {t.name:t for t in asyncio.run(server.mcp.list_tools())}
-                    self.assertEqual(sum(n.startswith('notes_') for n in tools),5 if notes else 0)
+                    self.assertEqual(sum(n.startswith('notes_') for n in tools),6 if notes else 0)
                     self.assertEqual(sum(n.startswith('reminders_') for n in tools),7 if reminders else 0)
                     if notes:
                         with patch.dict(os.environ, {'ICLOUD_ENABLE_NOTES':'0'}), patch('subprocess.run',side_effect=AssertionError('No helper')):
@@ -102,6 +102,6 @@ class NativeReadTests(unittest.TestCase):
 
     def test_config_validation_refuses_unbounded_or_unknown_authority(self):
         for config in ({'notes':{'source_ids':['same','same']}}, {'notes':{'source_ids':'*'}},
-                       {'notes':{'arbitrary_script':'x'}}, {'notes':{'helper_path':'/tmp/override'}},
+                       {'notes':{'arbitrary_script':'x'}}, {'notes':{'helper_path':'relative'}},
                        {'reminders':{'helper_path':'relative'}}, {'notes':{'access_mode':'all'}}, []):
             with self.subTest(config=config), self.assertRaises(ValueError): validate_config(config)

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Build the repository-owned read-only helper; never requests permissions."""
+"""Build the fixed native helper; building never grants access or activates writes."""
 import argparse
 import plistlib
 import platform
 import subprocess
+import shutil
 from pathlib import Path
 
 
@@ -19,8 +20,13 @@ def main():
     executable.parent.mkdir(parents=True)
     info = {'CFBundleIdentifier': 'com.jasonarend.icloud-for-agents.native',
             'CFBundleName': 'iCloud for Agents Native', 'CFBundleExecutable': executable.name,
-            'CFBundleVersion': '2', 'CFBundlePackageType': 'APPL', 'LSUIElement': True,
+            'CFBundleVersion': '3', 'CFBundlePackageType': 'APPL', 'LSUIElement': True,
+            'NSAppleEventsUsageDescription': 'Read the Notes accounts you select for your AI assistant. Changes require separate application authorization.',
             'NSRemindersFullAccessUsageDescription': 'Read only the Reminders sources you select for your AI assistant. Application writes require separate authorization.'}
+    resources = bundle / 'Contents/Resources'
+    resources.mkdir()
+    for name in ('notes.js','notes-write.js'):
+        shutil.copyfile(root / 'src/icloud_for_agents/native' / name, resources / name)
     plist = bundle / 'Contents/Info.plist'
     plist.write_bytes(plistlib.dumps(info))
     source = root / 'src/icloud_for_agents/native/reminders.swift'
