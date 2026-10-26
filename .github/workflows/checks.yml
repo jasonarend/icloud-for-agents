@@ -34,11 +34,25 @@ jobs:
           .venv/bin/python tests/native_stdio_smoke.py
           .venv/bin/python tests/native_script_contract.py
           .venv/bin/python tests/native_write_contract.py
+          .venv/bin/python tests/native_reminder_metadata_contract.py
+          .venv/bin/python tests/native_reminder_dates_contract.py
+          .venv/bin/python tests/native_service_isolation_contract.py
           .venv/bin/python scripts/check-dependency-licenses.py
-      - name: Compile native read helper without requesting access
+      - name: Compile native helper and inspect permission status without requesting access
         run: |
           .venv/bin/python scripts/build-native-helper.py
-          printf '%s' '{"protocol_version":1,"action":"status"}' | build/native/iCloudAgentsHelper.app/Contents/MacOS/icloud-agents-native
+          .venv/bin/python - <<'PY'
+          import json
+          import subprocess
+          helper = "build/native/iCloudAgentsHelper.app/Contents/MacOS/icloud-agents-native"
+          for service in ("notes", "reminders"):
+              request = {"protocol_version": 1, "service": service, "action": "status"}
+              result = subprocess.run([helper], input=json.dumps(request), capture_output=True, text=True, check=True, timeout=15)
+              response = json.loads(result.stdout)
+              assert response.get("protocol_version") == 1 and response.get("service") == service
+              assert "error" not in response
+          print("Both native service status probes passed; no content access or consent request")
+          PY
       - name: Build and inspect distributions
         run: |
           .venv/bin/python -c "import setuptools.build_meta as b; b.build_sdist('dist'); b.build_wheel('dist')"
