@@ -244,6 +244,9 @@ class DAVChanges:
         finally:connection.close()
 
     def execute(self, plan_id):
+        candidate = self.store.proposal(plan_id)
+        if candidate['kind'] not in {'calendar_change', 'contact_change'}:
+            raise SafetyError('Not a calendar/contact proposal; use the matching service executor')
         plan=self.store.consume(plan_id,self.reader.account)
         completed=[]
         phase="collection_preflight"

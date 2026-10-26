@@ -107,8 +107,10 @@ class MailService:
         return self.store.prepare("send", payload)
 
     def execute(self, plan_id):
+        candidate = self.store.proposal(plan_id)
+        if candidate['kind'] not in {'trash', 'send'}:
+            raise core.SafetyError('Not a Mail proposal; use the matching service executor')
         access=cleanup_access(self.account)
-        candidate=self.store.proposal(plan_id) if access else None
         if access and candidate["kind"] == "trash":
             return self._standing_trash(access,candidate)
         plan = self.store.consume(plan_id, self.account)
