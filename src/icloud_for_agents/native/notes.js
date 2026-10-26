@@ -15,7 +15,7 @@ function readNotes(app, req) {
     if (!Array.isArray(req.source_ids) || req.source_ids.length === 0) throw Error('source_scope_required');
     const selected = accounts.filter(a => req.source_ids.includes(a.id()));
     if(req.source_ids.some(id=>!selected.some(a=>a.id()===id)))throw Error('not_found_in_scope');
-    const folders = [];
+    const folders = [];let targetPath=[];
     const seen = new Set();
     function walk(parent, source, depth) {
         if (depth > 32 || folders.length > 10000) throw Error('folder_limit');
@@ -34,7 +34,7 @@ function readNotes(app, req) {
         if(target.id()!==req.folder_id)throw Error('not_found_in_scope');
         let current=target, source=null;const ancestors=new Set();
         for(let depth=0;depth<32;depth++) {
-            const id=current.id();if(ancestors.has(id))throw Error('folder_limit');ancestors.add(id);
+            const id=current.id();if(ancestors.has(id))throw Error('folder_limit');ancestors.add(id);targetPath.push(current);
             const parent=current.container().id();
             if(req.source_ids.includes(parent)) {source=parent;break;}
             if(accounts.some(a=>a.id()===parent))throw Error('not_found_in_scope');
@@ -95,7 +95,10 @@ function readNotes(app, req) {
     const matches = folders.filter(f => f.object.id() === req.folder_id);
     if (matches.length !== 1) throw Error('not_found_in_scope');
     const folder = matches[0];
-    if (req.action==='folder_get') return JSON.stringify({protocol_version:1,folder:{id:folder.object.id(),title:folder.object.name(),source_id:folder.source,parent_id:folder.object.container().id(),shared:folder.object.shared()}});
+    if (req.action==='folder_get') {
+        const metadata=f=>({id:f.id(),title:f.name(),source_id:folder.source,parent_id:f.container().id(),shared:f.shared()});
+        return JSON.stringify({protocol_version:1,folder:metadata(folder.object),ancestors:targetPath.slice(1).map(metadata)});
+    }
     const ids = folder.object.notes.id();
     if(req.action==='contains')return JSON.stringify({protocol_version:1,exists:ids.includes(req.id) && folder.object.notes.byId(req.id).container().id()===req.folder_id,source_id:folder.source,folder_id:req.folder_id});
     if (req.action === 'get' || req.action==='attachments' || req.action==='diagnose_note') {

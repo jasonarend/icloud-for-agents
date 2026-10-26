@@ -67,6 +67,8 @@ print(result)
         assert child_page['items']==[] and child_page['next_offset']==1 and child_page['done'] is False
         exact=call('folder_get',folder_id='folder-child',synthetic_no_walk=True)['folder']
         assert exact['parent_id']=='folder-1' and exact['source_id']=='selected'
+        path=call('folder_get',folder_id='folder-child',synthetic_no_walk=True)['ancestors']
+        assert len(path)==1 and path[0]['id']=='folder-1' and path[0]['shared'] is False
         assert call('get',folder_id='folder-1',id='note-1',synthetic_no_walk=True)['item']['id']=='note-1'
         folders=call('folders')['folders']
         assert len(folders)==2 and len({f['id'] for f in folders})==2,folders
@@ -104,7 +106,7 @@ print(result)
         assert alias.returncode!=0 and 'not_found_in_scope' in alias.stderr
     return {'status':'passed','synthetic_only':True,'native_app_acceptance':False,
             'contract_cases':['nested_folder_deduplication','account_scope','bounded_pages',
-                              'exact_plain_note','locked_content_not_read','unknown_folder_refused','osakit_embedding','scoped_plaintext_search','locked_search_exclusion','attachment_metadata_only','nullable_native_attachment_name','exact_physical_container','exact_folder_reads_skip_unrelated_tree','empty_filtered_page_progression']}
+                              'exact_plain_note','locked_content_not_read','unknown_folder_refused','osakit_embedding','scoped_plaintext_search','locked_search_exclusion','attachment_metadata_only','nullable_native_attachment_name','exact_physical_container','exact_folder_reads_skip_unrelated_tree','bounded_physical_ancestor_metadata','empty_filtered_page_progression']}
 
 
 if __name__=='__main__':

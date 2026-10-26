@@ -73,17 +73,28 @@ class NotesCreateAdapter:
             offset=next_offset
 
     def private_folder(self,folder_id,source_id):
-        initial=None;ancestors=[];seen=set();current=folder_id
+        initial=None;ancestors=[];seen=set();current=folder_id;batch=None
         for _ in range(32):
             if current in seen:raise SafetyError('Cyclic Notes folder ancestry')
             seen.add(current)
-            folder=self.reader.read('folder_get',folder_id=current)['folder']
+            if batch is None:
+                response=self.reader.read('folder_get',folder_id=current);folder=response['folder']
+                if 'ancestors' in response:
+                    values=response['ancestors']
+                    if (not isinstance(values,list) or len(values)>31 or any(not isinstance(v,dict) or not isinstance(v.get('id'),str) for v in values)
+                            or len({v['id'] for v in values})!=len(values) or any(v['id']==folder_id for v in values)):
+                        raise SafetyError('Notes ancestor batch is invalid or incomplete')
+                    batch={v['id']:v for v in values}
+            else:
+                if current not in batch:raise SafetyError('Notes ancestor batch does not cover the physical parent chain')
+                folder=batch[current]
             if folder.get('id')!=current or folder.get('source_id')!=source_id or folder.get('shared') is not False:
                 raise SafetyError('The exact folder and every ancestor must be unshared in the selected source')
             if initial is None:initial=dict(folder)
             else:ancestors.append(folder)
             parent=folder.get('parent_id')
             if parent==source_id:
+                if batch is not None and set(batch)!=seen-{folder_id}:raise SafetyError('Notes ancestor batch contains unrelated folders')
                 if ancestors:initial['private_ancestors']=ancestors
                 return initial
             if not isinstance(parent,str) or not parent:raise SafetyError('Notes folder ancestry is unavailable')

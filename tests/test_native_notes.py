@@ -182,3 +182,16 @@ class NativeNotesTests(unittest.TestCase):
         self.assertFalse(self.adapter.verify(item,{'id':'child','source_id':'selected'}))
         created.update(parent_id='folder',source_id='other')
         self.assertFalse(self.adapter.verify(item,{'id':'child','source_id':'selected'}))
+
+    def test_batched_private_ancestors_avoid_additional_helper_launches(self):
+        parent={'id':'parent','title':'Parent','source_id':'selected','parent_id':'selected','shared':False}
+        self.reader.folder['parent_id']='parent';calls=[]
+        def read(action,**fields):
+            calls.append((action,fields));return {'folder':dict(self.reader.folder),'ancestors':[dict(parent)]}
+        self.reader.read=read;result=self.adapter.private_folder('folder','selected')
+        self.assertEqual(result['private_ancestors'],[parent]);self.assertEqual(len(calls),1)
+    def test_incomplete_shared_cyclic_and_extraneous_batched_ancestors_refuse(self):
+        self.reader.folder['parent_id']='parent';parent={'id':'parent','title':'Parent','source_id':'selected','parent_id':'selected','shared':False}
+        for values in ([],[dict(parent,shared=True)],[dict(parent,parent_id='parent')],[parent,parent],[parent,dict(parent,id='unrelated')],[dict(parent,source_id='other')]):
+            self.reader.read=lambda action,**fields:{'folder':dict(self.reader.folder),'ancestors':values}
+            with self.subTest(values=values),self.assertRaises(SafetyError):self.adapter.private_folder('folder','selected')
