@@ -10,6 +10,7 @@ dependencies = ["fastmcp>=4.0,<5", "imapclient==3.0.1", "PyYAML==6.0.3"]
 
 [project.scripts]
 icloud-for-agents = "icloud_for_agents.server:main"
+icloud-agents-native-access = "icloud_for_agents.native_access_cli:main"
 icloud-agents-approve = "icloud_for_agents.approvals:main"
 icloud-agents-cleanup-access = "icloud_for_agents.cleanup_access:main"
 

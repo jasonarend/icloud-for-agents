@@ -85,7 +85,7 @@ class NativeOnceTests(unittest.TestCase):
         def apply(item):
             result=original(item);os.environ['ICLOUD_ENABLE_NOTES']='0';return result
         self.adapter.apply=apply;result=self.engine.execute(plan['plan_id'])
-        self.assertEqual(result['status'],'failed_or_uncertain');self.assertEqual(len(result['completed']),1);self.assertEqual(self.adapter.calls,1)
+        self.assertEqual(result['status'],'stopped_before_dispatch');self.assertEqual(len(result['completed']),1);self.assertEqual(self.adapter.calls,1)
         os.environ['ICLOUD_ENABLE_NOTES']='1';self.assert_readonly()
     def test_both_services_and_expired_plans(self):
         adapter=Adapter('reminders');engine=NativeChanges('reminders',self.account,adapter,self.store)
@@ -130,4 +130,4 @@ class NativeOnceTests(unittest.TestCase):
             if calls==2:os.environ['ICLOUD_MAIL_ACCESS']='disabled'
             return original(item)
         self.adapter.snapshot=snapshot;result=self.engine.execute(plan['plan_id'])
-        self.assertEqual(result['status'],'failed_or_uncertain');self.assertEqual(self.adapter.calls,0)
+        self.assertEqual(result['status'],'stopped_before_dispatch');self.assertEqual(self.adapter.calls,0)

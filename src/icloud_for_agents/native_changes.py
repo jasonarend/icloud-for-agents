@@ -33,7 +33,13 @@ class NativeChanges:
         from .native_once import planning
         with planning(self.name):return self.prepare(changes,_temporary=True)
 
-    def prepare(self, changes, *, _temporary=False):
+    def prepare_with_grant(self,grant_id,changes):
+        from .native_grants import NativeGrants
+        from .native_once import planning
+        manager=NativeGrants(self);grant=manager.checked(grant_id)
+        with planning(self.name):return self.prepare(changes,_temporary=True,_grant=grant)
+
+    def prepare(self, changes, *, _temporary=False,_grant=None):
         context = self.context(_temporary)
         if not isinstance(changes,list) or not 1 <= len(changes) <= 20:
             raise SafetyError('Prepare 1..20 exact native changes')
@@ -45,6 +51,10 @@ class NativeChanges:
             if not isinstance(change,dict) or change.get('operation') not in self.adapter.operations:
                 raise SafetyError('Unsupported native operation')
             item = self.adapter.prepare(change)
+            if _grant is not None:
+                from .native_grants import NativeGrants
+                item['requested_fields']=sorted(change['fields'])
+                NativeGrants(self).match(_grant,item)
             self.check_item(item,context)
             identity = item.get('id')
             if identity:
@@ -54,6 +64,10 @@ class NativeChanges:
             prepared.append(item)
         payload = {'account':self.account,'context':context,'changes':prepared,
                    'transaction':'per-item; no atomic backend transaction or automatic rollback'}
+        if _grant is not None:
+            from .native_grants import NativeGrants
+            payload['standing_grant']={'grant_id':_grant['plan_id'],'sha256':digest(_grant)}
+            NativeGrants(self).check_batch({'payload':payload},_grant)
         return self.store.prepare(self.kind,payload)
 
     def check_item(self,item,context):
@@ -191,6 +205,20 @@ class NativeChanges:
                  'method':'independent adapter readback of exact returned creation identities; no mutation or human receipt'})
             return self.store.status(plan_id)
 
+    def finalize_stopped(self,plan_id):
+        from .native_once import selected_read_access
+        selected_read_access(self.name)
+        with self.serialized():
+            plan=self.store.read(self.store.path(plan_id,'.json'));result=self.store.read(self.store.path(plan_id,'.result'))
+            if plan.get('kind')!=self.kind or plan['payload'].get('account')!=self.account or result.get('status')!='failed_or_uncertain':
+                raise SafetyError('Only an owned failed native plan can receive a pre-dispatch audit finalizer')
+            proof=self.store.native_predispatch_proof(plan_id,result)
+            path=self.store.path(plan_id,'.native-stopped');record={'original_result_sha256':digest(result),'proof':proof,'status':'stopped_before_dispatch_finalized'}
+            if path.exists():
+                if self.store.read(path)!=record:raise SafetyError('Native stop finalization changed')
+            else:self.store.write_once(path,record)
+            return self.store.status(plan_id)
+
     def cancel(self,plan_id):
         from .native_once import selected_read_access
         selected_read_access(self.name)
@@ -224,12 +252,18 @@ class NativeChanges:
                 self.check_item(item,context)
                 if self.adapter.snapshot(item)!=item.get('before'):
                     raise SafetyError('Native object changed since review; no writes admitted')
-            plan=self.store.consume(plan_id,self.account)
+            from .native_grants import NativeGrants
+            standing=payload.get('standing_grant')
+            manager=NativeGrants(self) if standing is not None else None
+            if manager:
+                grant=manager.checked(standing.get('grant_id'));manager.check_batch(candidate,grant)
+            plan=manager.consume(plan_id) if manager else self.store.consume(plan_id,self.account)
             completed=[]
             attempted=[]
             phase='pre_dispatch'
             try:
                 for index,item in enumerate(plan['payload']['changes']):
+                    phase='pre_dispatch'
                     if self.context(temporary)!=context:
                         raise SafetyError('Native access changed between items')
                     phase='snapshot_recheck'
@@ -237,6 +271,8 @@ class NativeChanges:
                         raise SafetyError('Native object changed immediately before dispatch')
                     if self.context(temporary)!=context:
                         raise SafetyError('Native access changed during the final snapshot check')
+                    if manager:
+                        grant=manager.checked(standing['grant_id']);manager.match(grant,item)
                     phase='mutation'
                     from .native_once import dispatch
                     with dispatch(self.name,item) if temporary else nullcontext():
@@ -255,6 +291,10 @@ class NativeChanges:
                 result={'status':'failed_or_uncertain','attempted':attempted,'completed':completed,'do_not_retry':True,
                         'phase':phase,'message':'Inspect exact objects and reconcile; no automatic retry or rollback'}
                 if isinstance(exc,SafetyError):result['safety_reason']=str(exc)
+                if phase in {'pre_dispatch','snapshot_recheck'} and attempted==completed:
+                    proof=self.store.native_predispatch_proof(plan_id,result)
+                    result.update(status='stopped_before_dispatch',pre_dispatch_evidence=proof,do_not_retry=True,
+                                  message='This item was not dispatched; earlier verified items are listed. The plan remains consumed. Prepare a new reviewed batch after resolving the read or access failure.')
                 expected_request=mutation_request(self.name,item)
                 if (isinstance(exc,NativeOperationRefused) and phase=='mutation'
                         and exc.evidence.get('mutation_dispatched') is False

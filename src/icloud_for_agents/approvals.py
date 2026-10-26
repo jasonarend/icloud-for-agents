@@ -23,7 +23,7 @@ import uuid
 from .core import SafetyError, canonical, digest
 
 
-PLAN_KINDS = frozenset({"trash", "send", "calendar_change", "contact_change", "notes_change", "reminders_change", "notes_access", "reminders_access", "notes_recovery"})
+PLAN_KINDS = frozenset({"trash", "send", "calendar_change", "contact_change", "notes_change", "reminders_change", "notes_access", "reminders_access", "notes_recovery", "notes_grant", "reminders_grant"})
 
 
 def runtime_root():
@@ -42,6 +42,8 @@ def authorization_path(plan):
         return 'standing-cleanup', False
     if any(item.get('operation') == 'delete' for item in plan['payload'].get('changes', [])):
         return 'local-receipt', True
+    if plan['kind'] in {'notes_change','reminders_change'} and isinstance(plan['payload'].get('standing_grant'),dict):
+        return 'standing-native', False
     policy = os.environ.get('ICLOUD_APPROVAL_POLICY', 'local-receipt')
     if policy not in {'local-receipt','trusted-client'}:
         raise SafetyError('Unknown approval policy')
@@ -276,10 +278,44 @@ class PlanStore:
                 and record.get("original_result_sha256") == digest(self.read(self.path(original_id, ".result")))
                 and done.get("retry_result_sha256") == digest(result) and result.get("status") == "applied")
 
+    def native_predispatch_proof(self,plan_id,result):
+        plan=self.read(self.path(plan_id,'.json'));items=plan.get('payload',{}).get('changes',[])
+        attempts=result.get('attempted');completed=result.get('completed')
+        if (plan.get('kind') not in {'notes_change','reminders_change'}
+                or result.get('phase') not in {'pre_dispatch','snapshot_recheck'}
+                or not isinstance(attempts,list) or attempts!=completed or not 0<=len(attempts)<len(items)
+                or self.read(self.path(plan_id,'.started')).get('sha256')!=digest(plan)):
+            raise SafetyError('Only a proven native stop before dispatch can settle without provider reconciliation')
+        paths=set(self.root.glob(plan_id+'.attempt-*'))
+        expected={self.path(plan_id,'.attempt-'+str(i)) for i in range(len(attempts))}
+        if paths!=expected:raise SafetyError('Native attempt records are incomplete or contain later dispatch evidence')
+        hashes=[]
+        for i,attempt in enumerate(attempts):
+            record=self.read(self.path(plan_id,'.attempt-'+str(i)))
+            if (attempt.get('index')!=i or attempt.get('operation')!=items[i]['operation']
+                    or record!={'plan_sha256':digest(plan),'attempt':attempt}):raise SafetyError('Native completed attempt proof does not match')
+            hashes.append(digest(record))
+        return {'plan_sha256':digest(plan),'result_phase':result['phase'],'not_dispatched_index':len(attempts),'attempt_record_hashes':hashes}
+
+    def _native_stopped_completed(self,plan_id):
+        path=self.path(plan_id,'.native-stopped')
+        if not path.exists():return False
+        record=self.read(path);result=self.read(self.path(plan_id,'.result'))
+        return (result.get('status')=='failed_or_uncertain' and record=={'original_result_sha256':digest(result),
+                'proof':self.native_predispatch_proof(plan_id,result),'status':'stopped_before_dispatch_finalized'})
+
     def operation_settled(self,plan_id):
         path=self.path(plan_id,'.result')
-        if not path.exists():return False
+        if not path.exists():
+            plan=self.read(self.path(plan_id,'.json'))
+            revoked=self.path(plan_id,'.native-grant-revoked')
+            if plan.get('kind') in {'notes_grant','reminders_grant'} and revoked.exists():
+                return self.read(revoked).get('grant_sha256')==digest(plan)
+            return False
         result=self.read(path)
+        if self._native_stopped_completed(plan_id):return True
+        if result.get('status')=='stopped_before_dispatch':
+            return result.get('pre_dispatch_evidence')==self.native_predispatch_proof(plan_id,result)
         if result.get('status') in {'applied','moved','sent','completed'}:return True
         if result.get('status')!='refused_without_dispatch':return False
         plan=self.read(self.path(plan_id,'.json'));index=result.get('refused_index');changes=plan.get('payload',{}).get('changes',[])
@@ -348,6 +384,7 @@ class PlanStore:
         return result
 
     def status(self, plan_id):
+        if self._native_stopped_completed(plan_id):return {'status':'stopped_before_dispatch_finalized','original_status':'failed_or_uncertain','do_not_retry':True}
         if self.path(plan_id,'.cancelled').exists():
             record=self.read(self.path(plan_id,'.cancelled'));plan=self.read(self.path(plan_id,'.json'))
             if record.get('plan_sha256')!=digest(plan):raise SafetyError('Cancellation does not bind this exact plan')
@@ -361,7 +398,7 @@ class PlanStore:
         result = self.path(plan_id, ".result")
         if result.exists():
             value=self.read(result)
-            if value.get("status")=="refused_without_dispatch" and not self.operation_settled(plan_id):raise SafetyError("Native refusal evidence does not match the exact plan")
+            if value.get("status") in {"refused_without_dispatch","stopped_before_dispatch"} and not self.operation_settled(plan_id):raise SafetyError("Native refusal evidence does not match the exact plan")
             return value
         if self.path(plan_id, ".started").exists():
             return {"status": "started_or_uncertain", "do_not_retry": True}
@@ -372,7 +409,7 @@ class PlanStore:
             if receipt.get("plan_id") != plan_id or receipt.get("sha256") != digest(plan):
                 raise SafetyError("Receipt does not match current proposal")
             return {"status":"approved", "authorization_path":path}
-        status = "awaiting_local_approval" if receipt_required else ("awaiting_standing_scope_validation" if path == "standing-cleanup" else "awaiting_client_authorized_execution")
+        status = "awaiting_local_approval" if receipt_required else ("awaiting_standing_scope_validation" if path in {"standing-cleanup","standing-native"} else "awaiting_client_authorized_execution")
         return {"status":status, "authorization_path":path, "local_receipt_required":receipt_required}
 
 
@@ -381,7 +418,7 @@ def approve_interactively(store, plan_id):
     # Escape all controls in mail-derived text before rendering it in a terminal.
     review = json.dumps(plan, ensure_ascii=True, indent=2)
     fingerprint = digest(plan)
-    labels = {"trash": "TRASH", "send": "SEND", "calendar_change": "APPROVE CALENDAR", "contact_change": "APPROVE CONTACTS", "notes_change": "APPROVE NOTES", "reminders_change": "APPROVE REMINDERS", "notes_access":"ALLOW NOTES OS REQUEST", "reminders_access":"ALLOW REMINDERS OS REQUEST", "notes_recovery":"APPROVE NOTES RECOVERY"}
+    labels = {"trash": "TRASH", "send": "SEND", "calendar_change": "APPROVE CALENDAR", "contact_change": "APPROVE CONTACTS", "notes_change": "APPROVE NOTES", "reminders_change": "APPROVE REMINDERS", "notes_access":"ALLOW NOTES OS REQUEST", "reminders_access":"ALLOW REMINDERS OS REQUEST", "notes_recovery":"APPROVE NOTES RECOVERY", "notes_grant":"APPROVE NOTES GRANT", "reminders_grant":"APPROVE REMINDERS GRANT"}
     label = labels[plan["kind"]]
     if any(item.get("operation") == "delete" for item in plan["payload"].get("changes", [])):
         label = "IRREVERSIBLE DELETE " + label

@@ -37,5 +37,5 @@ class NativeAccessTests(unittest.TestCase):
             self.assertEqual(status['os_permission'],'not_checked')
             self.assertTrue(status['writes_implemented'])
             self.assertEqual(status['effective_access'],'read-only')
-            self.assertFalse(status['standing_grants_implemented'])
+            self.assertTrue(status['standing_grants_implemented'])
             self.assertNotIn('helper_path',status)

@@ -69,6 +69,32 @@ def register_change_tools(mcp):
             check_plan_scope(name,plan_id)
             return editor(name).cancel(plan_id)
         mcp.tool(name=name+'_cancel_plan',annotations=WRITE)(guard(cancel_plan))
+        def finalize_stopped_plan(plan_id:str)->dict:
+            """Finalize only a stored proven pre-dispatch native stop; preserve original failure, never retry writes."""
+            check_plan_scope(name,plan_id)
+            return editor(name).finalize_stopped(plan_id)
+        mcp.tool(name=name+'_finalize_stopped_plan',annotations=WRITE)(guard(finalize_stopped_plan))
+        from .native_grants import NativeGrants
+        def prepare_grant(scope:dict)->dict:
+            """Propose ongoing/scenario native permission with exact rules, optional expiry/cap, and revocation. No data writes."""
+            return NativeGrants(editor(name)).prepare(scope)
+        def activate_grant(grant_id:str)->dict:
+            """Activate one reviewed native grant under the existing strict/trusted policy. Does not change OS/config access."""
+            return NativeGrants(editor(name)).activate(grant_id)
+        def finalize_grant(grant_id:str)->dict:
+            """Complete a previously admitted grant activation audit after interruption; no native mutation or new receipt."""
+            return NativeGrants(editor(name)).finalize(grant_id)
+        def grant_status(grant_id:str)->dict:
+            """Read owned grant scope and activation/revocation state; container status is not refreshed."""
+            return NativeGrants(editor(name)).status(grant_id)
+        def revoke_grant(grant_id:str)->dict:
+            """Revoke ongoing native authority; cannot recall an already admitted native effect."""
+            return NativeGrants(editor(name)).revoke(grant_id)
+        def prepare_with_grant(grant_id:str,changes:list[dict])->dict:
+            """Prepare exact changes within one active scenario grant; unsupported operations and wider scope refused."""
+            return editor(name).prepare_with_grant(grant_id,changes)
+        for suffix,fn in [('prepare_grant',prepare_grant),('activate_grant',activate_grant),('grant_status',grant_status),('finalize_grant',finalize_grant),('revoke_grant',revoke_grant),('prepare_with_grant',prepare_with_grant)]:
+            mcp.tool(name=name+'_'+suffix,annotations=READ if suffix=='grant_status' else WRITE)(guard(fn))
     for name in ('notes','reminders'):
         if enabled(name):register_permissions(name)
 

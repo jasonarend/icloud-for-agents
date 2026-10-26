@@ -33,11 +33,14 @@ jobs:
           .venv/bin/python tests/policy_stdio_smoke.py
           .venv/bin/python tests/native_stdio_smoke.py
           .venv/bin/python tests/native_once_stdio_smoke.py
+          .venv/bin/python tests/native_grant_stdio_smoke.py
           .venv/bin/python tests/native_script_contract.py
           .venv/bin/python tests/native_write_contract.py
           .venv/bin/python tests/native_reminder_metadata_contract.py
           .venv/bin/python tests/native_reminder_dates_contract.py
           .venv/bin/python tests/native_service_isolation_contract.py
+          .venv/bin/python tests/native_permission_contract.py
+          .venv/bin/python tests/native_nonprompting_contract.py
           .venv/bin/python scripts/check-dependency-licenses.py
       - name: Compile native helper and inspect permission status without requesting access
         run: |

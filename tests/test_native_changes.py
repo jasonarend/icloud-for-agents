@@ -90,7 +90,7 @@ class NativeChangesTests(unittest.TestCase):
         self.adapter.apply=apply
         plan=self.engine.prepare([{'operation':'update','id':id,'fields':{'title':'after'}} for id in ('one','two')])
         result=self.engine.execute(plan['plan_id'])
-        self.assertEqual(result['status'],'failed_or_uncertain');self.assertEqual(len(result['completed']),1)
+        self.assertEqual(result['status'],'stopped_before_dispatch');self.assertEqual(len(result['completed']),1)
         self.assertEqual(self.adapter.objects['two']['title'],'before')
     def test_known_creation_readback_reconciliation_preserves_audit_and_prevents_replay(self):
         self.adapter.operations.add('create_note')

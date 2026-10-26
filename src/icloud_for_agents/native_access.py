@@ -25,7 +25,7 @@ def access_status(name):
             'os_permission': 'not_checked', 'writes_implemented': True,
             'implemented_write_operations':(['create_note','create_folder','append_note','update_note','move_note'] if name=='notes' else ['create_list','create_reminder','update_reminder','set_completed','move_reminder']),
             'implemented_recovery_operations':(['accept_observed_creation','repair_title_only_candidate'] if name=='notes' else ['known_update_correction']),
-            'standing_grants_implemented': False,'one_time_elevation_implemented':True,
+            'standing_grants_implemented': True,'one_time_elevation_implemented':True,
             'read_actions': sorted(READ_ACTIONS[name])}
 
 
