@@ -158,7 +158,7 @@ def register_change_tools(mcp):
         def notes_prepare_creation_recovery(plan_id:str,candidate_id:str,action:str)->dict:
             """Review one explicit observed-note association or title-only repair after uncertain creation; no replay."""
             from .native_recovery import NotesCreationRecovery
-            require_write('notes');check_plan_scope('notes',plan_id)
+            check_plan_scope('notes',plan_id)
             return NotesCreationRecovery(owner()).prepare(plan_id,candidate_id,action)
 
         @mcp.tool(annotations=WRITE)
@@ -166,7 +166,7 @@ def register_change_tools(mcp):
         def notes_execute_creation_recovery(plan_id:str)->dict:
             """Consume an exact reviewed recovery under strict/trusted policy; preserve the original failed result."""
             from .native_recovery import NotesCreationRecovery
-            require_write('notes');check_plan_scope('notes',plan_id)
+            check_plan_scope('notes',plan_id)
             return NotesCreationRecovery(owner()).execute(plan_id)
 
         @mcp.tool(annotations=WRITE)
@@ -174,7 +174,7 @@ def register_change_tools(mcp):
         def notes_finalize_creation_recovery(plan_id:str)->dict:
             """Read back a successful recovery to finish an interrupted audit proof; no native mutation or replay."""
             from .native_recovery import NotesCreationRecovery
-            require_write('notes');check_plan_scope('notes',plan_id)
+            check_plan_scope('notes',plan_id)
             return NotesCreationRecovery(owner()).finalize(plan_id)
 
     if enabled('reminders'):

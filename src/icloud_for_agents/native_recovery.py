@@ -21,8 +21,14 @@ class NotesCreationRecovery:
         self.account=account;self.store=store or PlanStore();self.adapter=adapter or NotesCreateAdapter()
         self.engine=NativeChanges('notes',account,self.adapter,self.store)
 
+    def context(self,plan=None):
+        # New recovery reviews bind exact temporary authority. Existing reviews
+        # retain their original persistent-mode contract.
+        temporary=plan is None or plan.get('payload',{}).get('context',{}).get('temporary_elevation')=='exact-batch-once'
+        return self.engine.context(temporary)
+
     def original(self,plan_id):
-        context=self.engine.context();plan=self.store.read(self.store.path(plan_id,'.json'))
+        context=self.engine.context(True);plan=self.store.read(self.store.path(plan_id,'.json'))
         result=self.store.read(self.store.path(plan_id,'.result'))
         changes=plan.get('payload',{}).get('changes',[])
         if (plan.get('kind')!='notes_change' or plan['payload'].get('account')!=self.account
@@ -82,7 +88,7 @@ class NotesCreationRecovery:
                 if len(json.dumps(mutation_request('notes',repair),ensure_ascii=False).encode())>65000:raise SafetyError('Recovery exceeds the fixed helper request limit')
             identifier=uuid.uuid4().hex
             plan={'plan_id':identifier,'kind':'notes_recovery','created':self.store.clock(),'expires':self.store.clock()+1800,
-                'native_recovery_of':original_id,'payload':{'account':self.account,'context':self.engine.context(),
+                'native_recovery_of':original_id,'payload':{'account':self.account,'context':self.context(),
                 'original_sha256':digest(original),'original_result_sha256':digest(result),
                 'operation':action,'source_id':item['source_id'],'folder_id':item['folder_id'],
                 'candidate_id':candidate_id,'before':snapshot,'requested_fields':item['fields'],
@@ -104,7 +110,7 @@ class NotesCreationRecovery:
             plan=self.store.proposal(recovery_id);original_id=plan.get('native_recovery_of')
             if not original_id or not self.store._native_recovery_for(original_id,plan):raise SafetyError('Invalid recovery reservation')
             original,original_result,item=self.original(original_id);payload=plan['payload']
-            if payload.get('account')!=self.account or payload.get('context')!=self.engine.context():
+            if payload.get('account')!=self.account or payload.get('context')!=self.context(plan):
                 raise SafetyError('Recovery account, backend or access changed')
             current=self.snapshot(item,payload['candidate_id'])
             if current!=payload['before']:raise SafetyError('Candidate changed since review')
@@ -113,11 +119,18 @@ class NotesCreationRecovery:
             self.store.consume(recovery_id,self.account)
             outcome={'id':payload['candidate_id'],'source_id':item['source_id'],'folder_id':item['folder_id']}
             try:
-                if self.engine.context()!=payload['context']:raise SafetyError('Access changed before recovery')
+                if self.context(plan)!=payload['context']:raise SafetyError('Access changed before recovery')
                 if payload['operation']=='repair_title_only_candidate':
                     change={'operation':'repair_note_body','source_id':item['source_id'],'folder_id':item['folder_id'],
                             'id':payload['candidate_id'],'fields':item['fields'],'before':current}
-                    outcome=self.adapter.reader._dispatch(mutation_request('notes',change),native_config('notes'))['result']
+                    from .native_once import dispatch
+                    from .native_access import require_write
+                    # The consumed recovery authorizes only this immutable repair.
+                    # No application setting or ambient write mode is changed.
+                    with dispatch('notes',change):
+                        require_write('notes',change)
+                        if self.context(plan)!=payload['context']:raise SafetyError('Recovery access changed before exact repair')
+                        outcome=self.adapter.reader._dispatch(mutation_request('notes',change),native_config('notes'))['result']
                     self.store.write_once(self.store.path(recovery_id,'.observed-outcome'),
                         {'recovery_sha256':digest(plan),'result':outcome})
                 if self.adapter.verify(item,outcome) is not True:raise SafetyError('Original requested note does not verify after recovery')
@@ -143,7 +156,7 @@ class NotesCreationRecovery:
         with self.engine.serialized():
             plan=self.store.read(self.store.path(recovery_id,'.json'));original_id=plan.get('native_recovery_of')
             if not original_id or not self.store._native_recovery_for(original_id,plan):raise SafetyError('Invalid recovery reservation')
-            if plan['payload'].get('account')!=self.account or plan['payload'].get('context')!=self.engine.context():
+            if plan['payload'].get('account')!=self.account or plan['payload'].get('context')!=self.context(plan):
                 raise SafetyError('Recovery account, backend or access changed')
             if self.store._native_recovery_completed(original_id):return self.store.status(original_id)
             original,original_result,item=self.original(original_id);result=self.store.read(self.store.path(recovery_id,'.result'))

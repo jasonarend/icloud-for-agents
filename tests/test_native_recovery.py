@@ -139,3 +139,33 @@ class NativeRecoveryTests(unittest.TestCase):
         self.adapter.reader.note['modified']='external'
         with self.assertRaises(SafetyError):self.recovery.finalize(proposal['plan_id'])
         self.assertFalse(self.store._reconciliation_completed(original))
+
+    def readonly(self):
+        os.environ['ICLOUD_MAIL_ACCESS']='read-only'
+        os.environ['ICLOUD_NATIVE_CONFIG']=json.dumps({'notes':{'access_mode':'read-only','source_ids':['selected']}})
+    def test_readonly_recovery_accepts_without_a_persistent_write_window(self):
+        original=self.fail(full=True);self.readonly()
+        before=dict(os.environ);plan=self.recovery.prepare(original,'candidate','accept_observed_creation')
+        self.assertEqual(plan['review']['payload']['context']['temporary_elevation'],'exact-batch-once')
+        result=self.recovery.execute(plan['plan_id'])
+        self.assertFalse(result['native_data_changed']);self.assertEqual(dict(os.environ),before)
+        self.assertEqual(self.adapter.reader.calls,['create'])
+    def test_readonly_repair_receives_only_exact_consumed_item_authority(self):
+        from icloud_for_agents.native_access import require_write
+        from icloud_for_agents.native_once import permits
+        original=self.fail();self.readonly();before=dict(os.environ)
+        plan=self.recovery.prepare(original,'candidate','repair_title_only_candidate');dispatch=self.adapter.reader._dispatch
+        def check(request,config):
+            change=request['change']
+            # Authority binds the full review payload, not its reduced IPC form.
+            self.assertFalse(permits('notes',change))
+            with self.assertRaises(SafetyError):require_write('notes')
+            return dispatch(request,config)
+        with patch.object(self.adapter.reader,'_dispatch',side_effect=check):result=self.recovery.execute(plan['plan_id'])
+        self.assertTrue(result['native_data_changed']);self.assertEqual(dict(os.environ),before)
+        with self.assertRaises(SafetyError):require_write('notes')
+    def test_readonly_recovery_scope_revoked_before_consume_is_refused(self):
+        original=self.fail(full=True);self.readonly();plan=self.recovery.prepare(original,'candidate','accept_observed_creation')
+        os.environ['ICLOUD_NATIVE_CONFIG']=json.dumps({'notes':{'access_mode':'read-only','source_ids':[]}})
+        with self.assertRaises(SafetyError):self.recovery.execute(plan['plan_id'])
+        self.assertFalse(self.store.path(plan['plan_id'],'.started').exists())
