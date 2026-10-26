@@ -45,6 +45,13 @@ def validate_bundle(helper):
     return bundle
 
 
+def bundle_fingerprint(helper):
+    helper=Path(helper);bundle=validate_bundle(helper);checksum=hashlib.sha256()
+    for path in (helper,bundle/'Contents/Info.plist',bundle/'Contents/Resources/notes.js',bundle/'Contents/Resources/notes-write.js'):
+        checksum.update(path.read_bytes())
+    return checksum.hexdigest()
+
+
 def exchange_base():
     return Path.home()/'Library/Application Support/icloud-for-agents/native-exchange'
 
@@ -57,7 +64,7 @@ def exchange_root():
     return exchange_base()/identity/'native-app'
 
 
-def application_request(helper, request, timeout=25):
+def application_request(helper, request, timeout=40):
     helper=Path(helper)
     bundle=validate_bundle(helper)
     runtime=runtime_root()

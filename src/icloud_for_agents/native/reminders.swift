@@ -47,7 +47,7 @@ func requestData() -> Data {
 var notesEventSendCount=0
 let notesSendWithoutConsent: OSASendUPP = { event,reply,mode,priority,ticks,idle,filter,refCon in
     notesEventSendCount+=1
-    let bounded:Int32 = ticks<=0 ? 300 : min(ticks,300)
+    let bounded:Int32 = ticks<=0 ? 600 : min(ticks,600)
     return OSErr(truncatingIfNeeded:AESendMessage(event,reply,mode | AESendMode(kAEDoNotPromptForUserConsent),Int(bounded)))
 }
 func notesScript(_ source:String)->OSAScript? {
@@ -56,6 +56,29 @@ func notesScript(_ source:String)->OSAScript? {
     guard OSASetSendProc(instance.componentInstance,notesSendWithoutConsent,nil)==noErr else { return nil }
     return OSAScript(source:source,from:nil,languageInstance:instance,using:[])
 }
+func notesReadiness()->OSStatus {
+ let target=NSAppleEventDescriptor(bundleIdentifier:"com.apple.Notes")
+ let property=NSAppleEventDescriptor.record()
+ property.setDescriptor(NSAppleEventDescriptor(typeCode:typeProperty),forKeyword:AEKeyword(keyAEDesiredClass))
+ property.setDescriptor(NSAppleEventDescriptor(enumCode:OSType(formPropertyID)),forKeyword:AEKeyword(keyAEKeyForm))
+ property.setDescriptor(NSAppleEventDescriptor(typeCode:AEKeyword(0x76657273)),forKeyword:AEKeyword(keyAEKeyData))
+ property.setDescriptor(NSAppleEventDescriptor.null(),forKeyword:AEKeyword(keyAEContainer))
+ guard let object=property.coerce(toDescriptorType:typeObjectSpecifier) else {return -1}
+ let event=NSAppleEventDescriptor(eventClass:kAECoreSuite,eventID:kAEGetData,targetDescriptor:target,returnID:AEReturnID(kAutoGenerateReturnID),transactionID:AETransactionID(kAnyTransactionID))
+ event.setParam(object,forKeyword:keyDirectObject)
+ var reply=AppleEvent(descriptorType:typeNull,dataHandle:nil)
+ defer {AEDisposeDesc(&reply)}
+ notesEventSendCount+=1
+ let code=AESendMessage(event.aeDesc,&reply,AESendMode(kAEWaitReply|kAEDoNotPromptForUserConsent),300)
+ if code != noErr {return code}
+ var remote:Int32=0;var type:DescType=0;var size=0
+ let error=AEGetParamPtr(&reply,keyErrorNumber,typeSInt32,&type,&remote,MemoryLayout<Int32>.size,&size)
+ if error==noErr && remote != 0 {return remote}
+ var value=AEDesc(descriptorType:typeNull,dataHandle:nil)
+ defer {AEDisposeDesc(&value)}
+ return OSStatus(AEGetParamDesc(&reply,keyDirectObject,typeWildCard,&value))
+}
+
 func notesPermission(prompt: Bool) -> OSStatus {
     // AppleEvents.h requires this API off the main thread. Pump the main run loop
     // so an ordinary app-launched helper can participate in the system consent UI.
@@ -137,10 +160,7 @@ if service == "notes" {
         // reading note/account content or using the blocking preflight API.
         _ = NSApplication.shared
         DispatchQueue.global(qos:.userInitiated).async {
-            guard let script=notesScript("Application('com.apple.Notes').version()") else { fail("notes_bridge_unavailable") }
-            var error:NSDictionary?
-            let output=script.executeAndReturnError(&error)
-            let code:OSStatus = output?.stringValue?.isEmpty == false && notesEventSendCount>0 ? noErr : OSStatus(error?[OSAScriptErrorNumberKey] as? Int ?? -1)
+            let code=notesReadiness()
             let state = code == noErr ? "granted" : code == -1743 ? "denied" : code == -1744 ? "requires_consent" : code == -600 ? "target_not_running" : "unknown"
             respond(["protocol_version":1,"service":"notes","permission_status":code,"permission_state":state,"permission_granted":code==noErr,
                      "application_writes_enabled":false,"nonprompting_event_count":notesEventSendCount,"permission_method":"nonprompting_application_metadata_event"])
@@ -178,7 +198,7 @@ if service == "notes" {
         var result=value;result["nonprompting_event_count"]=notesEventSendCount
         respond(result)
     }
-    RunLoop.current.run(until: Date(timeIntervalSinceNow: 20))
+    RunLoop.current.run(until: Date(timeIntervalSinceNow: 30))
     fail(action == "apply" ? "mutation_failed_or_uncertain" : "notes_read_timeout")
 }
 let status = EKEventStore.authorizationStatus(for: .reminder)
@@ -269,7 +289,7 @@ if action == "apply" {
             respond(["protocol_version":1,"result":["id":reminder.calendarItemIdentifier,
                 "list_id":reminder.calendar.calendarIdentifier,"source_id":sourceID,"saved_locally":true]])
         }
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 20))
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 30))
         fail("mutation_failed_or_uncertain")
     }
     guard let item = req["change"] as? [String: Any], let operation = item["operation"] as? String,
@@ -382,7 +402,7 @@ if action == "get" {
         guard let reminder = reminders.first(where: { $0.calendarItemIdentifier == id }) else { fail("not_found_in_scope") }
         respond(["protocol_version": 1, "item": object(reminder)])
     }
-    RunLoop.current.run(until: Date(timeIntervalSinceNow: 20))
+    RunLoop.current.run(until: Date(timeIntervalSinceNow: 30))
     fail("read_timeout")
 }
 
@@ -441,5 +461,5 @@ store.fetchReminders(matching: predicate) { reminders in
     respond(["protocol_version": 1, "items": page, "done": next >= filtered.count,
              "next_offset": next, "pagination_consistency": "live_offset_may_shift"])
 }
-RunLoop.current.run(until: Date(timeIntervalSinceNow: 20))
+RunLoop.current.run(until: Date(timeIntervalSinceNow: 30))
 fail("read_timeout")

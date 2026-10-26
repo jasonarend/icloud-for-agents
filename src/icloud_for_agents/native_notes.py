@@ -1,9 +1,7 @@
 """Concrete scoped Notes changes with exact previews and native-content guards."""
-import hashlib
 import json
 from html import escape
 from html.parser import HTMLParser
-from pathlib import Path
 
 from .core import SafetyError, digest
 from .native_access import require_write
@@ -60,15 +58,8 @@ class NotesCreateAdapter:
     def backend_id(self):
         config=native_config('notes');helper=config.get('helper_path')
         if not helper:raise SafetyError('Configure the signed native helper before Notes writes')
-        path=Path(helper)
-        from .native_app import validate_bundle
-        bundle=validate_bundle(path);resources=bundle/'Contents/Resources'
-        digest=hashlib.sha256()
-        for file in (path,bundle/'Contents/Info.plist',resources/'notes.js',resources/'notes-write.js'):
-            if not file.is_file() or file.stat().st_size>50_000_000:
-                raise SafetyError('Invalid Notes helper assets')
-            digest.update(file.read_bytes())
-        return 'notes-creation-v1:'+digest.hexdigest()
+        from .native_app import bundle_fingerprint
+        return 'notes-creation-v1:'+bundle_fingerprint(helper)
 
     def folders(self):
         result=[];offset=0

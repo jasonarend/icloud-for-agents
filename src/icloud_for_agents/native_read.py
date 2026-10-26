@@ -157,8 +157,19 @@ class NativeReader:
             if info.st_uid != os.getuid() or info.st_mode & 0o022 or not os.access(path, os.X_OK):
                 raise SafetyError('Native helper must be owner-controlled and executable')
             if self.name == 'notes':
-                from .native_app import application_request
-                response = application_request(path, request, timeout=75 if action=="request_access" else 25)
+                from .native_app import application_request,bundle_fingerprint
+                readonly=action in READ_ACTIONS['notes']
+                fingerprint=bundle_fingerprint(path) if readonly else None
+                prior_mode=os.environ.get('ICLOUD_MAIL_ACCESS','read-only')
+                response = application_request(path, request, timeout=75 if action=="request_access" else 40)
+                if readonly and response.get('error')=='notes_operation_failed' and response.get('error_code')==-1712:
+                    # Only a completed, fixed read can repeat once. Never retry
+                    # mutation, consent, missing response or ambiguous dispatch.
+                    if (native_config('notes')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=prior_mode
+                            or prior_mode=='disabled' or bundle_fingerprint(path)!=fingerprint):
+                        raise SafetyError('Native access or helper changed before the read-only retry')
+                    response=application_request(path,request,timeout=40)
+                    response=dict(response,read_retry_count=1)
                 if 'error' in response:
                     if action=='apply' and response.get('mutation_dispatched') is False:
                         raise _confirmed_refusal(self.name,request,response)
