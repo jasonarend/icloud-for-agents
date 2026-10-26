@@ -2,7 +2,7 @@
 
 The server runs on your Mac and retrieves credentials from macOS Keychain. A local client launches it over stdio; ChatGPT connects through your private Secure MCP Tunnel. The model name does not determine the connection: Claude in a local app and Claude in a browser have different capabilities.
 
-Tested and supported clients are ChatGPT through the private tunnel, Claude Desktop on macOS, and Claude Code through local stdio MCP. The tested platform is macOS arm64 with Python 3.14. Other client routes follow official client documentation and remain unverified with this project unless stated otherwise. Verify the installed client version and current documentation before changing configuration.
+Tested and supported clients are ChatGPT through the private tunnel, Claude Desktop on macOS, and Claude Code through local stdio MCP. OpenClaw has the narrower verified read-only collection path described below. The tested platform is macOS arm64 with Python 3.14. Other client routes follow official client documentation and remain unverified with this project unless stated otherwise. Verify the installed client version and current documentation before changing configuration.
 
 ## Prepare the local server
 
@@ -72,6 +72,58 @@ args = ["/ABSOLUTE/PATH/icloud-for-agents/scripts/run-stdio.py"]
 Inspect `codex mcp list` and the target surface's MCP settings; restart or refresh as supported. Organization policies can restrict servers. A cloud task has a different execution environment and cannot use the Mac's paths or Keychain merely because local Codex has this entry.
 
 Source: [OpenAI Codex MCP documentation](https://developers.openai.com/codex/mcp).
+
+## OpenClaw: verified read-only collection access
+
+Verified on macOS arm64 with iCloud for Agents 1.1.0, OpenClaw 2026.10.7 (`157d8c2`), and the OpenAI Codex runtime using `openai/gpt-6.1-terra`. Actual harness calls passed for Mail folder listing twice with identical results, Calendar collection listing, and Contacts address-book listing. Eight read tool schemas were exposed. Message contents, event/contact records, writes, Notes, Reminders, other runtimes and long-term reconnection were not tested; this is scoped read-only verification, not full read/write certification.
+
+Use OpenClaw's official MCP registry (`openclaw mcp add` or Settings → MCP). Back up its existing personal configuration and merge only the new `mcp.servers` entry. For an independently restricted client when the checkout's shared settings may allow writes, the tested entry uses the installed **console executable directly**, with explicit environment settings:
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "icloud-for-agents-readonly": {
+        "command": "/ABSOLUTE/PATH/icloud-for-agents/.venv/bin/icloud-for-agents",
+        "args": [],
+        "env": {
+          "ICLOUD_MAIL_ACCOUNT": "OWNER_ACCOUNT_FROM_LOCAL_SETTINGS",
+          "ICLOUD_KEYCHAIN_SERVICE": "EXISTING_KEYCHAIN_SERVICE_FROM_LOCAL_SETTINGS",
+          "ICLOUD_MAIL_ACCESS": "read-only",
+          "ICLOUD_ENABLE_MAIL": "1",
+          "ICLOUD_ENABLE_CALENDAR": "1",
+          "ICLOUD_ENABLE_CONTACTS": "1",
+          "ICLOUD_ENABLE_DAV_READ": "1",
+          "ICLOUD_ENABLE_NOTES": "0",
+          "ICLOUD_ENABLE_REMINDERS": "0",
+          "ICLOUD_ENABLE_POLICY_MANAGEMENT": "0",
+          "ICLOUD_APPROVAL_POLICY": "local-receipt",
+          "ICLOUD_NATIVE_CONFIG": "{}",
+          "ICLOUD_RUNTIME_ROOT": "/ABSOLUTE/PRIVATE/PATH/openclaw-icloud-readonly-runtime",
+          "FASTMCP_CHECK_FOR_UPDATES": "off"
+        },
+        "toolFilter": {
+          "include": [
+            "email_list_folders", "email_page", "email_inspect",
+            "calendar_list", "calendar_events",
+            "contacts_addressbooks", "contacts_list", "contacts_get"
+          ]
+        }
+      }
+    }
+  }
+}
+```
+
+Replace account and Keychain service placeholders with the existing nonsecret references in `local/settings.json`; do not insert the app-specific password. Choose an absolute private runtime directory for this client. The direct entry deliberately does not load `local/settings.json`. Do not replace its command with `scripts/run-stdio.py` while relying on these environment restrictions: that launcher constructs its environment from shared settings and can overwrite them. Do not change shared service selections to restrict a single client.
+
+Keep normal approval checks enabled; do not set `codex.defaultToolsApprovalMode` to `approve` as a setup shortcut. The include filter restricts this server's projected tools, while the server's `read-only` mode independently blocks mutations. It does not restrict other connectors already installed in the harness. Inspect the actual tool namespace and use only this server during verification.
+
+Run `openclaw mcp doctor icloud-for-agents-readonly --probe --json` to check transport setup, then verify from a fresh or idle isolated conversation. With supported Gateway hot reload, the next turn discovers a changed entry; a shared Gateway restart was not needed in the tested setup. Select and verify the desired model inside OpenClaw. Ask it to call `email_list_folders` twice, `calendar_list`, and `contacts_addressbooks`, reporting only counts and repeat consistency. Verify actual tool results, rather than a model's connection claim. The tested Codex runtime exposed native tools with the prefix `mcp__icloud_for_agents_readonly__`; its generic compiled-tool count did not include that native MCP namespace. The official `openclaw agent --session-key ... --model openai/gpt-6.1-terra --message-file ... --json` route completed the same isolated UI session; omit `--deliver` for local testing. Its terminal receipt identified the effective model and successful server-qualified tool names, and `openclaw sessions export-trajectory` supplied call/result evidence.
+
+A successful probe alone does not prove account access or conversation compatibility. If tools are missing, inspect server enablement and include/exclude filters, the chosen runtime, and tool policy: OpenClaw documents that the `minimal` profile and `tools.deny: ["bundle-mcp"]` can hide MCP tools. Do not broaden unrelated policy to make a test pass. For Python `EPERM` opening a virtual environment on an external volume, inspect the responsible app's normal macOS Files & Folders permissions and logs; do not assume an enabled toggle proves the running process has access. A separate Hermes Desktop test encountered this machine-specific denial, and its repair remains unverified; Full Disk Access is not a demonstrated general installation requirement.
+
+Sources: [OpenClaw MCP setup](https://docs.openclaw.ai/tools/mcp), [saved-server registry and runtime behavior](https://docs.openclaw.ai/cli/mcp/registry), [agent CLI](https://docs.openclaw.ai/cli/agent), [session evidence commands](https://docs.openclaw.ai/cli/sessions), [Hermes macOS permission troubleshooting](https://hermes-agent.nousresearch.com/docs/user-guide/desktop#macos-permissions-and-local-rebuilds-tcc).
 
 ## Cursor
 

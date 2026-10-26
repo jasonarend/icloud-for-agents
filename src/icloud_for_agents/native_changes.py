@@ -103,7 +103,7 @@ class NativeChanges:
             if previous['payload'].get('account')!=self.account:
                 continue
             if not self.store.operation_settled(started.stem):
-                if not (self.store._reconciliation_completed(started.stem) or (correction and correction.get('native_recovery_of')==started.stem and self.store._native_recovery_for(started.stem,correction)) or (correction and correction.get('native_correction_of')==started.stem and self.store._native_correction_for(started.stem,correction))):
+                if not (self.store._reconciliation_completed(started.stem) or (correction and correction.get('kind')=='notes_move_recovery' and self.store._native_move_recovery_for(started.stem,correction)) or (correction and correction.get('native_recovery_of')==started.stem and self.store._native_recovery_for(started.stem,correction)) or (correction and correction.get('native_correction_of')==started.stem and self.store._native_correction_for(started.stem,correction))):
                     raise SafetyError('Prior write unfinished or uncertain; reconcile before another native write')
 
     def prepare_update_correction(self,original_id):
@@ -273,9 +273,10 @@ class NativeChanges:
                         raise SafetyError('Native access changed during the final snapshot check')
                     if manager:
                         grant=manager.checked(standing['grant_id']);manager.match(grant,item)
-                    phase='mutation'
                     from .native_once import dispatch
-                    with dispatch(self.name,item) if temporary else nullcontext():
+                    from .native_execution import capture
+                    with capture(self.store,self.name,plan,index),dispatch(self.name,item) if temporary else nullcontext():
+                        phase='mutation'
                         outcome=self.adapter.apply(item)
                     attempt={'index':index,'operation':item['operation'],'result':outcome}
                     attempted.append(attempt)

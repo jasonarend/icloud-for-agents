@@ -80,3 +80,12 @@ Prepare `rename_list` with an exact `source_id`, `list_id` and `fields: {"title"
 
 
 The Notes helper’s watchdog shares a locked dispatch gate with the fixed JXA mutation code. Every constructor, insertion, body setter and move enters that gate immediately before the native primitive. A deadline closes the gate so later primitives cannot begin. A deadline before any entry returns a request-bound no-dispatch refusal; a deadline after entry remains uncertain. This distinction does not retroactively resolve older helper failures that lacked the gate.
+
+
+**Observe one uncertain known-object move**
+
+`notes_prepare_move_recovery` proposes accepting the current state of one exact pre-existing note ID after an uncertain single-note move. It requires the unchanged observable content and attachment identities in exactly one of the original source/destination folders, unshared physical ancestry, and a terminal helper response bound to the original request. Missing responses, ambiguous exchanges, missing/duplicated objects, changed content, other owners/sources and other operation kinds are refused.
+
+`notes_accept_move_recovery` consumes that review under the configured strict-receipt or trusted-client policy. It records the observed source/destination location and explicitly leaves causal dispatch timing unproven. It does not move, recreate, edit or retry anything, and it preserves the original failed result. The old plan stays consumed. A successful association is a reviewed admission decision based on current verified state, not a claim that the original native operation succeeded or never ran. Later actions still use fresh snapshots and permissions.
+
+`notes_finalize_move_recovery` completes a successful observation’s interrupted local proof. `notes_abandon_move_recovery` withdraws an unfinalized observation without clearing the original uncertainty or touching native data. A stale unconsumed observation can be replaced with a fresh review. New ordinary Notes dispatches also bind the helper request ID, request fingerprint and backend fingerprint to their immutable admitted plan before launch; identical payloads from separate attempts remain distinguishable. Older records require one unambiguous exact-request match and cannot borrow a missing response or a different attempt’s evidence.

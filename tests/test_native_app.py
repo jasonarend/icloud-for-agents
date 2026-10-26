@@ -138,3 +138,34 @@ class NativeApplicationTests(unittest.TestCase):
             with self.assertRaises(SafetyError):application_request(self.helper,{'protocol_version':1,'service':'notes','action':'apply'})
         self.assertEqual(launch.call_count,1)
         self.assertEqual(launch.call_args.args[0],['/usr/bin/open','-g','-a','/System/Applications/Notes.app'])
+
+    def test_completed_exchange_binds_request_and_response_without_disclosing_content(self):
+        from icloud_for_agents.native_app import completed_exchange_evidence,exchange_root
+        expected={'protocol_version':1,'service':'notes','action':'apply','change':{'id':'synthetic','fields':{'title':'private synthetic content'}}}
+        directory=exchange_root()/'request-proof';directory.mkdir(mode=0o700,parents=True);exchange_root().chmod(0o700)
+        store=__import__('icloud_for_agents.approvals',fromlist=['PlanStore']).PlanStore(directory)
+        store.write_once(directory/'request.json',dict(expected,request_id=directory.name))
+        with self.assertRaises(SafetyError):completed_exchange_evidence(expected)
+        store.write_once(directory/'result.json',{'protocol_version':1,'request_id':directory.name,'error':'mutation_failed_or_uncertain','mutation_dispatched':True})
+        proof=completed_exchange_evidence(expected);self.assertEqual(proof['request_id'],directory.name);self.assertTrue(proof['mutation_dispatched']);self.assertNotIn('private synthetic',json.dumps(proof))
+        with self.assertRaises(SafetyError):completed_exchange_evidence(dict(expected,action='query'))
+
+    def test_plan_bound_exchange_disambiguates_identical_requests_and_keeps_content_private(self):
+        from icloud_for_agents.native_app import completed_exchange_evidence,bundle_fingerprint
+        from icloud_for_agents.native_execution import capture
+        from icloud_for_agents.approvals import PlanStore
+        from icloud_for_agents.native_protocol import mutation_request
+        store=PlanStore(self.root/'runtime');item={'operation':'create_folder','source_id':'selected','fields':{'title':'private synthetic title'},'before':{},'fidelity_verified':True,'effects':{}}
+        proposal=store.prepare('notes_change',{'account':'synthetic@example.com','context':{'backend':'notes-creation-v1:'+bundle_fingerprint(self.helper)},'changes':[item]})
+        with patch.dict(os.environ,{'ICLOUD_APPROVAL_POLICY':'trusted-client','ICLOUD_MAIL_ACCOUNT':'synthetic@example.com'},clear=True):store.consume(proposal['plan_id'],'synthetic@example.com')
+        def launch(command,**kwargs):
+            if command[1]=='-g':return SimpleNamespace(returncode=0)
+            directory=Path(command[-1]);file=directory/'result.json';file.write_text(json.dumps({'protocol_version':1,'request_id':directory.name,'error':'mutation_failed_or_uncertain','mutation_dispatched':True}));file.chmod(0o600);return SimpleNamespace(returncode=0)
+        request=mutation_request('notes',item)
+        with patch('subprocess.run',side_effect=launch):
+            with capture(store,'notes',proposal['review'],0):application_request(self.helper,request)
+            application_request(self.helper,request) # Another synthetic historical exchange with identical data.
+        with self.assertRaises(SafetyError):completed_exchange_evidence(request)
+        proof=completed_exchange_evidence(request,plan_id=proposal['plan_id'],store=store)
+        binding=store.read(store.path(proposal['plan_id'],'.native-exchange-0'))
+        self.assertEqual(proof['request_id'],binding['request_id']);self.assertNotIn('private synthetic',json.dumps(binding))

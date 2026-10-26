@@ -23,7 +23,7 @@ import uuid
 from .core import SafetyError, canonical, digest
 
 
-PLAN_KINDS = frozenset({"trash", "send", "calendar_change", "contact_change", "notes_change", "reminders_change", "notes_access", "reminders_access", "notes_recovery", "notes_grant", "reminders_grant"})
+PLAN_KINDS = frozenset({"trash", "send", "calendar_change", "contact_change", "notes_change", "reminders_change", "notes_access", "reminders_access", "notes_recovery", "notes_grant", "reminders_grant", "notes_move_recovery"})
 
 
 def runtime_root():
@@ -192,6 +192,60 @@ class PlanStore:
                         {"status":"reconciled_retry_verified", "retry_id":retry_id,
                          "retry_result_sha256":digest(result), "record_sha256":digest(record), "verification":verification})
 
+    def _native_move_recovery_abandoned(self,recovery):
+        path=self.path(recovery['plan_id'],'.native-move-recovery-abandoned')
+        if not path.exists():return False
+        if self.read(path)!={'recovery_sha256':digest(recovery),'native_data_changed':False}:raise SafetyError('Move observation withdrawal evidence is invalid')
+        return True
+
+    def _native_move_recovery_for(self,original_id,recovery):
+        if recovery.get('kind')!='notes_move_recovery' or recovery.get('payload',{}).get('original_id')!=original_id:return False
+        from .native_move_recovery import CONTENT_KEYS
+        from .native_protocol import mutation_request
+        original=self.read(self.path(original_id,'.json'));result=self.read(self.path(original_id,'.result'));items=original.get('payload',{}).get('changes',[]);payload=recovery.get('payload',{});observed=payload.get('observed',{})
+        if (original.get('kind')!='notes_change' or len(items)!=1 or items[0].get('operation')!='move_note'
+                or result.get('status')!='failed_or_uncertain' or result.get('phase') not in {'mutation','verification'}
+                or recovery.get('kind')!='notes_move_recovery' or payload.get('original_id')!=original_id
+                or payload.get('account')!=original['payload'].get('account') or payload.get('original_sha256')!=digest(original)
+                or payload.get('original_result_sha256')!=digest(result) or payload.get('original_item_sha256')!=digest(items[0])
+                or payload.get('operation')!='accept_observed_known_move_state'
+                or payload.get('context',{}).get('source_ids')!=original['payload'].get('context',{}).get('source_ids')):return False
+        item=items[0];destination=item['fields']['destination_folder_id'];location=observed.get('observed_folder_id')
+        if (observed.get('note_id')!=item.get('id') or observed.get('source_id')!=item['source_id']
+                or observed.get('source_folder_id')!=item['folder_id'] or observed.get('destination_folder_id')!=destination
+                or location not in {item['folder_id'],destination} or observed.get('location')!=('source' if location==item['folder_id'] else 'destination')
+                or observed.get('content_sha256')!=digest({k:item['before']['note'].get(k) for k in CONTENT_KEYS})
+                or observed.get('attachments_sha256')!=digest(item['before']['attachments'])
+                or payload.get('terminal_exchange',{}).get('request_sha256')!=digest(mutation_request('notes',item))):return False
+        identity=recovery['plan_id']
+        if self._native_move_recovery_abandoned(recovery):return False
+        proof=self.path(original_id,'.native-move-recovery-result')
+        if proof.exists() and self.read(proof).get('recovery_id')!=identity:return False
+        for started in self.root.glob('*.started'):
+            if started.stem==identity:continue
+            previous=self.read(self.path(started.stem,'.json'))
+            if previous.get('kind')!='notes_move_recovery' or previous.get('payload',{}).get('original_id')!=original_id:continue
+            outcome=self.path(started.stem,'.result')
+            if (outcome.exists() and self.read(outcome).get('recovery_state')=='observed_known_move_state_accepted_after_review'
+                    and not self._native_move_recovery_abandoned(previous)):return False
+        return True
+
+    def _native_move_recovery_completed(self,original_id):
+        path=self.path(original_id,'.native-move-recovery-result')
+        if not path.exists():return False
+        proof=self.read(path);recovery=self.read(self.path(proof['recovery_id'],'.json'));result=self.read(self.path(proof['recovery_id'],'.result'));started=self.read(self.path(proof['recovery_id'],'.started'))
+        policy=recovery['payload']['context']['approval_policy']
+        authority='local-receipt' if policy=='local-receipt' else 'trusted-client-policy; not an independent human receipt'
+        if started.get('authorization')!=authority or started.get('account')!=recovery['payload']['account']:return False
+        if policy=='local-receipt':
+            receipt=self.read(self.path(recovery['plan_id'],'.approved'))
+            if receipt.get('plan_id')!=recovery['plan_id'] or receipt.get('sha256')!=digest(recovery):return False
+        return (self._native_move_recovery_for(original_id,recovery) and proof.get('status')=='reviewed_known_move_state_accepted'
+                and started.get('sha256')==digest(recovery) and result.get('status')=='completed'
+                and result.get('recovery_state')=='observed_known_move_state_accepted_after_review' and result.get('native_data_changed') is False
+                and proof.get('recovery_result_sha256')==digest(result) and proof.get('original_result_sha256')==digest(self.read(self.path(original_id,'.result')))
+                and result.get('after_sha256')==digest(recovery['payload']['observed']) and proof.get('observed_sha256')==result['after_sha256'])
+
     def _native_recovery_for(self,original_id,recovery):
         path=self.path(original_id,'.native-recovery')
         if not path.exists():return False
@@ -313,7 +367,7 @@ class PlanStore:
                 return self.read(revoked).get('grant_sha256')==digest(plan)
             return False
         result=self.read(path)
-        if self._native_stopped_completed(plan_id):return True
+        if self._native_stopped_completed(plan_id) or self._native_move_recovery_completed(plan_id):return True
         if result.get('status')=='stopped_before_dispatch':
             return result.get('pre_dispatch_evidence')==self.native_predispatch_proof(plan_id,result)
         if result.get('status') in {'applied','moved','sent','completed'}:return True
@@ -365,7 +419,7 @@ class PlanStore:
                     if previous["payload"].get("account") != account:
                         continue
                     if not self.operation_settled(started.stem):
-                        if not (self._reconciliation_completed(started.stem) or (plan.get("native_recovery_of")==started.stem and self._native_recovery_for(started.stem,plan)) or (plan.get("native_correction_of")==started.stem and self._native_correction_for(started.stem,plan)) or (plan.get("reconciliation_of") == started.stem and self._reconciled_for(started.stem, plan))):
+                        if not (self._reconciliation_completed(started.stem) or (plan.get('kind')=='notes_move_recovery' and self._native_move_recovery_for(started.stem,plan)) or (plan.get("native_recovery_of")==started.stem and self._native_recovery_for(started.stem,plan)) or (plan.get("native_correction_of")==started.stem and self._native_correction_for(started.stem,plan)) or (plan.get("reconciliation_of") == started.stem and self._reconciled_for(started.stem, plan))):
                             raise SafetyError("Prior write unfinished or uncertain; reconcile before a new write")
                 authority = "trusted-client-policy; not an independent human receipt"
             else:
@@ -384,6 +438,14 @@ class PlanStore:
         return result
 
     def status(self, plan_id):
+        abandoned=self.path(plan_id,'.native-move-recovery-abandoned')
+        if abandoned.exists():
+            plan=self.read(self.path(plan_id,'.json'));record=self.read(abandoned)
+            if plan.get('kind')!='notes_move_recovery' or record!={'recovery_sha256':digest(plan),'native_data_changed':False}:raise SafetyError('Move observation withdrawal does not bind its plan')
+            return {'status':'abandoned','original_uncertainty_retained':True,'native_data_changed':False,'do_not_retry':True}
+        if self._native_move_recovery_completed(plan_id):
+            record=self.read(self.path(plan_id,'.native-move-recovery-result'));result=self.read(self.path(record['recovery_id'],'.result'))
+            return {'status':'observed_known_move_state_accepted','original_status':'failed_or_uncertain','location':result['location'],'causal_dispatch_proven':False,'do_not_retry':True}
         if self._native_stopped_completed(plan_id):return {'status':'stopped_before_dispatch_finalized','original_status':'failed_or_uncertain','do_not_retry':True}
         if self.path(plan_id,'.cancelled').exists():
             record=self.read(self.path(plan_id,'.cancelled'));plan=self.read(self.path(plan_id,'.json'))
@@ -418,7 +480,7 @@ def approve_interactively(store, plan_id):
     # Escape all controls in mail-derived text before rendering it in a terminal.
     review = json.dumps(plan, ensure_ascii=True, indent=2)
     fingerprint = digest(plan)
-    labels = {"trash": "TRASH", "send": "SEND", "calendar_change": "APPROVE CALENDAR", "contact_change": "APPROVE CONTACTS", "notes_change": "APPROVE NOTES", "reminders_change": "APPROVE REMINDERS", "notes_access":"ALLOW NOTES OS REQUEST", "reminders_access":"ALLOW REMINDERS OS REQUEST", "notes_recovery":"APPROVE NOTES RECOVERY", "notes_grant":"APPROVE NOTES GRANT", "reminders_grant":"APPROVE REMINDERS GRANT"}
+    labels = {"trash": "TRASH", "send": "SEND", "calendar_change": "APPROVE CALENDAR", "contact_change": "APPROVE CONTACTS", "notes_change": "APPROVE NOTES", "reminders_change": "APPROVE REMINDERS", "notes_access":"ALLOW NOTES OS REQUEST", "reminders_access":"ALLOW REMINDERS OS REQUEST", "notes_recovery":"APPROVE NOTES RECOVERY", "notes_move_recovery":"ACCEPT OBSERVED NOTES MOVE", "notes_grant":"APPROVE NOTES GRANT", "reminders_grant":"APPROVE REMINDERS GRANT"}
     label = labels[plan["kind"]]
     if any(item.get("operation") == "delete" for item in plan["payload"].get("changes", [])):
         label = "IRREVERSIBLE DELETE " + label

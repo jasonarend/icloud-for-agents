@@ -32,7 +32,7 @@ def editor(name,write=False):
 def check_plan_scope(name,plan_id):
     status=access_status(name)
     plan=PlanStore().read(PlanStore().path(plan_id,'.json'))
-    allowed={name+'_change'} | ({'notes_recovery'} if name=='notes' else set())
+    allowed={name+'_change'} | ({'notes_recovery','notes_move_recovery'} if name=='notes' else set())
     if plan.get('kind') not in allowed or plan.get('payload',{}).get('account')!=owner():
         raise SafetyError('Plan belongs to another service or owner')
     if not set(plan['payload'].get('context',{}).get('source_ids',[]))<=set(status['source_ids']):
@@ -102,6 +102,30 @@ def register_change_tools(mcp):
         if enabled(name):register_permissions(name)
 
     if enabled('notes'):
+        from .native_move_recovery import NotesMoveRecovery
+        @mcp.tool(annotations=WRITE)
+        @guard
+        def notes_prepare_move_recovery(plan_id:str)->dict:
+            """Review the exact known object's unchanged observable state after one uncertain move. No native mutation or replay."""
+            check_plan_scope('notes',plan_id)
+            return NotesMoveRecovery(owner()).prepare(plan_id)
+        @mcp.tool(annotations=WRITE)
+        @guard
+        def notes_accept_move_recovery(plan_id:str)->dict:
+            """Accept a reviewed known move observation under strict/trusted policy; original dispatch remains unproven."""
+            check_plan_scope('notes',plan_id)
+            return NotesMoveRecovery(owner()).execute(plan_id)
+        @mcp.tool(annotations=WRITE)
+        @guard
+        def notes_finalize_move_recovery(plan_id:str)->dict:
+            """Finalize a successful read-only move-observation audit after interruption; no write replay."""
+            check_plan_scope('notes',plan_id)
+            return NotesMoveRecovery(owner()).finalize(plan_id)
+        @mcp.tool(annotations=WRITE)
+        @guard
+        def notes_abandon_move_recovery(plan_id:str)->dict:
+            """Withdraw an unfinalized observation; retain the original uncertainty and leave native data untouched."""
+            return NotesMoveRecovery(owner()).abandon(plan_id)
         @mcp.tool(annotations=WRITE)
         @guard
         def notes_prepare_changes(changes:list[dict])->dict:

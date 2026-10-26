@@ -86,6 +86,21 @@ def application_request(helper, request, timeout=40):
     fd=os.open(request_path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
     with os.fdopen(fd,'wb') as stream:
         stream.write(encoded);stream.flush();os.fsync(stream.fileno())
+    if request.get('service')=='notes' and request.get('action')=='apply':
+        from .native_execution import current
+        from .core import digest
+        execution=current('notes')
+        if execution:
+            store=execution['store'];plan_id=execution['plan_id'];plan=store.read(store.path(plan_id,'.json'))
+            if (digest(plan)!=execution['plan_sha256'] or store.read(store.path(plan_id,'.started')).get('sha256')!=digest(plan)
+                    or plan.get('kind')!='notes_change' or type(execution['index']) is not int or not 0<=execution['index']<len(plan['payload']['changes'])):
+                raise SafetyError('Native execution provenance does not match an admitted plan')
+            from .native_protocol import mutation_request
+            original=dict(request);original.pop('request_id',None)
+            if original!=mutation_request('notes',plan['payload']['changes'][execution['index']]):raise SafetyError('Native request differs from its admitted item')
+            store.write_once(store.path(plan_id,'.native-exchange-'+str(execution['index'])),
+                {'plan_sha256':digest(plan),'request_id':directory.name,'request_sha256':digest(original),
+                 'helper_fingerprint':bundle_fingerprint(helper),'exchange_directory':str(directory)})
     env={k:os.environ[k] for k in ('HOME','PATH','TMPDIR','LANG') if k in os.environ}
     try:
         if request.get('service')=='notes' and request.get('action') in {'sources','folders','folder_get','query','get','search','attachments','diagnose_note','contains','apply','request_access','diagnose_read_access'}:
@@ -146,3 +161,48 @@ def _pending_at(root,service):
                        'state':'response_available' if (directory/'result.json').exists() else 'pending_or_unfinished',
                        'automatic_retry':False})
     return result
+
+
+def completed_exchange_evidence(expected,*,plan_id=None,store=None):
+    """Bind one completed retained exchange to an exact immutable request.
+
+    Metadata only. A missing response cannot be treated as a stopped helper, and
+    no request is replayed or removed. Ambiguous duplicate exchanges fail closed.
+    """
+    from .core import digest
+    matches=[];scanned=0;bound=None
+    roots=tuple(dict.fromkeys(root.resolve() for root in (exchange_root(),runtime_root()/'native-app')))
+    if plan_id is not None:
+        store=store or PlanStore();binding=store.path(plan_id,'.native-exchange-0')
+        if binding.exists():
+            record=store.read(binding);plan=store.read(store.path(plan_id,'.json'));directory=Path(record['exchange_directory'])
+            if (record.get('plan_sha256')!=digest(plan) or record.get('request_sha256')!=digest(expected)
+                    or plan.get('payload',{}).get('context',{}).get('backend')!='notes-creation-v1:'+record.get('helper_fingerprint','')
+                    or directory.parent not in roots or directory.name!=record.get('request_id')):
+                raise SafetyError('Native exchange does not bind the admitted plan, helper or ledger')
+            bound=directory
+    for root in roots:
+        if not root.exists():continue
+        info=root.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid!=os.getuid() or stat.S_IMODE(info.st_mode)!=0o700:
+            raise SafetyError('Invalid native exchange evidence directory')
+        for directory in ([bound] if bound is not None and bound.parent==root else [] if bound is not None else sorted(root.glob('request-*'))):
+            scanned+=1
+            if scanned>1000:raise SafetyError('Native exchange evidence exceeds its bounded review limit')
+            info=directory.lstat()
+            if not stat.S_ISDIR(info.st_mode) or info.st_uid!=os.getuid() or stat.S_IMODE(info.st_mode)!=0o700:
+                raise SafetyError('Invalid native exchange evidence request')
+            store=PlanStore(directory)
+            if not (directory/'request.json').exists():continue
+            request=store.read(directory/'request.json');nonce=request.get('request_id');body=dict(request);body.pop('request_id',None)
+            if body!=expected:continue
+            if nonce!=directory.name or not (directory/'result.json').exists():
+                raise SafetyError('Matching native request has no bound terminal response; outcome remains uncertain')
+            result=store.read(directory/'result.json')
+            if result.get('protocol_version')!=1 or result.get('request_id')!=nonce:
+                raise SafetyError('Native terminal response does not match its exact request')
+            matches.append({'request_id':nonce,'request_sha256':digest(expected),'helper_response_sha256':digest(result),
+                            'helper_outcome':'error_response' if 'error' in result else 'success_response',
+                            'mutation_dispatched':result.get('mutation_dispatched') if type(result.get('mutation_dispatched')) is bool else 'unverified'})
+    if len(matches)!=1:raise SafetyError('Known move recovery requires one unambiguous completed native exchange')
+    return matches[0]
