@@ -1,12 +1,15 @@
 // Fixed read-only JXA protocol. User data is JSON, never executable script source.
 ObjC.import('Foundation');
-function run() {
+function readRequest() {
     const data = $.NSFileHandle.fileHandleWithStandardInput.readDataToEndOfFile;
     const text = ObjC.unwrap($.NSString.alloc.initWithDataEncoding(data, $.NSUTF8StringEncoding));
     if (text.length > 65536) throw Error('invalid_request');
     const req = JSON.parse(text);
     if (req.protocol_version !== 1 || !['sources','folders','query','get'].includes(req.action)) throw Error('unsupported_action');
-    const app = Application('Notes');
+    return req;
+}
+function run() { const req=readRequest(); return readNotes(Application('Notes'), req); }
+function readNotes(app, req) {
     const accounts = app.accounts();
     if (req.action === 'sources') return JSON.stringify({protocol_version:1, sources: accounts.map(a => ({id:a.id(), title:a.name()}))});
     if (!Array.isArray(req.source_ids) || req.source_ids.length === 0) throw Error('source_scope_required');
@@ -23,7 +26,13 @@ function run() {
         });
     }
     selected.forEach(a => walk(a,a.id(),0));
-    if (req.action === 'folders') return JSON.stringify({protocol_version:1, folders:folders.map(f => ({id:f.object.id(), title:f.object.name(), source_id:f.source}))});
+    if (req.action === 'folders') {
+        const limit=req.limit===undefined?100:req.limit, offset=req.offset===undefined?0:req.offset;
+        if (!Number.isInteger(limit) || limit<1 || limit>100 || !Number.isInteger(offset) || offset<0 || offset>100000) throw Error('invalid_page');
+        const sorted=folders.slice().sort((a,b)=>a.object.id().localeCompare(b.object.id()));
+        const page=sorted.slice(offset,offset+limit).map(f => ({id:f.object.id(), title:f.object.name().slice(0,1000), source_id:f.source, parent_id:f.object.container().id()}));
+        return JSON.stringify({protocol_version:1,folders:page,done:offset+page.length>=sorted.length,next_offset:offset+page.length,pagination_consistency:'live_offset_may_shift'});
+    }
     if (!req.folder_id) throw Error('folder_scope_required');
     const matches = folders.filter(f => f.object.id() === req.folder_id);
     if (matches.length !== 1) throw Error('not_found_in_scope');
@@ -39,7 +48,7 @@ function run() {
         const body = n.body();
         const plain = n.plaintext();
         return JSON.stringify({protocol_version:1,item:{id:n.id(),source_id:folder.source,folder_id:req.folder_id,
-            title:n.name(),html:body.slice(0,100000),text:plain.slice(0,100000),
+            title:n.name().slice(0,1000),html:body.slice(0,100000),text:plain.slice(0,100000),
             truncated:body.length>100000 || plain.length>100000,modified:n.modificationDate().toISOString(),
             locked:false,content_complete:false,omitted_features:['native_objects','attachments','collaboration_metadata']}});
     }
@@ -47,7 +56,7 @@ function run() {
     const sorted = ids.slice().sort();
     const page = sorted.slice(req.offset,req.offset+req.limit).map(id => {
         const n=folder.object.notes.byId(id);
-        return {id:id,title:n.name(),source_id:folder.source,folder_id:req.folder_id};
+        return {id:id,title:n.name().slice(0,1000),source_id:folder.source,folder_id:req.folder_id};
     });
     return JSON.stringify({protocol_version:1,items:page,done:req.offset+page.length>=sorted.length,
         next_offset:req.offset+page.length,pagination_consistency:'live_offset_may_shift'});

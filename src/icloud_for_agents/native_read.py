@@ -3,6 +3,8 @@ import json
 import os
 from pathlib import Path
 import platform
+from datetime import date
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import subprocess
 import tempfile
 
@@ -66,7 +68,7 @@ class NativeReader:
         sources = config.get('source_ids', [])
         if action not in {'status', 'sources'} and not sources:
             raise SafetyError('Select exact native source IDs before reading content')
-        if set(fields) - {'id', 'folder_id', 'list_id', 'limit', 'offset', 'completed', 'text'}:
+        if set(fields) - {'id', 'folder_id', 'list_id', 'limit', 'offset', 'completed', 'text', 'due_date', 'timezone', 'include_overdue'}:
             raise SafetyError('Unknown native read fields')
         limit, offset = fields.get('limit', 50), fields.get('offset', 0)
         if type(limit) is not int or not 1 <= limit <= 100 or type(offset) is not int or not 0 <= offset <= 100000:
@@ -77,6 +79,16 @@ class NativeReader:
                 raise SafetyError('Invalid native selector')
         if fields.get('completed') is not None and type(fields['completed']) is not bool:
             raise SafetyError('Invalid completion filter')
+        if fields.get('due_date') is not None:
+            try:
+                due = fields['due_date']
+                if not isinstance(due, str) or date.fromisoformat(due).isoformat() != due:
+                    raise ValueError()
+                ZoneInfo(fields.get('timezone', ''))
+            except (ValueError, TypeError, ZoneInfoNotFoundError):
+                raise SafetyError('Use an ISO date and an explicit IANA timezone') from None
+        if fields.get('include_overdue') is not None and type(fields['include_overdue']) is not bool:
+            raise SafetyError('Invalid overdue filter')
         request = {'protocol_version': 1, 'action': action, 'source_ids': sources,
                    **{k: v for k, v in fields.items() if v is not None}}
         if self.name == 'reminders':
@@ -163,9 +175,9 @@ def register_read_tools(mcp):
 
         @mcp.tool(annotations=annotations)
         @guard
-        def reminders_lists() -> dict:
+        def reminders_lists(limit: int = 100, offset: int = 0) -> dict:
             """List only the selected native sources' reminder lists."""
-            return NativeReader('reminders').read('lists')
+            return NativeReader('reminders').read('lists', limit=limit, offset=offset)
 
         @mcp.tool(annotations=annotations)
         @guard
@@ -174,6 +186,14 @@ def register_read_tools(mcp):
             """Bounded live page; offsets may shift during external edits. No mutations."""
             return NativeReader('reminders').read('query', limit=limit, offset=offset,
                                                   list_id=list_id, completed=completed, text=text)
+
+        @mcp.tool(annotations=annotations)
+        @guard
+        def reminders_daily(date: str, timezone: str, include_overdue: bool = True,
+                            limit: int = 50, offset: int = 0) -> dict:
+            """Read incomplete reminders due on a date, optionally overdue; no scheduling or delivery."""
+            return NativeReader('reminders').read('query', due_date=date, timezone=timezone,
+                include_overdue=include_overdue, completed=False, limit=limit, offset=offset)
 
         @mcp.tool(annotations=annotations)
         @guard
@@ -197,9 +217,9 @@ def register_read_tools(mcp):
 
         @mcp.tool(annotations=annotations)
         @guard
-        def notes_folders() -> dict:
+        def notes_folders(limit: int = 100, offset: int = 0) -> dict:
             """Read folder identifiers only within explicitly selected accounts."""
-            return NativeReader('notes').read('folders')
+            return NativeReader('notes').read('folders', limit=limit, offset=offset)
 
         @mcp.tool(annotations=annotations)
         @guard

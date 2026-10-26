@@ -59,6 +59,14 @@ class NativeReadTests(unittest.TestCase):
         self.assertNotIn('SECRET', env)
         self.assertEqual(request, {'protocol_version':1,'action':'sources','source_ids':[]})
 
+    def test_daily_filter_rejects_ambiguous_dates_and_missing_timezone_before_backend(self):
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps({'reminders':{'source_ids':['selected']}})), patch('platform.system', return_value='Darwin'), patch('subprocess.run',side_effect=AssertionError('No helper')):
+            for fields in ({'due_date':'tomorrow','timezone':'America/Chicago'},
+                           {'due_date':'2026-10-26'}, {'due_date':'2026-02-30','timezone':'UTC'},
+                           {'due_date':'2026-10-26','timezone':'invalid'}):
+                with self.subTest(fields=fields),self.assertRaises(SafetyError):
+                    NativeReader('reminders').read('query',**fields)
+
     def test_permission_failure_is_actionable_without_leaking_stderr(self):
         from types import SimpleNamespace
         def run(command, **kwargs):
@@ -87,7 +95,7 @@ class NativeReadTests(unittest.TestCase):
                     importlib.reload(server)
                     tools = {t.name:t for t in asyncio.run(server.mcp.list_tools())}
                     self.assertEqual(sum(n.startswith('notes_') for n in tools),5 if notes else 0)
-                    self.assertEqual(sum(n.startswith('reminders_') for n in tools),6 if reminders else 0)
+                    self.assertEqual(sum(n.startswith('reminders_') for n in tools),7 if reminders else 0)
                     if notes:
                         with patch.dict(os.environ, {'ICLOUD_ENABLE_NOTES':'0'}), patch('subprocess.run',side_effect=AssertionError('No helper')):
                             with self.assertRaises(ToolError): tools['notes_sources'].fn()

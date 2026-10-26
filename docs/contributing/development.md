@@ -9,10 +9,11 @@ Use an isolated environment with the reviewed dependencies. From the root:
 .venv/bin/python tests/stdio_smoke.py
 .venv/bin/python tests/policy_stdio_smoke.py
 .venv/bin/python tests/native_stdio_smoke.py
+.venv/bin/python tests/native_script_contract.py
 .venv/bin/python scripts/check-dependency-licenses.py
 ```
 
-Reports go to ignored `build/reports/`, not the root. The offline runner isolates HOME/environment and refuses network, DNS, listeners and subprocesses. The stdio smoke test separately starts a credential-free guarded child for real initialize/tools-list and input/read-only refusal checks. Neither connects to Apple or the tunnel. Do not substitute live credentials for synthetic fixtures.
+Reports go to ignored `build/reports/`, not the root. The offline runner isolates HOME/environment and refuses network, DNS, listeners and subprocesses. The stdio smoke test separately starts a credential-free guarded child for real initialize/tools-list and input/read-only refusal checks. Neither connects to Apple or the tunnel. The separate native-script contract runner executes the actual JXA read logic against synthetic application objects without Apple events; it requires macOS and does not establish native-app acceptance. Do not substitute live credentials for synthetic fixtures.
 
 After building a source distribution, check its full validation workflow with `.venv/bin/python scripts/check-sdist.py dist/icloud_for_agents-VERSION.tar.gz`. Run the three commands above again from an extracted copy using its own installed environment; successful tests in the original checkout do not prove that the archive includes the required runners and fixtures.
 

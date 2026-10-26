@@ -63,11 +63,18 @@ if action == "sources" {
 guard let sourceIDs = req["source_ids"] as? [String], !sourceIDs.isEmpty, sourceIDs.count <= 100 else { fail("source_scope_required") }
 let lists = allLists.filter { sourceIDs.contains($0.source.sourceIdentifier) }
 if action == "lists" {
-    respond(["protocol_version": 1, "lists": lists.map { list -> [String: Any] in
-        ["id": list.calendarIdentifier, "title": list.title, "source_id": list.source.sourceIdentifier,
+    let limit = req["limit"] as? Int ?? 100
+    let offset = req["offset"] as? Int ?? 0
+    guard (1...100).contains(limit), (0...100000).contains(offset) else { fail("invalid_page") }
+    let sorted = lists.sorted { $0.calendarIdentifier < $1.calendarIdentifier }
+    let page = Array(sorted.dropFirst(offset).prefix(limit))
+    respond(["protocol_version": 1, "lists": page.map { list -> [String: Any] in
+        ["id": list.calendarIdentifier, "title": String(list.title.prefix(1000)), "source_id": list.source.sourceIdentifier,
          "writable": list.allowsContentModifications]
-    }])
+    }, "done": offset + page.count >= sorted.count, "next_offset": offset + page.count,
+       "pagination_consistency": "live_offset_may_shift"])
 }
+
 func object(_ reminder: EKReminder) -> [String: Any] {
     ["id": reminder.calendarItemIdentifier, "source_id": reminder.calendar.source.sourceIdentifier,
      "list_id": reminder.calendar.calendarIdentifier, "title": reminder.title ?? "", "notes": reminder.notes ?? "",
@@ -81,11 +88,19 @@ func object(_ reminder: EKReminder) -> [String: Any] {
      "content_complete": false, "omitted_features": ["native_tags", "hierarchy", "attachments", "advanced_metadata"]]
 }
 if action == "get" {
-    guard let id = req["id"] as? String,
-          let reminder = store.calendarItem(withIdentifier: id) as? EKReminder,
-          sourceIDs.contains(reminder.calendar.source.sourceIdentifier) else { fail("not_found_in_scope") }
-    respond(["protocol_version": 1, "item": object(reminder)])
+    guard let id = req["id"] as? String else { fail("invalid_request") }
+    guard !lists.isEmpty else { fail("not_found_in_scope") }
+    let predicate = store.predicateForReminders(in: lists)
+    store.fetchReminders(matching: predicate) { reminders in
+        guard let reminders = reminders else { fail("read_failed") }
+        guard reminders.count <= 100000 else { fail("query_limit") }
+        guard let reminder = reminders.first(where: { $0.calendarItemIdentifier == id }) else { fail("not_found_in_scope") }
+        respond(["protocol_version": 1, "item": object(reminder)])
+    }
+    RunLoop.current.run(until: Date(timeIntervalSinceNow: 20))
+    fail("read_timeout")
 }
+
 guard let limit = req["limit"] as? Int, (1...100).contains(limit),
       let offset = req["offset"] as? Int, (0...100000).contains(offset) else { fail("invalid_page") }
 let requestedList = req["list_id"] as? String
@@ -94,6 +109,24 @@ guard !selected.isEmpty else {
     if requestedList != nil { fail("not_found_in_scope") }
     respond(["protocol_version": 1, "items": [], "done": true])
 }
+let dueFilter = req["due_date"] as? String
+let zone = TimeZone(identifier: req["timezone"] as? String ?? "")
+if dueFilter != nil && zone == nil { fail("invalid_date_filter") }
+func dueDay(_ reminder: EKReminder) -> String? {
+    guard let d = reminder.dueDateComponents else { return nil }
+    if d.hour == nil && d.minute == nil {
+        guard let y = d.year, let m = d.month, let day = d.day else { return nil }
+        return String(format: "%04d-%02d-%02d", y, m, day)
+    }
+    var calendar = d.calendar ?? Calendar(identifier: .gregorian)
+    calendar.timeZone = d.timeZone ?? zone ?? TimeZone.current
+    guard let instant = calendar.date(from: d) else { return nil }
+    var display = Calendar(identifier: .gregorian)
+    display.timeZone = zone ?? TimeZone.current
+    let converted = display.dateComponents([.year, .month, .day], from: instant)
+    guard let y = converted.year, let m = converted.month, let day = converted.day else { return nil }
+    return String(format: "%04d-%02d-%02d", y, m, day)
+}
 let predicate = store.predicateForReminders(in: selected)
 store.fetchReminders(matching: predicate) { reminders in
     guard let reminders = reminders else { fail("read_failed") }
@@ -101,7 +134,10 @@ store.fetchReminders(matching: predicate) { reminders in
     let completed = req["completed"] as? Bool
     let text = req["text"] as? String
     let filtered = reminders.filter { r in
-        (completed == nil || r.isCompleted == completed) &&
+        let day = dueDay(r)
+        let dueMatches = dueFilter == nil || (day != nil &&
+            (req["include_overdue"] as? Bool == true ? day! <= dueFilter! : day! == dueFilter!))
+        return dueMatches && (completed == nil || r.isCompleted == completed) &&
         (text == nil || ((r.title ?? "") + "\n" + (r.notes ?? "")).localizedCaseInsensitiveContains(text!))
     }.sorted { $0.calendarItemIdentifier < $1.calendarItemIdentifier }
     let page = Array(filtered.dropFirst(offset).prefix(limit)).map(object)

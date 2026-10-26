@@ -4,7 +4,7 @@ Current implementation is a read-only development increment, not full service su
 
 **Current capabilities**
 
-Reminders exposes OS permission status, source discovery, selected-source list discovery, bounded task pages and exact task reads through public EventKit. Notes exposes account discovery, selected-account folder discovery, bounded note-title pages and unlocked note text/HTML reads through built-in JXA automation. Advanced native metadata is explicitly incomplete. Offset pages may shift during external edits. No native write tools are implemented in this increment.
+Reminders exposes OS permission status, source discovery, selected-source list discovery, bounded task pages, date/timezone-filtered daily queries and exact task reads through public EventKit. Notes exposes account discovery, selected-account folder discovery, bounded note-title pages and unlocked note text/HTML reads through built-in JXA automation. Advanced native metadata is explicitly incomplete. Offset pages may shift during external edits. Access-status tools report effective service scope and approval policy without contacting Apple. No native write tools are implemented in this increment; the shared approval executor has synthetic coverage but no registered live write adapter.
 
 **Owner-controlled setup**
 
