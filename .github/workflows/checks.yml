@@ -31,7 +31,12 @@ jobs:
           .venv/bin/python tests/run_offline.py
           .venv/bin/python tests/stdio_smoke.py
           .venv/bin/python tests/policy_stdio_smoke.py
+          .venv/bin/python tests/native_stdio_smoke.py
           .venv/bin/python scripts/check-dependency-licenses.py
+      - name: Compile native read helper without requesting access
+        run: |
+          .venv/bin/python scripts/build-native-helper.py
+          printf '%s' '{"protocol_version":1,"action":"status"}' | build/native/iCloudAgentsHelper.app/Contents/MacOS/icloud-agents-native
       - name: Build and inspect distributions
         run: |
           .venv/bin/python -c "import setuptools.build_meta as b; b.build_sdist('dist'); b.build_wheel('dist')"

@@ -11,3 +11,5 @@ prune .venv
 prune build
 prune dist
 global-exclude __pycache__ *.py[cod] .DS_Store
+
+recursive-include src/icloud_for_agents/native *.swift *.js

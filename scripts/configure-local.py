@@ -59,7 +59,7 @@ if __name__ == "__main__":
     parser.add_argument("--tunnel-id", help="Optional existing owner-controlled OpenAI tunnel")
     parser.add_argument("--enable-writes", action="store_true", help="Only after explicit owner approval of ongoing writes")
     parser.add_argument("--enable-dav-reads", action="store_true", help="Only after owner approves calendar/contact reads")
-    parser.add_argument("--services", help="Comma-separated mail,calendar,contacts; use none to disable all")
+    parser.add_argument("--services", help="Comma-separated mail,calendar,contacts,notes,reminders; use none to disable all")
     parser.add_argument("--show-stdio-config", action="store_true", help="Show generic command/args for existing validated settings")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
@@ -75,8 +75,8 @@ if __name__ == "__main__":
             if args.enable_dav_reads:
                 parser.error("Use either explicit --services or the legacy DAV flag")
             names = [] if args.services == "none" else args.services.split(",")
-            if len(set(names)) != len(names) or set(names) - {"mail", "calendar", "contacts"}:
+            if len(set(names)) != len(names) or set(names) - {"mail", "calendar", "contacts", "notes", "reminders"}:
                 parser.error("Unknown or duplicate service selection")
-            selection = {name: name in names for name in ("mail", "calendar", "contacts")}
+            selection = {name: name in names for name in ("mail", "calendar", "contacts", "notes", "reminders")}
         config = configure(root, args.account, args.tunnel_id, args.enable_writes, args.enable_dav_reads, selection)
     print(json.dumps({"stdio": config, "note": "Use your client's supported registration format; no credential is included."}, indent=2))

@@ -187,6 +187,10 @@ if enabled("calendar") or enabled("contacts"):
     from .dav_changes import register_change_tools
     register_change_tools(mcp, safe, dav_owner, calendar=enabled("calendar"), contacts=enabled("contacts"))
 
+if enabled("notes") or enabled("reminders"):
+    from .native_read import register_read_tools as register_native_reads
+    register_native_reads(mcp)
+
 from .managed_policy import feature_enabled
 if feature_enabled() and enabled("mail"):
     from .managed_policy import register_tools

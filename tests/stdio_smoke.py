@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 (ROOT / "build/reports").mkdir(parents=True, exist_ok=True)
 
 
-def run():
+def run(native=False):
     with tempfile.TemporaryDirectory(prefix="icloud-bridge-offline-") as directory:
         home = Path(directory)
         audit_path = home / "audit.json"
@@ -20,6 +20,8 @@ def run():
                "PYTHONUNBUFFERED": "1", "BRIDGE_TEST_AUDIT": str(audit_path),
                "FASTMCP_SHOW_SERVER_BANNER": "false", "FASTMCP_CHECK_FOR_UPDATES": "off",
                "ICLOUD_MAIL_ACCESS": "read-only", "ICLOUD_ENABLE_DAV_READ": "1"}
+        if native:
+            env.update(ICLOUD_ENABLE_NOTES="1", ICLOUD_ENABLE_REMINDERS="1")
         with (home / "stderr.log").open("wb") as stderr:
             process = subprocess.Popen([sys.executable, str(ROOT / "tests/guarded_stdio_server.py")],
                                        cwd=home, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -60,6 +62,9 @@ def run():
                             "email_prepare_send", "email_execute_approved", "email_plan_status",
                             "calendar_list", "calendar_events", "contacts_addressbooks", "contacts_list", "contacts_get",
                             "calendar_prepare_changes", "contacts_prepare_changes", "dav_execute_approved"}
+                if native:
+                    expected |= {"notes_sources", "notes_folders", "notes_query", "notes_get",
+                                 "reminders_status", "reminders_sources", "reminders_lists", "reminders_query", "reminders_get"}
                 assert {tool["name"] for tool in tools} == expected
                 schemas = {tool["name"]: tool["inputSchema"] for tool in tools}
                 assert schemas["email_execute_approved"]["required"] == ["plan_id"]
@@ -92,6 +97,15 @@ def run():
                     "name": "calendar_list", "arguments": {}}})
                 dav_read = receive(7)
                 assert not dav_read["result"].get("isError", False)
+                if native:
+                    for request_id, name, arguments in [(8, "notes_query", {"folder_id":"synthetic"}),
+                                                        (9, "reminders_get", {"id":"synthetic"}),
+                                                        (10, "notes_query", {"folder_id":"synthetic", "limit":True})]:
+                        send({"jsonrpc":"2.0", "id":request_id, "method":"tools/call",
+                              "params":{"name":name,"arguments":arguments}})
+                        response = receive(request_id)
+                        assert response["result"].get("isError") is True
+
 
 
             finally:

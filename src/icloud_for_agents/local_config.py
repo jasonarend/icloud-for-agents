@@ -15,7 +15,7 @@ def read_settings(root):
         raise ValueError("Settings must be a private owned regular file")
     data = json.loads(path.read_text())
     required = {"account", "apple_keychain_service", "access_mode", "dav_reads"}
-    optional = {"folder_overrides", "cleanup_grant_id", "approval_policy", "tunnel_id", "runtime_keychain_service", "services", "policy_management_enabled", "runtime_directory", "tunnel_client_path"}
+    optional = {"folder_overrides", "cleanup_grant_id", "approval_policy", "tunnel_id", "runtime_keychain_service", "services", "policy_management_enabled", "runtime_directory", "tunnel_client_path", "native_services"}
     if not isinstance(data, dict) or not required <= set(data) or set(data) - required - optional:
         raise ValueError("Unexpected settings fields")
     tunnel_fields = {"tunnel_id", "runtime_keychain_service"} & set(data)
@@ -50,6 +50,8 @@ def read_settings(root):
         raise ValueError("Tunnel client must be an explicit absolute executable path")
     from .services import configured
     configured(data)
+    from .native_read import validate_config
+    validate_config(data.get("native_services", {}))
     return data
 
 
@@ -63,6 +65,10 @@ def child_environment(settings, source):
     selection = configured(settings)
     for name, active in ({"notes": False, "reminders": False} | selection).items():
         result["ICLOUD_ENABLE_" + name.upper()] = "1" if active else "0"
+    from .native_read import validate_config
+    native = settings.get("native_services", {})
+    validate_config(native)
+    result["ICLOUD_NATIVE_CONFIG"] = json.dumps(native)
     if settings.get("runtime_directory"):
         result["ICLOUD_RUNTIME_ROOT"] = settings["runtime_directory"]
     result["ICLOUD_ENABLE_POLICY_MANAGEMENT"] = "1" if settings.get("policy_management_enabled", False) else "0"
