@@ -19,7 +19,7 @@ MAX_OUTPUT = 2_000_000
 
 def _confirmed_refusal(name,request,response):
     allowed={'permission_required','not_found_in_scope','invalid_fields','invalid_mutation','invalid_request',
-        'unsupported_operation','duplicate_folder','duplicate_list','shared_write_not_supported',
+        'unsupported_operation','unsupported_service','duplicate_folder','duplicate_list','shared_write_not_supported',
         'unsupported_repair_target','unsupported_edit_target','snapshot_changed',
         'snapshot_changed_or_recurrence_unsupported','notes_bridge_unavailable','notes_not_running'}
     category=response.get('category',response.get('error'))

@@ -13,6 +13,7 @@ Use an isolated environment with the reviewed dependencies. From the root:
 .venv/bin/python tests/native_write_contract.py
 .venv/bin/python tests/native_reminder_metadata_contract.py
 .venv/bin/python tests/native_reminder_dates_contract.py
+.venv/bin/python tests/native_service_isolation_contract.py
 .venv/bin/python scripts/check-dependency-licenses.py
 ```
 
@@ -44,3 +45,5 @@ For new transports or credential providers, describe authentication, local secre
 The Reminders metadata contract compiles the shipped serializers against in-memory EventKit rules and alarms. It never opens an event store, requests OS access or changes reminder data.
 
 The date contract runs the shipped filtering logic on in-memory Foundation components, including timezone/DST boundaries, inclusive ranges, priorities, completion and undated items. It does not read a native account.
+
+The service-isolation contract instruments the helper's Reminders authorization-status query and verifies that Notes status and unknown-service rejection never call it. It probes Notes OS permission status only, without reading native content or opening an event store.

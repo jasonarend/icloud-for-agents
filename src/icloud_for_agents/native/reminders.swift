@@ -88,22 +88,13 @@ func dateParts(_ date: DateComponents?) -> Any {
     value["timezone"] = d.timeZone?.identifier ?? NSNull() as Any
     return value
 }
-let status = EKEventStore.authorizationStatus(for: .reminder)
-let permission: String
-switch status {
-case .notDetermined: permission = "not_determined"
-case .restricted: permission = "restricted"
-case .denied: permission = "denied"
-case .fullAccess: permission = "full_access"
-case .writeOnly: permission = "write_only"
-@unknown default: permission = "unknown"
-}
 let data = requestData()
 guard data.count <= 65536, let req = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
       req["protocol_version"] as? Int == 1, let action = req["action"] as? String else { fail("invalid_request") }
 responseRequestID = req["request_id"] as? String
 requestAction=action
-if req["service"] as? String == "notes" {
+guard let service=req["service"] as? String, ["notes","reminders"].contains(service) else { fail("unsupported_service") }
+if service == "notes" {
     guard ["status", "request_access", "sources", "folders", "folder_get", "query", "get", "search", "attachments", "diagnose_note", "apply", "diagnose_read_access"].contains(action) else { fail("unsupported_action") }
     if action == "diagnose_read_access" {
         // Explicit operator setup probe: a real, minimal read through normal OS
@@ -158,6 +149,16 @@ if req["service"] as? String == "notes" {
     }
     RunLoop.current.run(until: Date(timeIntervalSinceNow: 20))
     fail(action == "apply" ? "mutation_failed_or_uncertain" : "notes_read_timeout")
+}
+let status = EKEventStore.authorizationStatus(for: .reminder)
+let permission: String
+switch status {
+case .notDetermined: permission = "not_determined"
+case .restricted: permission = "restricted"
+case .denied: permission = "denied"
+case .fullAccess: permission = "full_access"
+case .writeOnly: permission = "write_only"
+@unknown default: permission = "unknown"
 }
 responseRequestID = req["request_id"] as? String
 // This operator-only action is deliberately absent from the MCP read bridge.
