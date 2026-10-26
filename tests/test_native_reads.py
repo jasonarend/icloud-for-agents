@@ -94,8 +94,8 @@ class NativeReadTests(unittest.TestCase):
                 with self.env(ICLOUD_ENABLE_NOTES=str(int(notes)),ICLOUD_ENABLE_REMINDERS=str(int(reminders))):
                     importlib.reload(server)
                     tools = {t.name:t for t in asyncio.run(server.mcp.list_tools())}
-                    self.assertEqual(sum(n.startswith('notes_') for n in tools),12 if notes else 0)
-                    self.assertEqual(sum(n.startswith('reminders_') for n in tools),13 if reminders else 0)
+                    self.assertEqual(sum(n.startswith('notes_') for n in tools),14 if notes else 0)
+                    self.assertEqual(sum(n.startswith('reminders_') for n in tools),15 if reminders else 0)
                     if notes:
                         with patch.dict(os.environ, {'ICLOUD_ENABLE_NOTES':'0'}), patch('subprocess.run',side_effect=AssertionError('No helper')):
                             with self.assertRaises(ToolError): tools['notes_sources'].fn()

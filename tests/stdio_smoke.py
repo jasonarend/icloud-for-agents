@@ -63,7 +63,7 @@ def run(native=False):
                             "calendar_list", "calendar_events", "contacts_addressbooks", "contacts_list", "contacts_get",
                             "calendar_prepare_changes", "contacts_prepare_changes", "dav_execute_approved"}
                 if native:
-                    expected |= {"notes_prepare_changes", "notes_execute_approved", "notes_plan_status", "notes_reconcile_created",
+                    expected |= {"notes_prepare_os_access", "notes_request_os_access", "reminders_prepare_os_access", "reminders_request_os_access", "notes_prepare_changes", "notes_execute_approved", "notes_plan_status", "notes_reconcile_created",
                                  "reminders_prepare_changes", "reminders_execute_approved", "reminders_plan_status", "reminders_reconcile_created",
                                  "reminders_prepare_update_correction", "reminders_reconcile_correction",
                                  "notes_search", "notes_attachments", "notes_status", "notes_sources", "notes_folders", "notes_query", "notes_get",

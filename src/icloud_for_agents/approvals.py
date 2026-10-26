@@ -23,7 +23,7 @@ import uuid
 from .core import SafetyError, canonical, digest
 
 
-PLAN_KINDS = frozenset({"trash", "send", "calendar_change", "contact_change", "notes_change", "reminders_change"})
+PLAN_KINDS = frozenset({"trash", "send", "calendar_change", "contact_change", "notes_change", "reminders_change", "notes_access", "reminders_access"})
 
 
 def runtime_root():
@@ -321,7 +321,7 @@ def approve_interactively(store, plan_id):
     # Escape all controls in mail-derived text before rendering it in a terminal.
     review = json.dumps(plan, ensure_ascii=True, indent=2)
     fingerprint = digest(plan)
-    labels = {"trash": "TRASH", "send": "SEND", "calendar_change": "APPROVE CALENDAR", "contact_change": "APPROVE CONTACTS", "notes_change": "APPROVE NOTES", "reminders_change": "APPROVE REMINDERS"}
+    labels = {"trash": "TRASH", "send": "SEND", "calendar_change": "APPROVE CALENDAR", "contact_change": "APPROVE CONTACTS", "notes_change": "APPROVE NOTES", "reminders_change": "APPROVE REMINDERS", "notes_access":"ALLOW NOTES OS REQUEST", "reminders_access":"ALLOW REMINDERS OS REQUEST"}
     label = labels[plan["kind"]]
     if any(item.get("operation") == "delete" for item in plan["payload"].get("changes", [])):
         label = "IRREVERSIBLE DELETE " + label

@@ -49,6 +49,19 @@ def guard(fn):
 
 
 def register_change_tools(mcp):
+    def register_permissions(name):
+        from .native_permissions import NativePermissions
+        def prepare_os_access()->dict:
+            """Propose a user-handled OS consent request. Does not enable writes or select sources."""
+            return NativePermissions(name,owner()).prepare()
+        def request_os_access(plan_id:str)->dict:
+            """Execute one approved OS-consent request; the human handles macOS prompts. No data writes."""
+            return NativePermissions(name,owner()).execute(plan_id)
+        mcp.tool(name=name+'_prepare_os_access',annotations=WRITE)(guard(prepare_os_access))
+        mcp.tool(name=name+'_request_os_access',annotations=WRITE)(guard(request_os_access))
+    for name in ('notes','reminders'):
+        if enabled(name):register_permissions(name)
+
     if enabled('notes'):
         @mcp.tool(annotations=WRITE)
         @guard

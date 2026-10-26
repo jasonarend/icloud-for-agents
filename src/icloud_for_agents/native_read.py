@@ -139,7 +139,7 @@ class NativeReader:
                 raise SafetyError('Native helper must be owner-controlled and executable')
             if self.name == 'notes':
                 from .native_app import application_request
-                response = application_request(path, request)
+                response = application_request(path, request, timeout=75 if action=="request_access" else 25)
                 if 'error' in response:
                     if response['error']=='permission_check_timed_out':
                         raise SafetyError('Notes permission check timed out; OS access is unverified. No automatic retry.')
@@ -167,7 +167,7 @@ class NativeReader:
                 if len(encoded) > 65536:
                     raise SafetyError('Native request exceeds input limit')
                 process = subprocess.run(command, input=encoded, stdout=output, stderr=errors,
-                               timeout=25, check=False, env=env)
+                               timeout=75 if action=="request_access" else 25, check=False, env=env)
                 if process.returncode:
                     errors.seek(0)
                     diagnostic = errors.read(8192)
