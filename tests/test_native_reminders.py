@@ -9,10 +9,12 @@ from icloud_for_agents.native_reminders import RemindersCreateAdapter,validate_d
 
 class Reader:
     def __init__(self):
+        self.membership={'list_id':'list','source_id':'selected','count':2,'sha256':'a'*64}
         self.list={'id':'list','title':'Synthetic','source_id':'selected','writable':True}
         self.item={'id':'created','title':'Task','notes':'','priority':0,'source_id':'selected',
                    'list_id':'list','completed':False,'due':None,'start':None}
     def read(self,action,**fields):
+        if action=='list_membership':return dict(self.membership)
         if action=='lists':return {'lists':[dict(self.list)],'done':True}
         if action=='get':return {'item':dict(self.item)}
         raise AssertionError(action)
@@ -101,3 +103,26 @@ class NativeRemindersTests(unittest.TestCase):
         self.assertTrue(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
         self.reader.item['alarms']=[]
         self.assertFalse(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
+
+    def rename(self,**changes):
+        value={'operation':'rename_list','source_id':'selected','list_id':'list','fields':{'title':'Renamed synthetic'}};value.update(changes);return self.adapter.prepare(value)
+    def test_list_rename_binds_membership_and_preserves_list_identity(self):
+        item=self.rename();self.assertEqual(item['before']['membership'],self.reader.membership);self.assertEqual(item['id'],'list')
+        self.reader.list['title']='Renamed synthetic'
+        self.assertTrue(self.adapter.verify(item,{'id':'list','source_id':'selected'}))
+        self.reader.membership['count']=1
+        self.assertFalse(self.adapter.verify(item,{'id':'list','source_id':'selected'}))
+    def test_list_rename_rejects_wrong_source_list_noop_and_unknown_effects(self):
+        for change in [{'source_id':'other'},{'list_id':'other'},{'fields':{'title':'Synthetic'}},{'fields':{'title':'T','delete':True}},{'fields':{'title':'T\nX'}}]:
+            with self.subTest(change=change),self.assertRaises(SafetyError):self.rename(**change)
+        self.reader.list['writable']=False
+        with self.assertRaises(SafetyError):self.rename()
+    def test_rename_refuses_duplicate_names_and_incomplete_membership_proofs(self):
+        original=self.reader.read
+        def lists(action,**fields):
+            if action=='lists':return {'lists':[self.reader.list,dict(self.reader.list,id='another',title='Renamed synthetic')],'done':True}
+            return original(action,**fields)
+        self.reader.read=lists
+        with self.assertRaises(SafetyError):self.rename()
+        self.reader.read=original;self.reader.membership['sha256']='invalid'
+        with self.assertRaises(SafetyError):self.rename()

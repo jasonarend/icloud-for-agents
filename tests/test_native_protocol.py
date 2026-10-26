@@ -41,3 +41,9 @@ class NativeProtocolTests(unittest.TestCase):
         self.assertEqual(request['change']['before']['attachments'],item['before']['attachments'])
         self.assertEqual(request['change']['id'],'note')
         self.assertEqual(request['change']['fields']['destination_folder_id'],'destination')
+
+    def test_list_rename_forwards_exact_container_and_membership_before_state(self):
+        from icloud_for_agents.native_protocol import mutation_request
+        item={'operation':'rename_list','source_id':'selected','list_id':'list','id':'list','fields':{'title':'New'},'before':{'list':{'id':'list'},'siblings':[],'membership':{'sha256':'a'*64,'count':2}},'effects':{'list':'Review only'}}
+        request=mutation_request('reminders',item)
+        self.assertEqual(request['change']['before'],item['before']);self.assertEqual(request['change']['list_id'],'list');self.assertNotIn('effects',request['change'])

@@ -16,7 +16,7 @@ FIELDS={
  'notes':{'create_note':{'title','body','format'},'append_note':{'body','format'},
           'update_note':{'title','body','format'},'move_note':{'destination_folder_id'},'create_folder':{'title'}},
  'reminders':{'create_reminder':{'title','notes','priority','due','start'},'update_reminder':{'title','notes','priority','due','start'},
-              'set_completed':{'completed'},'move_reminder':{'list_id'},'create_list':{'title'}}}
+              'set_completed':{'completed'},'move_reminder':{'list_id'},'create_list':{'title'},'rename_list':{'title'}}}
 
 
 def exact(value,limit=1000):
@@ -207,7 +207,7 @@ class NativeGrants:
     def match(self,grant,item):
         scope=grant['payload']['scope'];op=item['operation']
         container=(item.get('parent_folder_id',item['source_id']) if op=='create_folder' else item['source_id'] if op=='create_list'
-                   else item.get('folder_id') if self.name=='notes' else item.get('list_id') if op=='create_reminder'
+                   else item.get('folder_id') if self.name=='notes' else item.get('list_id') if op in {'create_reminder','rename_list'}
                    else item.get('before',{}).get('item',{}).get('list_id'))
         fields=item.get('requested_fields')
         if not isinstance(fields,list) or not fields:raise SafetyError('Native standing plan lacks exact requested field scope')

@@ -13,7 +13,7 @@ from .services import enabled
 
 
 READ_ACTIONS = {'notes': {'status', 'sources', 'folders', 'folder_get', 'query', 'get', 'search', 'attachments', 'diagnose_note', 'contains'},
-                'reminders': {'status', 'sources', 'lists', 'query', 'get'}}
+                'reminders': {'status', 'sources', 'lists', 'query', 'get','list_membership'}}
 MAX_OUTPUT = 2_000_000
 
 
@@ -199,7 +199,7 @@ class NativeReader:
                 if len(encoded) > 65536:
                     raise SafetyError('Native request exceeds input limit')
                 process = subprocess.run(command, input=encoded, stdout=output, stderr=errors,
-                               timeout=75 if action=="request_access" else 25, check=False, env=env)
+                               timeout=75 if action=="request_access" else 40, check=False, env=env)
                 if process.returncode:
                     errors.seek(0)
                     diagnostic = errors.read(8192)

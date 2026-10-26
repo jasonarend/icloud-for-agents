@@ -7,6 +7,7 @@ import ApplicationServices
 import Darwin
 import AppKit
 import Carbon
+import CryptoKit
 
 let ipcDirectory: URL? = {
     guard CommandLine.arguments.count > 1 else { return nil }
@@ -222,7 +223,7 @@ if action == "request_access" {
     RunLoop.current.run(until: Date(timeIntervalSinceNow: 60))
     fail("permission_timeout")
 }
-let actions = ["status", "sources", "lists", "query", "get", "apply"]
+let actions = ["status", "sources", "lists", "query", "get", "list_membership", "apply"]
 guard actions.contains(action) else { fail("unsupported_action") }
 if action == "status" {
     respond(["protocol_version": 1, "service": "reminders", "access": permission,
@@ -241,7 +242,41 @@ if action == "sources" {
 guard let sourceIDs = req["source_ids"] as? [String], !sourceIDs.isEmpty, sourceIDs.count <= 100 else { fail("source_scope_required") }
 guard sourceIDs.allSatisfy({ id in store.sources.contains(where: { $0.sourceIdentifier == id }) }) else { fail("not_found_in_scope") }
 let lists = allLists.filter { sourceIDs.contains($0.source.sourceIdentifier) }
+func listRecord(_ list:EKCalendar)->[String:Any] {
+    ["id":list.calendarIdentifier,"title":String(list.title.prefix(1000)),"source_id":list.source.sourceIdentifier,"writable":list.allowsContentModifications]
+}
+func membershipRecord(_ values:[EKReminder],_ list:EKCalendar)->[String:Any] {
+    let ids=values.map { $0.calendarItemIdentifier }.sorted()
+    let data=(try? JSONSerialization.data(withJSONObject:ids,options:[.withoutEscapingSlashes])) ?? Data()
+    return ["list_id":list.calendarIdentifier,"source_id":list.source.sourceIdentifier,"count":ids.count,
+            "sha256":SHA256.hash(data:data).map {String(format:"%02x",$0)}.joined()]
+}
+if action == "list_membership" {
+    guard let id=req["list_id"] as? String,let list=lists.first(where:{$0.calendarIdentifier==id}) else {fail("not_found_in_scope")}
+    store.fetchReminders(matching:store.predicateForReminders(in:[list])) { values in
+        guard let values=values,values.count<=100000 else {fail("query_limit")}
+        var result=membershipRecord(values,list);result["protocol_version"]=1;respond(result)
+    }
+    RunLoop.current.run(until:Date(timeIntervalSinceNow:30));fail("read_timeout")
+}
 if action == "apply" {
+    if let item=req["change"] as? [String:Any],item["operation"] as? String=="rename_list" {
+        guard let source=item["source_id"] as? String,sourceIDs.contains(source),let id=item["list_id"] as? String,
+              let fields=item["fields"] as? [String:Any],Set(fields.keys)==["title"],let title=fields["title"] as? String,!title.isEmpty,title.count<=1000,
+              let before=item["before"] as? [String:Any],let expected=before["list"] as? [String:Any],
+              let expectedMembers=before["membership"] as? [String:Any],let expectedSiblings=before["siblings"] as? [[String:Any]],
+              let list=lists.first(where:{$0.calendarIdentifier==id && $0.source.sourceIdentifier==source}),list.allowsContentModifications else {fail("invalid_mutation")}
+        let siblings=lists.filter {$0.source.sourceIdentifier==source && $0.calendarIdentifier != id}.sorted {$0.calendarIdentifier<$1.calendarIdentifier}
+        guard NSDictionary(dictionary:listRecord(list)).isEqual(to:expected),NSArray(array:siblings.map(listRecord)).isEqual(to:expectedSiblings),
+              !siblings.contains(where:{$0.title==title}) else {fail("snapshot_changed")}
+        store.fetchReminders(matching:store.predicateForReminders(in:[list])) { values in
+            guard let values=values,values.count<=100000,NSDictionary(dictionary:membershipRecord(values,list)).isEqual(to:expectedMembers) else {fail("snapshot_changed")}
+            list.title=title;mutationDispatched=true
+            do {try store.saveCalendar(list,commit:true)} catch {fail("mutation_failed_or_uncertain")}
+            respond(["protocol_version":1,"result":["id":id,"source_id":source,"saved_locally":true]])
+        }
+        RunLoop.current.run(until:Date(timeIntervalSinceNow:30));fail("mutation_failed_or_uncertain")
+    }
     if let item = req["change"] as? [String: Any], let operation = item["operation"] as? String,
        ["update_reminder", "set_completed", "move_reminder"].contains(operation) {
         guard let sourceID = item["source_id"] as? String, sourceIDs.contains(sourceID),

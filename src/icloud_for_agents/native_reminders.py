@@ -34,7 +34,7 @@ def validate_date(value):
 
 
 class RemindersCreateAdapter:
-    operations={'create_list','create_reminder','update_reminder','set_completed','move_reminder'}
+    operations={'create_list','create_reminder','update_reminder','set_completed','move_reminder','rename_list'}
     def __init__(self):self.reader=NativeReader('reminders')
     @property
     def backend_id(self):
@@ -52,6 +52,33 @@ class RemindersCreateAdapter:
             if type(next_offset) is not int or next_offset<=offset or next_offset>10000:
                 raise SafetyError('List discovery incomplete; no write')
             offset=next_offset
+    def list_rename_snapshot(self,item):
+        lists=[c for c in self.lists() if c['source_id']==item['source_id']]
+        matches=[c for c in lists if c['id']==item['list_id']]
+        if len(matches)!=1 or matches[0].get('writable') is not True:raise SafetyError('Select one writable reminder list')
+        siblings=sorted((c for c in lists if c['id']!=item['list_id']),key=lambda c:c['id'])
+        if any(c['title']==item['fields']['title'] for c in siblings):raise SafetyError('Reminder list title already exists in this source')
+        membership=self.reader.read('list_membership',list_id=item['list_id'])
+        if (membership.get('list_id')!=item['list_id'] or membership.get('source_id')!=item['source_id']
+                or type(membership.get('count')) is not int or not 0<=membership['count']<=100000
+                or not isinstance(membership.get('sha256'),str) or len(membership['sha256'])!=64
+                or any(c not in '0123456789abcdef' for c in membership['sha256'])):raise SafetyError('Reminder list membership is not fully verified')
+        return {'list':matches[0],'siblings':siblings,'membership':{k:membership[k] for k in ('list_id','source_id','count','sha256')}}
+    def prepare_list_rename(self,change):
+        if set(change)!={'operation','source_id','list_id','fields'}:raise SafetyError('List renaming requires one exact list and title')
+        source=change['source_id'];fields=change['fields'];identity=change['list_id']
+        if source not in planning_access('reminders')['source_ids'] or not isinstance(identity,str) or not 1<=len(identity)<=1000:
+            raise SafetyError('Select an exact source and reminder list')
+        if not isinstance(fields,dict) or set(fields)!={'title'}:raise SafetyError('Only the list title can change')
+        title=fields['title']
+        if not isinstance(title,str) or not title.strip() or len(title)>1000 or any(ord(c)<32 for c in title):raise SafetyError('Invalid bounded list title')
+        item={'operation':'rename_list','source_id':source,'list_id':identity,'id':identity,'fields':dict(fields),'fidelity_verified':True,
+              'effects':{'list':'Rename this exact list; no task move, completion or deletion.',
+                         'sharing':'Title may sync to devices or existing participants; EventKit does not expose participant state.'}}
+        item['before']=self.list_rename_snapshot(item)
+        if item['before']['list']['title']==title:raise SafetyError('List already has the requested title')
+        return item
+
     def prepare_existing(self,change):
         allowed={'operation','source_id','id','fields'}
         if set(change)-allowed or not isinstance(change.get('id'),str) or not change['id']:
@@ -88,6 +115,7 @@ class RemindersCreateAdapter:
         return item
 
     def prepare(self,change):
+        if isinstance(change,dict) and change.get('operation')=='rename_list':return self.prepare_list_rename(change)
         if isinstance(change,dict) and change.get('operation') in {'update_reminder','set_completed','move_reminder'}:
             return self.prepare_existing(change)
         if not isinstance(change,dict) or set(change)-{'operation','source_id','list_id','fields'}:
@@ -124,6 +152,7 @@ class RemindersCreateAdapter:
         if operation=='create_list' and item['before']['matching_titles']>0:raise SafetyError('List title already exists')
         return item
     def snapshot(self,item):
+        if item['operation']=='rename_list':return self.list_rename_snapshot(item)
         lists=[c for c in self.lists() if c['source_id']==item['source_id']]
         if item['operation'] in {'update_reminder','set_completed','move_reminder'}:
             reminder=self.reader.read('get',id=item['id'])['item']
@@ -148,6 +177,10 @@ class RemindersCreateAdapter:
         return self.reader._dispatch(request,config)['result']
     def verify(self,item,outcome):
         if outcome.get('source_id')!=item['source_id'] or not isinstance(outcome.get('id'),str):return False
+        if item['operation']=='rename_list':
+            if outcome['id']!=item['list_id']:return False
+            actual=self.list_rename_snapshot(item);expected=dict(item['before']);expected['list']=dict(expected['list'],title=item['fields']['title'])
+            return actual==expected
         if item['operation']=='create_list':return any(c['id']==outcome['id'] and c['title']==item['fields']['title'] and c['source_id']==item['source_id'] for c in self.lists())
         note=self.reader.read('get',id=outcome['id'])['item']
         if item['operation'] in {'update_reminder','set_completed','move_reminder'}:

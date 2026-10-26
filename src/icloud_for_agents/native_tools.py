@@ -157,7 +157,7 @@ def register_change_tools(mcp):
         @mcp.tool(annotations=WRITE)
         @guard
         def reminders_prepare_changes(changes:list[dict])->dict:
-            """Prepare <=20 exact creates, field updates, completion changes or same-source moves; read-only refuses."""
+            """Prepare <=20 exact creates, list renames, field updates, completion changes or same-source moves; ordinary read-only refuses."""
             return editor('reminders',write=True).prepare(changes)
 
         @mcp.tool(annotations=WRITE)

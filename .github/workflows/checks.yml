@@ -37,6 +37,7 @@ jobs:
           .venv/bin/python tests/native_script_contract.py
           .venv/bin/python tests/native_write_contract.py
           .venv/bin/python tests/native_reminder_metadata_contract.py
+          .venv/bin/python tests/native_list_metadata_contract.py
           .venv/bin/python tests/native_reminder_dates_contract.py
           .venv/bin/python tests/native_service_isolation_contract.py
           .venv/bin/python tests/native_permission_contract.py
