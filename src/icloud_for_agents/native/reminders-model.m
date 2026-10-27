@@ -436,6 +436,8 @@ NSData *ICloudRemindersRecoveryTree(NSData *data){
         if(matches>1)return EncodeFlag(FlagFailure(@"native_identity_mismatch"));
         if(matches!=1 || ![selectedRecoveryRoot isKindOfClass:NSString.class])return EncodeFlag(FlagFailure(@"not_found_in_scope"));
         NSMutableArray *nodes=[NSMutableArray array];
+        Class objectClass=NSClassFromString(@"REMObjectID");
+        if(!MethodMatches([store class],@"fetchReminderIncludingMarkedForDeleteWithObjectID:error:",@"@@:@^@",NO))return EncodeFlag(FlagFailure(@"unsupported_recovery_interface"));
         for(NSDictionary *entry in queue){
             id value=entry[@"node"],objectID=value[@"objectID"],uuid=objectID[@"uuid"];
             NSString *canonical=[[[NSUUID alloc]initWithUUIDString:uuid] UUIDString];
@@ -444,10 +446,15 @@ NSData *ICloudRemindersRecoveryTree(NSData *data){
             if(nodes.count>=100)return EncodeFlag(FlagFailure(@"recovery_read_unavailable"));
             id raw=value[@"subtasks"],children=[NSNull null];NSString *status=@"unavailable";
             if(raw){NSMutableArray *ids=[NSMutableArray array];for(id child in raw){id obj=child[@"objectID"];NSString *childID=[[[NSUUID alloc]initWithUUIDString:obj[@"uuid"]] UUIDString];if(!childID)return EncodeFlag(FlagFailure(@"recovery_read_unavailable"));[ids addObject:childID];}[ids sortUsingSelector:@selector(compare:)];children=ids;status=@"provider_reported";}
-            [nodes addObject:@{@"id":canonical,@"parent_id":entry[@"parent"],@"depth":entry[@"depth"],@"reported_child_ids":children,@"children_status":status}];
+            NSURL *url=[NSURL URLWithString:[@"x-apple-reminderkit://REMCDReminder/" stringByAppendingString:canonical]];
+            id nativeObjectID=((id(*)(id,SEL,id))objc_msgSend)((id)objectClass,NSSelectorFromString(@"objectIDWithURL:"),url);error=nil;
+            id reminder=((id(*)(id,SEL,id,NSError **))objc_msgSend)(store,NSSelectorFromString(@"fetchReminderIncludingMarkedForDeleteWithObjectID:error:"),nativeObjectID,&error);
+            NSString *title=ObjectValue(reminder,@"titleAsString");id account=ObjectValue(reminder,@"account");
+            if(error || !UUIDEqual(ObjectUUID(reminder,@"REMCDReminder"),canonical) || !UUIDEqual(ObjectUUID(account,@"REMCDAccount"),source) || ![title isKindOfClass:NSString.class] || title.length>1000 || [title lengthOfBytesUsingEncoding:NSUTF8StringEncoding]>4000)return EncodeFlag(FlagFailure(@"recovery_read_unavailable"));
+            [nodes addObject:@{@"id":canonical,@"title":title,@"parent_id":entry[@"parent"],@"depth":entry[@"depth"],@"reported_child_ids":children,@"children_status":status}];
         }
         if(!nodes.count)return EncodeFlag(FlagFailure(@"recovery_read_unavailable"));
-        return EncodeFlag(@{@"protocol_version":@1,@"source_id":source,@"requested_id":identifier,@"root_id":selectedRecoveryRoot,@"nodes":nodes,@"view":@"provider_recently_deleted",@"hierarchy_complete":@NO,@"observation_consistency":@"single_provider_view",@"data_mutated":@NO});
+        return EncodeFlag(@{@"protocol_version":@1,@"source_id":source,@"requested_id":identifier,@"root_id":selectedRecoveryRoot,@"nodes":nodes,@"view":@"provider_recently_deleted",@"hierarchy_complete":@NO,@"observation_consistency":@"single_provider_view",@"title_observation_consistency":@"separate_object_reads",@"data_mutated":@NO});
     }@catch(NSException *exception){return EncodeFlag(FlagFailure(@"private_read_exception"));}
 }
 

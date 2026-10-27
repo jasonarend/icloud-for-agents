@@ -498,13 +498,14 @@ def validate_recovery_tree(result,identity,source_id):
         except (ValueError,AttributeError):raise SafetyError('Invalid recovery hierarchy identity') from None
     if (not isinstance(result,dict) or result.get('source_id')!=source_id or result.get('requested_id')!=identity
             or result.get('view')!='provider_recently_deleted' or result.get('data_mutated') is not False
-            or result.get('hierarchy_complete') is not False or result.get('observation_consistency')!='single_provider_view'):
+            or result.get('hierarchy_complete') is not False or result.get('observation_consistency')!='single_provider_view'
+            or result.get('title_observation_consistency')!='separate_object_reads'):
         raise SafetyError('Helper did not provide scoped single-view recovery evidence')
     root=canonical(result.get('root_id'));selected=canonical(identity);nodes=result.get('nodes')
     if not isinstance(nodes,list) or not 1<=len(nodes)<=100:raise SafetyError('Recovery hierarchy is empty or exceeds the bound')
     indexed={}
     for node in nodes:
-        if not isinstance(node,dict) or set(node)!={'id','parent_id','depth','reported_child_ids','children_status'}:raise SafetyError('Invalid recovery hierarchy node')
+        if not isinstance(node,dict) or set(node)!={'id','title','parent_id','depth','reported_child_ids','children_status'} or not isinstance(node.get('title'),str) or len(node['title'])>1000:raise SafetyError('Invalid recovery hierarchy node')
         identity_key=canonical(node['id']);parent=canonical(node['parent_id']) if node['parent_id'] is not None else None
         depth=node['depth'];children=node['reported_child_ids'];status=node['children_status']
         if identity_key in indexed or type(depth) is not int or not 0<=depth<=10 or status not in {'unavailable','provider_reported'} or (status=='unavailable')!=(children is None):raise SafetyError('Invalid recovery hierarchy node')

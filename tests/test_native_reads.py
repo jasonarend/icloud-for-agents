@@ -154,17 +154,19 @@ class NativeReadTests(unittest.TestCase):
         from copy import deepcopy
         root='11111111-1111-4111-8111-111111111111';child='22222222-2222-4222-8222-222222222222'
         config={'reminders':{'source_ids':['selected'],'helper_path':'/synthetic/helper','advanced_backend':'reminderkit'}}
-        result={'protocol_version':1,'source_id':'selected','requested_id':child,'root_id':root,'view':'provider_recently_deleted','hierarchy_complete':False,'observation_consistency':'single_provider_view','data_mutated':False,'nodes':[{'id':root,'parent_id':None,'depth':0,'reported_child_ids':[child],'children_status':'provider_reported'},{'id':child,'parent_id':root,'depth':1,'reported_child_ids':[],'children_status':'provider_reported'}]}
+        result={'protocol_version':1,'source_id':'selected','requested_id':child,'root_id':root,'view':'provider_recently_deleted','hierarchy_complete':False,'observation_consistency':'single_provider_view','title_observation_consistency':'separate_object_reads','data_mutated':False,'nodes':[{'id':root,'title':'Synthetic root','parent_id':None,'depth':0,'reported_child_ids':[child],'children_status':'provider_reported'},{'id':child,'title':'Synthetic child','parent_id':root,'depth':1,'reported_child_ids':[],'children_status':'provider_reported'}]}
         with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=result):
             self.assertEqual(NativeReader('reminders').read('recovery_tree',id=child,source_id='selected'),result)
             with self.assertRaises(SafetyError):NativeReader('reminders').read('recovery_tree',id=child,source_id='foreign')
-        for mutate in ('missing','duplicate','foreign_parent','complete','unverified'):
+        for mutate in ('missing','duplicate','foreign_parent','complete','unverified','missing_title','title_consistency'):
             bad=deepcopy(result)
             if mutate=='missing':bad['nodes'].pop()
             if mutate=='duplicate':bad['nodes'].append(bad['nodes'][1])
             if mutate=='foreign_parent':bad['nodes'][1]['parent_id']=child
             if mutate=='complete':bad['hierarchy_complete']=True
             if mutate=='unverified':bad['observation_consistency']='separate_provider_reads'
+            if mutate=='missing_title':del bad['nodes'][1]['title']
+            if mutate=='title_consistency':bad['title_observation_consistency']='single_provider_view'
             with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=bad),self.subTest(mutate=mutate),self.assertRaises(SafetyError):
                 NativeReader('reminders').read('recovery_tree',id=child,source_id='selected')
 

@@ -90,6 +90,7 @@ def run():
         roots=call('list_present');assert roots['items'][0]['title']=='Synthetic recovery title' and roots['done'] is True and roots['next_offset']==1 and roots['data_mutated'] is False
         page=call('list_out_of_range');assert page['items']==[] and page['done'] is True and page['next_offset']==5000
         assert call('list_missing_title')['error']=='private_metadata_unavailable' and call('list_foreign_reminder')['error']=='private_metadata_unavailable'
+        assert call('tree_missing_title')['error']=='private_metadata_unavailable' and call('tree_foreign_reminder')['error']=='private_metadata_unavailable'
         missing=call('absent');assert missing['found_in_view'] is False and missing['recovery_root_id'] is None
         for scenario in ('foreign','duplicate_account','unsupported','error','duplicate','malformed','bad_children','cycle','too_many'):
             assert call(scenario)['error']=='private_metadata_unavailable',scenario
