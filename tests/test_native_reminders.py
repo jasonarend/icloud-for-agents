@@ -260,6 +260,18 @@ class NativeRemindersTests(unittest.TestCase):
         for invalid in ({**place,'latitude':True},{**place,'longitude':181},{**place,'radius_meters':-1},{**place,'proximity':'other'}):
             with self.subTest(invalid=invalid),self.assertRaises(SafetyError):self.prepare(fields={'title':'Task','alarms':[{'location':invalid}]})
 
+    def test_unknown_or_ambiguous_location_alarm_metadata_refuses_replacement(self):
+        from icloud_for_agents.native_reminders import public_supported_alarms
+        place={'title':'Synthetic','latitude':12.25,'longitude':-34.5,'radius_meters':250}
+        alarm=self.time_alarm(proximity=1,structured_location=place)
+        invalid=[{**alarm,'type':True},{**alarm,'proximity':True},{**alarm,'absolute_date':1800000000},
+                 {**alarm,'relative_offset_seconds':2},{**alarm,'sound_name':'custom'},
+                 {**alarm,'structured_location':{**place,'latitude':None}},{**alarm,'structured_location':{**place,'extra':'unknown'}}]
+        for value in invalid:
+            with self.subTest(value=value),self.assertRaises(SafetyError):public_supported_alarms([value])
+        with self.assertRaises(SafetyError):public_supported_alarms([alarm,alarm])
+        with self.assertRaises(SafetyError):self.prepare(fields={'title':'Task','alarms':[{'location':{**place,'latitude':10**1000,'proximity':'enter'}}]})
+
     def test_fixed_zero_timezone_aliases_preserve_exact_wall_time_without_other_zone_substitution(self):
         from icloud_for_agents.native_reminders import date_parts_equal
         due={'year':2027,'month':1,'day':4,'hour':12,'minute':0,'timezone':'UTC'}
