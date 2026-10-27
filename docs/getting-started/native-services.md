@@ -223,6 +223,12 @@ The response adds `item.native_metadata` with Boolean `flagged`, integer `flag_s
 
 Synthetic native tests cover true/false states, exact entity/source/list relationships and missing, unknown or denied metadata. A live read of a dedicated unflagged fixture passes with matching native/public identities, unchanged public metadata, existing Reminders permission and unchanged production settings. A live flagged subtask also passes exact identity and flag readback; other OS versions remain unverified. Apple can change this private interface; keep the backend off unless evaluating it with approved test data.
 
+**Locate an exact note**
+
+`notes_locate` checks one bounded page of folders in the selected account for an exact note ID. It returns matching folder IDs and titles with `role: "unverified"`; a folder name does not establish whether it is a recovery folder. Follow `next_offset` until `done` is true. Folder discovery and membership are separate live observations, so changes can shift pages. Access changes or incomplete membership checks refuse the page.
+
+Local checks located the dedicated synthetic note in both its regular test folder and the app's Recently Deleted view, then verified it after the app restored it. This read does not delete or restore a note.
+
 **Notes recovery observations**
 
 On the tested Mac, a synthetic note moved to Recently Deleted in the Notes app remained accessible through the existing selected-account folder discovery and exact-note reads. The same note was restored through the app to its original test folder and its ID, title and content were verified. The folder was no longer exposed by scripting when it became empty. Folder names alone do not prove a special folder's role, and this observation does not establish programmatic deletion or restoration behavior. Those operations remain under development.

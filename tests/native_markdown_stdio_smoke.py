@@ -25,6 +25,9 @@ def run():
                 rpc('initialize',{'protocolVersion':'2025-11-25','capabilities':{},'clientInfo':{'name':'synthetic-markdown','version':'1'}});process.stdin.write(b'{"jsonrpc":"2.0","method":"notifications/initialized"}\n');process.stdin.flush()
                 tools=rpc('tools/list',{})['result']['tools'];tool=next(t for t in tools if t['name']=='notes_get');assert tool['annotations']['readOnlyHint'] is True
                 schema=tool['inputSchema']['properties']['representation'];assert set(schema['enum'])=={'native','markdown'} and schema['default']=='native'
+                locator=next(t for t in tools if t['name']=='notes_locate');assert locator['annotations']['readOnlyHint'] is True
+                located=data(rpc('tools/call',{'name':'notes_locate','arguments':{'id':'synthetic-note','source_id':'selected'}})['result']);assert located['folders'][0]['id']=='folder' and located['folders'][0]['role']=='unverified'
+                assert rpc('tools/call',{'name':'notes_locate','arguments':{'id':'synthetic-note','source_id':'foreign'}})['result'].get('isError')
                 args={'folder_id':'folder','id':'synthetic-note'};native=data(call(args));assert 'markdown' not in native['item']
                 projected=data(call(dict(args,representation='markdown')));item=projected['item'];assert item['html']==native['item']['html'];assert 'Priority' in item['markdown'] and '| ---' in item['markdown'];assert item['markdown_projection']['round_trip_safe'] is False
                 assert call(dict(args,representation='execute-script')).get('isError');assert call(dict(args,representation=True)).get('isError')

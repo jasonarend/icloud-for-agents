@@ -423,6 +423,40 @@ def inspect_reminder_recovery_hierarchy(reader, identity, source_id, max_nodes=1
             'scope_note':'Provider-reported recovery hierarchy only; concealed descendants and concurrent changes remain unverified.'}
 
 
+def locate_notes_by_id(reader, identity, source_id, limit=10, offset=0):
+    """Check one page of selected-source folders for an exact note ID."""
+    if not isinstance(identity,str) or not 1<=len(identity)<=1000 or not isinstance(source_id,str) or not 1<=len(source_id)<=1000:
+        raise SafetyError('Select one exact note ID and source ID')
+    if type(limit) is not int or not 1<=limit<=20 or type(offset) is not int or not 0<=offset<=100000:
+        raise SafetyError('Note location requires limit 1..20 and a bounded offset')
+    config=native_config('notes');mode=os.environ.get('ICLOUD_MAIL_ACCESS','read-only')
+    if source_id not in config.get('source_ids',[]):raise SafetyError('Note source is outside the selected scope')
+    page=reader.read('folders',limit=limit,offset=offset)
+    folders=page.get('folders');done=page.get('done');next_offset=page.get('next_offset')
+    if (not isinstance(folders,list) or len(folders)>limit or type(done) is not bool or type(next_offset) is not int
+            or next_offset!=offset+len(folders) or (not done and not folders)):
+        raise SafetyError('Folder discovery returned incomplete pagination')
+    found=[];seen=set()
+    for folder in folders:
+        if not isinstance(folder,dict) or not isinstance(folder.get('id'),str) or not folder['id'] or not isinstance(folder.get('source_id'),str) or not isinstance(folder.get('title'),str) or len(folder['title'])>1000:
+            raise SafetyError('Folder discovery returned invalid identity')
+        if folder['id'] in seen:raise SafetyError('Folder discovery returned a duplicate identity')
+        seen.add(folder['id'])
+        if folder['source_id']!=source_id:continue
+        if native_config('notes')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=mode:
+            raise SafetyError('Notes access changed during location inspection')
+        result=reader.read('contains',folder_id=folder['id'],id=identity)
+        if (type(result.get('exists')) is not bool or result.get('source_id')!=source_id or result.get('folder_id')!=folder['id']):
+            raise SafetyError('Notes membership could not be verified in the selected folder')
+        if result['exists']:
+            found.append({'id':folder['id'],'source_id':source_id,'title':folder.get('title'),'role':'unverified'})
+    if native_config('notes')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=mode:
+        raise SafetyError('Notes access changed during location inspection')
+    return {'id':identity,'source_id':source_id,'folders':found,'scanned_folders':len(folders),
+            'done':done,'next_offset':next_offset,'pagination_consistency':'live_offset_may_shift',
+            'scope_note':'Exact membership only; folder role and recoverability are not established.'}
+
+
 def register_read_tools(mcp):
     """Register only selected services. Dispatch checks owner settings again."""
     from functools import wraps
@@ -533,6 +567,12 @@ def register_read_tools(mcp):
         def notes_sources() -> dict:
             """Discover Notes account IDs after the user grants OS Automation access."""
             return NativeReader('notes').read('sources')
+
+        @mcp.tool(annotations=annotations)
+        @guard
+        def notes_locate(id: str, source_id: str, limit: int=10, offset: int=0) -> dict:
+            """Find one exact note ID in a bounded page of selected-source folders; folder role and recoverability remain unverified."""
+            return locate_notes_by_id(NativeReader('notes'),id,source_id,limit,offset)
 
         @mcp.tool(annotations=annotations)
         @guard
