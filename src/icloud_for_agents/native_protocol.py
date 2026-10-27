@@ -19,10 +19,10 @@ def mutation_request(service,item):
         if operation in {'append_note','prepend_note','replace_text','update_note','repair_note_body','move_note'}:
             before=item['before'];change['before']={'note':{key:before['note'][key] for key in ('title','html','modified')}}
             if operation=='move_note':change['before']['attachments']=before['attachments']
-    elif service=='reminders' and operation in {'create_list','create_reminder','update_reminder','set_completed','move_reminder','rename_list','set_recurrence'}:
+    elif service=='reminders' and operation in {'create_list','create_reminder','update_reminder','set_completed','move_reminder','rename_list','set_list_color','set_recurrence'}:
         change={key:item[key] for key in ('operation','source_id','list_id','id','fields') if key in item}
         if operation in {'update_reminder','set_completed','move_reminder','set_recurrence'}:change['before']={'item':item['before']['item']}
-        if operation=='rename_list':change['before']=item['before']
+        if operation in {'rename_list','set_list_color'}:change['before']=item['before']
     else:
         # Unknown operations are never introduced by the fixed MCP adapters.
         # Preserve their data for synthetic/negative protocol tests; the helper

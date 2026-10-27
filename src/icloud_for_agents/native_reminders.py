@@ -1,4 +1,4 @@
-"""Public EventKit creation adapter, used only through exact native change plans."""
+"""Public EventKit adapter, used only through exact source-bound native change plans."""
 import hashlib
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -113,7 +113,7 @@ def alarm_effects(alarms,due):
 
 
 class RemindersCreateAdapter:
-    operations={'create_list','create_reminder','update_reminder','set_completed','move_reminder','rename_list','set_recurrence'}
+    operations={'create_list','create_reminder','update_reminder','set_completed','move_reminder','rename_list','set_recurrence','set_list_color'}
     def __init__(self):self.reader=NativeReader('reminders')
     @property
     def backend_id(self):
@@ -136,7 +136,7 @@ class RemindersCreateAdapter:
         matches=[c for c in lists if c['id']==item['list_id']]
         if len(matches)!=1 or matches[0].get('writable') is not True:raise SafetyError('Select one writable reminder list')
         siblings=sorted((c for c in lists if c['id']!=item['list_id']),key=lambda c:c['id'])
-        if any(c['title']==item['fields']['title'] for c in siblings):raise SafetyError('Reminder list title already exists in this source')
+        if 'title' in item['fields'] and any(c['title']==item['fields']['title'] for c in siblings):raise SafetyError('Reminder list title already exists in this source')
         membership=self.reader.read('list_membership',list_id=item['list_id'])
         if (membership.get('list_id')!=item['list_id'] or membership.get('source_id')!=item['source_id']
                 or type(membership.get('count')) is not int or not 0<=membership['count']<=100000
@@ -156,6 +156,21 @@ class RemindersCreateAdapter:
                          'sharing':'Title may sync to devices or existing participants; EventKit does not expose participant state.'}}
         item['before']=self.list_rename_snapshot(item)
         if item['before']['list']['title']==title:raise SafetyError('List already has the requested title')
+        return item
+
+    def prepare_list_color(self,change,*,allow_noop=False):
+        from .native_colors import validate_color,colors_equal
+        if not isinstance(change,dict) or set(change)!={'operation','source_id','list_id','fields'} or change.get('operation')!='set_list_color':raise SafetyError('Select an exact source and list for its color')
+        if change['source_id'] not in planning_access('reminders')['source_ids'] or not isinstance(change['list_id'],str) or not 1<=len(change['list_id'])<=1000:raise SafetyError('Select one exact writable list')
+        if not isinstance(change['fields'],dict) or set(change['fields'])!={'color'}:raise SafetyError('List color changes only its explicit sRGB color')
+        color=validate_color(change['fields']['color'])
+        item={'operation':'set_list_color','source_id':change['source_id'],'list_id':change['list_id'],'id':change['list_id'],'fields':{'color':color},'fidelity_verified':True,
+              'effects':{'list':'Change only the exact native list color; preserve its title, identity and complete task membership',
+                         'color_space':'sRGB RGBA; independent readback tolerance is one millionth per channel',
+                         'sync':'Apple controls device sync and participant visibility; native icons and pins are unchanged'}}
+        item['before']=self.list_rename_snapshot(item)
+        validate_color(item['before']['list'].get('color'))
+        if not allow_noop and colors_equal(item['before']['list']['color'],color):raise SafetyError('List already has the requested color')
         return item
 
     def prepare_recurrence(self,change):
@@ -222,6 +237,7 @@ class RemindersCreateAdapter:
         return item
 
     def prepare(self,change):
+        if isinstance(change,dict) and change.get('operation')=='set_list_color':return self.prepare_list_color(change)
         if isinstance(change,dict) and change.get('operation')=='set_recurrence':return self.prepare_recurrence(change)
         if isinstance(change,dict) and change.get('operation')=='rename_list':return self.prepare_list_rename(change)
         if isinstance(change,dict) and change.get('operation') in {'update_reminder','set_completed','move_reminder','set_recurrence'}:
@@ -270,7 +286,7 @@ class RemindersCreateAdapter:
         if operation=='create_list' and item['before']['matching_titles']>0:raise SafetyError('List title already exists')
         return item
     def snapshot(self,item):
-        if item['operation']=='rename_list':return self.list_rename_snapshot(item)
+        if item['operation'] in {'rename_list','set_list_color'}:return self.list_rename_snapshot(item)
         lists=[c for c in self.lists() if c['source_id']==item['source_id']]
         if item['operation'] in {'update_reminder','set_completed','move_reminder','set_recurrence'}:
             reminder=self.reader.read('get',id=item['id'])['item']
@@ -295,6 +311,13 @@ class RemindersCreateAdapter:
         return self.reader._dispatch(request,config)['result']
     def verify(self,item,outcome):
         if outcome.get('source_id')!=item['source_id'] or not isinstance(outcome.get('id'),str):return False
+        if item['operation']=='set_list_color':
+            from .native_colors import colors_equal
+            if outcome['id']!=item['list_id']:return False
+            actual=self.list_rename_snapshot(item);expected=item['before']
+            return (colors_equal(actual['list'].get('color'),item['fields']['color']) and
+                    {k:v for k,v in actual['list'].items() if k!='color'}=={k:v for k,v in expected['list'].items() if k!='color'} and
+                    actual['siblings']==expected['siblings'] and actual['membership']==expected['membership'])
         if item['operation']=='rename_list':
             if outcome['id']!=item['list_id']:return False
             actual=self.list_rename_snapshot(item);expected=dict(item['before']);expected['list']=dict(expected['list'],title=item['fields']['title'])

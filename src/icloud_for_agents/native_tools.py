@@ -220,6 +220,8 @@ def register_change_tools(mcp):
             create_list uses source_id and fields.title; create_reminder also
             requires list_id. update_reminder/set_completed/move_reminder use
             exact source_id and id. rename_list uses source_id/list_id/title.
+            set_list_color uses source_id/list_id and fields.color (#RRGGBB or
+            explicit sRGB red/green/blue channels from 0 to 1 with alpha=1).
             Supplied fields for create/update: title, notes, priority (0/1/5/9),
             due/start (explicit date components, optional hour/minute/timezone),
             passive url (or null to clear), recurrence (explicit rule or null at creation),
@@ -272,7 +274,7 @@ def register_change_tools(mcp):
         @mcp.tool(annotations=WRITE)
         @guard
         def reminders_prepare_update_correction(plan_id:str,target:str="requested")->dict:
-            """Review one exact known-ID correction after failed readback: target requested, or before for an explicit rollback."""
+            """Review one exact known-ID reminder or list-color correction after failed readback: requested, or before for explicit restoration."""
             check_plan_scope('reminders',plan_id)
             return editor('reminders').prepare_update_correction(plan_id,target)
 

@@ -109,11 +109,11 @@ class NativeChanges:
     def prepare_update_correction(self,original_id,target="requested"):
         """Propose one explicit same-object correction; never retry an unknown mutation.
 
-        Only one fully identified reminder update that failed readback qualifies.
+        One fully identified reminder update or list-color change with failed readback qualifies.
         Current state and the chosen requested/before state remain reviewable.
         The ordinary strict/trusted authorization applies to the new plan.
         """
-        if self.name!='reminders':raise SafetyError('Correction is limited to known reminder updates')
+        if self.name!='reminders':raise SafetyError('Correction is limited to known Reminders changes')
         import uuid
         if target not in {'requested','before'}:raise SafetyError('Correction target must be requested or before')
         context=self.context(True)
@@ -124,50 +124,57 @@ class NativeChanges:
                     or original['payload'].get('account')!=self.account
                     or original['payload'].get('context',{}).get('source_ids')!=context['source_ids']
                     or result.get('status')!='failed_or_uncertain' or result.get('phase')!='verification'
-                    or len(changes)!=1 or len(attempts)!=1 or changes[0].get('operation') not in {'update_reminder','set_recurrence'}
+                    or len(changes)!=1 or len(attempts)!=1 or changes[0].get('operation') not in {'update_reminder','set_recurrence','set_list_color'}
                     or self.store.read(self.store.path(original_id,'.started')).get('sha256')!=digest(original)):
-                raise SafetyError('Only one complete known-ID reminder update can be corrected')
+                raise SafetyError('Only one complete known-ID Reminders change can be corrected')
             item=changes[0];attempt=attempts[0]
             if (attempt.get('index')!=0 or attempt.get('operation')!=item['operation']
                     or attempt.get('result',{}).get('id')!=item.get('id')
                     or self.store.read(self.store.path(original_id,'.attempt-0'))!={'plan_sha256':digest(original),'attempt':attempt}):
                 raise SafetyError('Exact immutable returned identity required')
-            expected=dict(item['before']['item']);expected.update(item['fields'])
-            if 'alarms' in item['fields']:expected['has_alarms']=bool(item['fields']['alarms'])
-            current=self.adapter.reader.read('get',id=item['id'])['item']
-            if item['operation']=='set_recurrence':
-                from .native_recurrence import observed_rule
-                baseline=item['before']['item']
-                for key in ('id','source_id','list_id','title','notes','priority','due','start','completed','url','location','created','alarms','has_alarms'):
-                    if current.get(key)!=baseline.get(key):raise SafetyError('Recurrence correction cannot overwrite unrelated changed fields')
-                rules=baseline.get('recurrence_rules',[])
-                rule=(observed_rule(rules[0]) if rules else None) if target=='before' else item['fields']['recurrence']
+            if item['operation']=='set_list_color':
+                baseline=item['before'];current=self.adapter.list_rename_snapshot(item)
+                if ({k:v for k,v in current['list'].items() if k!='color'}!={k:v for k,v in baseline['list'].items() if k!='color'} or current['siblings']!=baseline['siblings'] or current['membership']!=baseline['membership']):raise SafetyError('Color correction cannot overwrite changed list metadata or membership')
+                color=baseline['list']['color'] if target=='before' else item['fields']['color']
                 from .native_once import planning
-                with planning(self.name):repair=self.adapter.prepare({'operation':'set_recurrence','source_id':item['source_id'],'id':item['id'],
-                    'fields':{'recurrence_scope':'exact_native_rule','recurrence':rule}})
+                with planning(self.name):repair=self.adapter.prepare_list_color({'operation':'set_list_color','source_id':item['source_id'],'list_id':item['list_id'],'fields':{'color':color}},allow_noop=True)
             else:
-                for key in ('source_id','list_id','completed','url','has_recurrence','has_alarms'):
-                    if current.get(key)!=expected.get(key):raise SafetyError('Unrelated effects or external changes require separate review')
-                desired=item['before']['item'] if target=='before' else expected
-                if target=='before':
-                    # Unrequested public fields must retain their original state;
-                    # no rollback may erase an external edit or unrelated effect.
-                    for key in ('id','source_id','list_id','title','notes','priority','completed','url','location','created','has_recurrence','has_alarms','recurrence_rules','alarms'):
-                        if key not in item['fields'] and not (key=='has_alarms' and 'alarms' in item['fields']) and current.get(key)!=item['before']['item'].get(key):raise SafetyError('Unrequested state changed; rollback cannot overwrite it')
-                fields={key:desired.get(key) for key in ('title','notes','priority','due','start','url')}
-                if 'alarms' in item['fields']:
-                    from .native_reminders import public_time_alarms
-                    fields['alarms']=public_time_alarms(item['before']['item'].get('alarms',[])) if target=='before' else item['fields']['alarms']
-                for key in ('due','start'):
-                    if isinstance(fields[key],dict):fields[key]={k:v for k,v in fields[key].items() if k in {'year','month','day','hour','minute','timezone'} and v is not None}
-                from .native_once import planning
-                with planning(self.name):repair=self.adapter.prepare({'operation':'update_reminder','source_id':item['source_id'],'id':item['id'],'fields':fields})
+                expected=dict(item['before']['item']);expected.update(item['fields'])
+                if 'alarms' in item['fields']:expected['has_alarms']=bool(item['fields']['alarms'])
+                current=self.adapter.reader.read('get',id=item['id'])['item']
+                if item['operation']=='set_recurrence':
+                    from .native_recurrence import observed_rule
+                    baseline=item['before']['item']
+                    for key in ('id','source_id','list_id','title','notes','priority','due','start','completed','url','location','created','alarms','has_alarms'):
+                        if current.get(key)!=baseline.get(key):raise SafetyError('Recurrence correction cannot overwrite unrelated changed fields')
+                    rules=baseline.get('recurrence_rules',[])
+                    rule=(observed_rule(rules[0]) if rules else None) if target=='before' else item['fields']['recurrence']
+                    from .native_once import planning
+                    with planning(self.name):repair=self.adapter.prepare({'operation':'set_recurrence','source_id':item['source_id'],'id':item['id'],
+                        'fields':{'recurrence_scope':'exact_native_rule','recurrence':rule}})
+                else:
+                    for key in ('source_id','list_id','completed','url','has_recurrence','has_alarms'):
+                        if current.get(key)!=expected.get(key):raise SafetyError('Unrelated effects or external changes require separate review')
+                    desired=item['before']['item'] if target=='before' else expected
+                    if target=='before':
+                        # Unrequested public fields must retain their original state;
+                        # no rollback may erase an external edit or unrelated effect.
+                        for key in ('id','source_id','list_id','title','notes','priority','completed','url','location','created','has_recurrence','has_alarms','recurrence_rules','alarms'):
+                            if key not in item['fields'] and not (key=='has_alarms' and 'alarms' in item['fields']) and current.get(key)!=item['before']['item'].get(key):raise SafetyError('Unrequested state changed; rollback cannot overwrite it')
+                    fields={key:desired.get(key) for key in ('title','notes','priority','due','start','url')}
+                    if 'alarms' in item['fields']:
+                        from .native_reminders import public_time_alarms
+                        fields['alarms']=public_time_alarms(item['before']['item'].get('alarms',[])) if target=='before' else item['fields']['alarms']
+                    for key in ('due','start'):
+                        if isinstance(fields[key],dict):fields[key]={k:v for k,v in fields[key].items() if k in {'year','month','day','hour','minute','timezone'} and v is not None}
+                    from .native_once import planning
+                    with planning(self.name):repair=self.adapter.prepare({'operation':'update_reminder','source_id':item['source_id'],'id':item['id'],'fields':fields})
             self.check_item(repair,context)
             correction_id=uuid.uuid4().hex
             correction={'plan_id':correction_id,'kind':self.kind,'created':self.store.clock(),'expires':self.store.clock()+1800,
                 'native_correction_of':original_id,'payload':{'account':self.account,'context':context,'changes':[repair],
                 'original_failure_sha256':digest(result),'correction_target':target,
-                'purpose':('Restore the exact original public fields; the failed request remains unsuccessful' if target=='before' else 'Restore the originally requested public fields')+' on the exact returned reminder; no creation or replay'}}
+                'purpose':('Restore the exact original public fields; the failed request remains unsuccessful' if target=='before' else 'Restore the originally requested public fields')+' on the exact returned native object; no creation or replay'}}
             # Reserve once before writing the proposal. A crash may strand repair,
             # but cannot authorize two corrective writes.
             self.store.write_once(self.store.path(original_id,'.native-correction'),
@@ -213,6 +220,8 @@ class NativeChanges:
             rollback=correction['payload'].get('correction_target')=='before'
             if rollback and intended['operation']=='rename_folder':
                 intended=dict(intended,fields={'title':intended['before']['folder']['title']})
+            elif rollback and intended['operation']=='set_list_color':
+                intended=dict(intended,fields={'color':intended['before']['list']['color']})
             elif rollback and intended['operation']=='set_recurrence':
                 from .native_recurrence import observed_rule
                 rules=intended['before']['item'].get('recurrence_rules',[])
@@ -244,7 +253,7 @@ class NativeChanges:
         return self.reconcile_known_changes(plan_id)
 
     def reconcile_known_changes(self,plan_id):
-        allowed=({'append_note','prepend_note','replace_text','update_note','move_note','rename_folder'} if self.name=='notes' else {'update_reminder','set_completed','move_reminder','rename_list','set_recurrence'})
+        allowed=({'append_note','prepend_note','replace_text','update_note','move_note','rename_folder'} if self.name=='notes' else {'update_reminder','set_completed','move_reminder','rename_list','set_list_color','set_recurrence'})
         return self._reconcile_known(plan_id,allowed)
 
     def _reconcile_known(self,plan_id,allowed):
@@ -269,7 +278,7 @@ class NativeChanges:
                 entry=self.store.read(self.store.path(plan_id,'.attempt-'+str(index)))
                 if (entry!={'plan_sha256':digest(plan),'attempt':attempt} or attempt.get('index')!=index
                         or attempt.get('operation')!=item['operation']
-                        or (item['operation'] in {'append_note','prepend_note','replace_text','update_note','move_note','rename_folder','update_reminder','set_completed','move_reminder','rename_list','set_recurrence'} and attempt.get('result',{}).get('id')!=item.get('id'))
+                        or (item['operation'] in {'append_note','prepend_note','replace_text','update_note','move_note','rename_folder','update_reminder','set_completed','move_reminder','rename_list','set_list_color','set_recurrence'} and attempt.get('result',{}).get('id')!=item.get('id'))
                         or not self.adapter.verify(item,attempt['result'])):
                     raise SafetyError('Known native object does not verify; uncertainty retained')
                 hashes.append(digest(entry))

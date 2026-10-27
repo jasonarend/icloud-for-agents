@@ -4,11 +4,12 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 
 def run():
-    source=(ROOT/'src/icloud_for_agents/native/reminders.swift').read_text();functions=source[source.index('func listRecord('):source.index('if action == "list_membership"')].replace('EKCalendar','FixtureCalendar').replace('EKReminder','FixtureReminder')
+    source=(ROOT/'src/icloud_for_agents/native/reminders.swift').read_text();functions=source[source.index('// Public EventKit list colors'):source.index('if action == "list_membership"')].replace('EKCalendar','FixtureCalendar').replace('EKReminder','FixtureReminder')
     fixture='''import Foundation
 import CryptoKit
+import AppKit
 struct FixtureSource {let sourceIdentifier:String}
-struct FixtureCalendar {let calendarIdentifier:String;let title:String;let source:FixtureSource;let allowsContentModifications:Bool}
+struct FixtureCalendar {let calendarIdentifier:String;let title:String;let source:FixtureSource;let allowsContentModifications:Bool;var cgColor:CGColor? {CGColor(red:0.2,green:0.4,blue:0.6,alpha:1)}}
 struct FixtureReminder {let calendarItemIdentifier:String}
 let list=FixtureCalendar(calendarIdentifier:"synthetic-list",title:"Synthetic",source:FixtureSource(sourceIdentifier:"selected"),allowsContentModifications:true)
 '''

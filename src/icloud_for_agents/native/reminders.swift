@@ -326,8 +326,25 @@ if action == "sources" {
 guard let sourceIDs = req["source_ids"] as? [String], !sourceIDs.isEmpty, sourceIDs.count <= 100 else { fail("source_scope_required") }
 guard sourceIDs.allSatisfy({ id in store.sources.contains(where: { $0.sourceIdentifier == id }) }) else { fail("not_found_in_scope") }
 let lists = allLists.filter { sourceIDs.contains($0.source.sourceIdentifier) }
+// Public EventKit list colors are projected into an explicit sRGB space.
+func listColorObject(_ color:CGColor?)->Any {
+    guard let color=color,let normalized=NSColor(cgColor:color)?.usingColorSpace(.sRGB) else {return NSNull()}
+    let values=[normalized.redComponent,normalized.greenComponent,normalized.blueComponent,normalized.alphaComponent]
+    guard values.allSatisfy({$0.isFinite && $0>=0 && $0<=1}) else {return NSNull()}
+    return Dictionary(uniqueKeysWithValues:zip(["red","green","blue","alpha"],values.map{Double($0)}))
+}
+func listColorFromObject(_ value:Any?)->CGColor? {
+    guard let fields=value as? [String:Any],Set(fields.keys)==["red","green","blue","alpha"] else {return nil}
+    var values=[CGFloat]()
+    for key in ["red","green","blue","alpha"] {
+        guard let number=fields[key] as? NSNumber,CFGetTypeID(number) != CFBooleanGetTypeID(),number.doubleValue.isFinite,(0...1).contains(number.doubleValue) else {return nil}
+        values.append(CGFloat(number.doubleValue))
+    }
+    guard values[3]==1,let space=CGColorSpace(name:CGColorSpace.sRGB) else {return nil}
+    return CGColor(colorSpace:space,components:values)
+}
 func listRecord(_ list:EKCalendar)->[String:Any] {
-    ["id":list.calendarIdentifier,"title":String(list.title.prefix(1000)),"source_id":list.source.sourceIdentifier,"writable":list.allowsContentModifications]
+    ["id":list.calendarIdentifier,"title":String(list.title.prefix(1000)),"source_id":list.source.sourceIdentifier,"writable":list.allowsContentModifications,"color":listColorObject(list.cgColor)]
 }
 func membershipRecord(_ values:[EKReminder],_ list:EKCalendar)->[String:Any] {
     let ids=values.map { $0.calendarItemIdentifier }.sorted()
@@ -435,18 +452,22 @@ func reminderRecurrence(_ value:Any,due:DateComponents?)->EKRecurrenceRule? {
     return rule
 }
 if action == "apply" {
-    if let item=req["change"] as? [String:Any],item["operation"] as? String=="rename_list" {
+    if let item=req["change"] as? [String:Any],let operation=item["operation"] as? String,["rename_list","set_list_color"].contains(operation) {
         guard let source=item["source_id"] as? String,sourceIDs.contains(source),let id=item["list_id"] as? String,
-              let fields=item["fields"] as? [String:Any],Set(fields.keys)==["title"],let title=fields["title"] as? String,!title.isEmpty,title.count<=1000,
+              let fields=item["fields"] as? [String:Any],
               let before=item["before"] as? [String:Any],let expected=before["list"] as? [String:Any],
               let expectedMembers=before["membership"] as? [String:Any],let expectedSiblings=before["siblings"] as? [[String:Any]],
               let list=lists.first(where:{$0.calendarIdentifier==id && $0.source.sourceIdentifier==source}),list.allowsContentModifications else {fail("invalid_mutation")}
+        let title=fields["title"] as? String
+        let color=listColorFromObject(fields["color"])
+        guard (operation=="rename_list" && Set(fields.keys)==["title"] && title != nil && !title!.isEmpty && title!.count<=1000) || (operation=="set_list_color" && Set(fields.keys)==["color"] && color != nil) else {fail("invalid_fields")}
         let siblings=lists.filter {$0.source.sourceIdentifier==source && $0.calendarIdentifier != id}.sorted {$0.calendarIdentifier<$1.calendarIdentifier}
         guard NSDictionary(dictionary:listRecord(list)).isEqual(to:expected),NSArray(array:siblings.map(listRecord)).isEqual(to:expectedSiblings),
-              !siblings.contains(where:{$0.title==title}) else {fail("snapshot_changed")}
+              (operation != "rename_list" || !siblings.contains(where:{$0.title==title})) else {fail("snapshot_changed")}
         store.fetchReminders(matching:store.predicateForReminders(in:[list])) { values in
             guard let values=values,values.count<=100000,NSDictionary(dictionary:membershipRecord(values,list)).isEqual(to:expectedMembers) else {fail("snapshot_changed")}
-            list.title=title;mutationDispatched=true
+            if operation=="rename_list" {list.title=title!} else {list.cgColor=color!}
+            mutationDispatched=true
             do {try store.saveCalendar(list,commit:true)} catch {fail("mutation_failed_or_uncertain")}
             respond(["protocol_version":1,"result":["id":id,"source_id":source,"saved_locally":true]])
         }
@@ -568,10 +589,7 @@ if action == "lists" {
     guard (1...100).contains(limit), (0...100000).contains(offset) else { fail("invalid_page") }
     let sorted = lists.sorted { $0.calendarIdentifier < $1.calendarIdentifier }
     let page = Array(sorted.dropFirst(offset).prefix(limit))
-    respond(["protocol_version": 1, "lists": page.map { list -> [String: Any] in
-        ["id": list.calendarIdentifier, "title": String(list.title.prefix(1000)), "source_id": list.source.sourceIdentifier,
-         "writable": list.allowsContentModifications]
-    }, "done": offset + page.count >= sorted.count, "next_offset": offset + page.count,
+    respond(["protocol_version": 1, "lists": page.map(listRecord), "done": offset + page.count >= sorted.count, "next_offset": offset + page.count,
        "pagination_consistency": "live_offset_may_shift"])
 }
 

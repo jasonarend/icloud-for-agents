@@ -16,7 +16,7 @@ FIELDS={
  'notes':{'create_note':{'title','body','format'},'append_note':{'body','format'},'prepend_note':{'body','format'},'replace_text':{'find','replacement','expected_matches'},
           'update_note':{'title','body','format'},'move_note':{'destination_folder_id'},'create_folder':{'title'},'rename_folder':{'title'}},
  'reminders':{'create_reminder':{'title','notes','priority','due','start','url','alarms','recurrence'},'update_reminder':{'title','notes','priority','due','start','url','alarms'},
-              'set_completed':{'completed'},'move_reminder':{'list_id'},'create_list':{'title'},'rename_list':{'title'},'set_recurrence':{'recurrence','recurrence_scope'}}}
+              'set_completed':{'completed'},'move_reminder':{'list_id'},'create_list':{'title'},'rename_list':{'title'},'set_list_color':{'color'},'set_recurrence':{'recurrence','recurrence_scope'}}}
 
 
 def exact(value,limit=1000):
@@ -82,6 +82,7 @@ class NativeGrants:
             if rule['operation']=='create_list' and rule['container_id']!=rule['source_id']:raise SafetyError('List creation targets its selected source root')
             source=self.container(rule['source_id'],rule['container_id'])
             if rule['operation'] in {'rename_folder','rename_list'}:source={k:v for k,v in source.items() if k!='title'}
+            if rule['operation']=='set_list_color':source={k:v for k,v in source.items() if k!='color'}
             if rule['operation']=='rename_folder':
                 role=self.engine.adapter.reader.read('folder_role',folder_id=rule['container_id'])
                 inventory=self.engine.adapter.reader.read('folder_inventory',folder_id=rule['container_id'])
@@ -216,7 +217,7 @@ class NativeGrants:
     def match(self,grant,item):
         scope=grant['payload']['scope'];op=item['operation']
         container=(item.get('parent_folder_id',item['source_id']) if op=='create_folder' else item['source_id'] if op=='create_list'
-                   else item.get('folder_id') if self.name=='notes' else item.get('list_id') if op in {'create_reminder','rename_list'}
+                   else item.get('folder_id') if self.name=='notes' else item.get('list_id') if op in {'create_reminder','rename_list','set_list_color'}
                    else item.get('before',{}).get('item',{}).get('list_id'))
         fields=item.get('requested_fields')
         if not isinstance(fields,list) or not fields:raise SafetyError('Native standing plan lacks exact requested field scope')
