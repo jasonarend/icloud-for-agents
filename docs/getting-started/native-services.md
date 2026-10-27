@@ -229,6 +229,12 @@ Synthetic native tests cover true/false states, exact entity/source/list relatio
 
 The fixed private interface is limited to the tested macOS version and refuses unrecognized interfaces, unselected accounts, ambiguous identities, malformed views and oversized results. A synthetic reminder deleted and restored through the Reminders app was found by exact ID while in Recently Deleted and no longer found after restoration; its original ID and content were verified afterward. The lookup also returned both direct child IDs for a dedicated deleted parent and resolved a deleted child to its exact parent and recovery root. The parent and both children were restored in the app and independently verified. Programmatic deletion and restoration still require their own implementation and acceptance tests.
 
+**Recovery hierarchy inspection**
+
+`reminders_inspect_recovery_hierarchy` resolves the requested deleted reminder to its recovery root, then reads a bounded set of provider-reported descendants. It checks each observed parent and root relationship and refuses changes or duplicate identities during traversal. The default limit is 10 nodes; callers may request 1–20 nodes and depth 0–5. Unavailable or unexpanded branches are listed explicitly, and `hierarchy_complete` remains false. This is read-only inspection, not a restoration proposal or proof that all affected descendants are known.
+
+A local test selected a deleted synthetic subtask and observed its root and both direct children. The parent and both children were subsequently restored through the app and independently verified.
+
 **Bounded hierarchy inspection**
 
 `reminders_inspect_hierarchy` follows provider-reported child IDs from one exact reminder using the optional ReminderKit backend. It verifies each observed child's parent, list and source, and refuses cycles, inconsistent relationships or access changes. `max_nodes` limits reads to 1–20 and `max_depth` limits traversal to 0–5. Unavailable child contexts and children beyond the bounds are reported as unexpanded.

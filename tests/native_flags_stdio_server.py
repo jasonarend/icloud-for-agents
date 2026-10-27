@@ -14,7 +14,8 @@ def dispatch(self,request,config):
     assert self.name=='reminders' and request['source_ids']==['selected']
     if request['action']=='recovery_lookup':
         assert request['source_id']=='selected'
-        return {'protocol_version':1,'id':request['id'],'source_id':'selected','found_as_root':True,'found_in_view':True,'parent_id':None,'recovery_root_id':request['id'],'view':'provider_recently_deleted','reported_child_ids':None,'children_status':'unavailable','children_complete':False,'data_mutated':False,'observation_consistency':'separate_provider_reads'}
+        child=request['id']=='synthetic-child';root='synthetic-parent' if child else request['id'];children=['synthetic-child'] if request['id']=='synthetic-parent' else None
+        return {'protocol_version':1,'id':request['id'],'source_id':'selected','found_as_root':not child,'found_in_view':True,'parent_id':root if child else None,'recovery_root_id':root,'view':'provider_recently_deleted','reported_child_ids':children,'children_status':'provider_reported' if children is not None else 'unavailable','children_complete':False,'data_mutated':False,'observation_consistency':'separate_provider_reads'}
     if request['action']=='query':
         assert (type(request.get('flagged')) is bool or isinstance(request.get('tag'),str)) and request['limit']==1
         if 'due_date' in request:assert request['due_date']=='2026-10-27' and request['timezone']=='UTC' and request['completed'] is False and request['list_id']=='list'

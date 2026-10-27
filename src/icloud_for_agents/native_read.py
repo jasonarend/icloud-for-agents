@@ -386,6 +386,43 @@ def inspect_reminder_hierarchy(reader, identity, max_nodes=10, max_depth=3):
             'scope_note':'Provider-reported edges only; concealed descendants and concurrent changes remain unverified.'}
 
 
+def inspect_reminder_recovery_hierarchy(reader, identity, source_id, max_nodes=10, max_depth=3):
+    """Inspect one recovery root and provider-reported descendants, without writing."""
+    if not isinstance(identity,str) or not identity or len(identity)>1000 or not isinstance(source_id,str) or not source_id:
+        raise SafetyError('Select one exact reminder and source')
+    if type(max_nodes) is not int or not 1<=max_nodes<=20 or type(max_depth) is not int or not 0<=max_depth<=5:
+        raise SafetyError('Recovery inspection requires max_nodes 1..20 and max_depth 0..5')
+    config=native_config('reminders');mode=os.environ.get('ICLOUD_MAIL_ACCESS','read-only')
+    selected=reader.read('recovery_lookup',id=identity,source_id=source_id)
+    if selected['found_in_view'] is not True:raise SafetyError('Reminder is not present in the observed recovery view')
+    root=selected['recovery_root_id'];pending=[(root,None,0)];seen={root.upper()};nodes=[];unexpanded=[]
+    while pending:
+        if native_config('reminders')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=mode:
+            raise SafetyError('Reminder access changed during recovery inspection')
+        current,parent,depth=pending.pop(0)
+        node=selected if not nodes and current.upper()==identity.upper() else reader.read('recovery_lookup',id=current,source_id=source_id)
+        if (node['found_in_view'] is not True or node['recovery_root_id'].upper()!=root.upper()
+                or (parent is None and not node['found_as_root'])
+                or (parent is not None and (node['parent_id'] is None or node['parent_id'].upper()!=parent.upper()))):
+            raise SafetyError('Recovery hierarchy changed or a node has a different parent or root')
+        children=node['reported_child_ids']
+        nodes.append({'id':current,'parent_id':parent,'depth':depth,'reported_child_ids':children,'children_status':node['children_status']})
+        if children is None:
+            unexpanded.append({'id':current,'reason':'provider_unavailable'});continue
+        for child in children:
+            canonical=child.upper()
+            if canonical in seen:raise SafetyError('Recovery hierarchy contains a duplicate or cycle')
+            seen.add(canonical)
+            if depth>=max_depth:unexpanded.append({'id':child,'parent_id':current,'reason':'depth_limit'})
+            elif len(nodes)+len(pending)>=max_nodes:unexpanded.append({'id':child,'parent_id':current,'reason':'node_limit'})
+            else:pending.append((child,current,depth+1))
+    if native_config('reminders')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=mode:
+        raise SafetyError('Reminder access changed during recovery inspection')
+    return {'requested_id':identity,'source_id':source_id,'recovery_root_id':root,'nodes':nodes,'unexpanded':unexpanded,
+            'hierarchy_complete':False,'observation_consistency':'separate_provider_reads',
+            'scope_note':'Provider-reported recovery hierarchy only; concealed descendants and concurrent changes remain unverified.'}
+
+
 def register_read_tools(mcp):
     """Register only selected services. Dispatch checks owner settings again."""
     from functools import wraps
@@ -452,6 +489,12 @@ def register_read_tools(mcp):
         def reminders_get(id: str, include_native_metadata: bool=False, include_native_tags: bool=False, include_native_hierarchy: bool=False, include_native_children: bool=False) -> dict:
             """Read one exact scoped reminder. Optional native flags/tags/hierarchy/children require owner-selected ReminderKit; other advanced metadata remains incomplete."""
             return NativeReader('reminders').read('get', id=id, include_native_metadata=include_native_metadata, include_native_tags=include_native_tags, include_native_hierarchy=include_native_hierarchy, include_native_children=include_native_children)
+
+        @mcp.tool(annotations=annotations)
+        @guard
+        def reminders_inspect_recovery_hierarchy(id: str, source_id: str, max_nodes: int=10, max_depth: int=3) -> dict:
+            """Inspect one recoverable root and provider-reported descendants; this is not a restoration or a complete subtree."""
+            return inspect_reminder_recovery_hierarchy(NativeReader('reminders'),id,source_id,max_nodes,max_depth)
 
         @mcp.tool(annotations=annotations)
         @guard
