@@ -124,7 +124,7 @@ class NativeChanges:
                     or original['payload'].get('account')!=self.account
                     or original['payload'].get('context',{}).get('source_ids')!=context['source_ids']
                     or result.get('status')!='failed_or_uncertain' or result.get('phase')!='verification'
-                    or len(changes)!=1 or len(attempts)!=1 or changes[0].get('operation') not in {'update_reminder','set_recurrence','set_list_color'}
+                    or len(changes)!=1 or len(attempts)!=1 or changes[0].get('operation') not in {'update_reminder','set_recurrence','set_list_color','set_flagged'}
                     or self.store.read(self.store.path(original_id,'.started')).get('sha256')!=digest(original)):
                 raise SafetyError('Only one complete known-ID Reminders change can be corrected')
             item=changes[0];attempt=attempts[0]
@@ -142,8 +142,19 @@ class NativeChanges:
                 expected=dict(item['before']['item']);expected.update(item['fields'])
                 if 'alarms' in item['fields']:expected['has_alarms']=bool(item['fields']['alarms'])
                 current=self.adapter.reader.read('get',id=item['id'])['item']
-                if self.adapter.native_snapshot(current)!=item['before'].get('native_metadata'):raise SafetyError('Observed native metadata changed; public-field correction cannot overwrite or accept that effect')
-                if item['operation']=='set_recurrence':
+                observed_native=self.adapter.native_snapshot(current);baseline_native=item['before'].get('native_metadata')
+                if item['operation']=='set_flagged':
+                    if (not isinstance(observed_native,dict) or not isinstance(baseline_native,dict)
+                            or {k:v for k,v in observed_native.items() if k not in {'flagged','flag_state'}}!={k:v for k,v in baseline_native.items() if k not in {'flagged','flag_state'}}):
+                        raise SafetyError('Unrelated native metadata changed; flag correction cannot overwrite or accept that effect')
+                    baseline=item['before']['item']
+                    for key in ('id','source_id','list_id','title','notes','priority','due','start','completed','completion_date','url','location','created','alarms','has_alarms','has_recurrence','recurrence_rules'):
+                        if current.get(key)!=baseline.get(key):raise SafetyError('Flag correction cannot overwrite unrelated changed fields')
+                    desired=baseline_native['flagged'] if target=='before' else item['fields']['flagged']
+                    from .native_once import planning
+                    with planning(self.name):repair=self.adapter.prepare({'operation':'set_flagged','source_id':item['source_id'],'id':item['id'],'fields':{'flagged':desired}})
+                elif observed_native!=baseline_native:raise SafetyError('Observed native metadata changed; public-field correction cannot overwrite or accept that effect')
+                elif item['operation']=='set_recurrence':
                     from .native_recurrence import observed_rule
                     baseline=item['before']['item']
                     for key in ('id','source_id','list_id','title','notes','priority','due','start','completed','url','location','created','alarms','has_alarms'):
@@ -227,6 +238,8 @@ class NativeChanges:
                 from .native_recurrence import observed_rule
                 rules=intended['before']['item'].get('recurrence_rules',[])
                 intended=dict(intended,fields={'recurrence_scope':'exact_native_rule','recurrence':observed_rule(rules[0]) if rules else None})
+            elif rollback and intended['operation']=='set_flagged':
+                intended=dict(intended,fields={'flagged':intended['before']['native_metadata']['flagged']})
             elif rollback:
                 fields={key:intended['before']['item'].get(key) for key in ('title','notes','priority','due','start','url')}
                 if 'alarms' in intended['fields']:
@@ -254,7 +267,7 @@ class NativeChanges:
         return self.reconcile_known_changes(plan_id)
 
     def reconcile_known_changes(self,plan_id):
-        allowed=({'append_note','prepend_note','replace_text','update_note','move_note','rename_folder'} if self.name=='notes' else {'update_reminder','set_completed','move_reminder','rename_list','set_list_color','set_recurrence'})
+        allowed=({'append_note','prepend_note','replace_text','update_note','move_note','rename_folder'} if self.name=='notes' else {'update_reminder','set_completed','move_reminder','rename_list','set_list_color','set_recurrence','set_flagged'})
         return self._reconcile_known(plan_id,allowed)
 
     def _reconcile_known(self,plan_id,allowed):
@@ -279,7 +292,7 @@ class NativeChanges:
                 entry=self.store.read(self.store.path(plan_id,'.attempt-'+str(index)))
                 if (entry!={'plan_sha256':digest(plan),'attempt':attempt} or attempt.get('index')!=index
                         or attempt.get('operation')!=item['operation']
-                        or (item['operation'] in {'append_note','prepend_note','replace_text','update_note','move_note','rename_folder','update_reminder','set_completed','move_reminder','rename_list','set_list_color','set_recurrence'} and attempt.get('result',{}).get('id')!=item.get('id'))
+                        or (item['operation'] in {'append_note','prepend_note','replace_text','update_note','move_note','rename_folder','update_reminder','set_completed','move_reminder','rename_list','set_list_color','set_recurrence','set_flagged'} and attempt.get('result',{}).get('id')!=item.get('id'))
                         or not self.adapter.verify(item,attempt['result'])):
                     raise SafetyError('Known native object does not verify; uncertainty retained')
                 hashes.append(digest(entry))

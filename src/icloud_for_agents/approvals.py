@@ -340,7 +340,7 @@ class PlanStore:
                 and result.get('status')=='failed_or_uncertain' and result.get('phase')=='verification'
                 and len(changes)==len(repairs)==len(attempts)==1
                 and changes[0].get('operation')==repairs[0].get('operation')
-                and changes[0].get('operation') in ({'rename_folder'} if original.get('kind')=='notes_change' else {'update_reminder','set_recurrence','set_list_color'})
+                and changes[0].get('operation') in ({'rename_folder'} if original.get('kind')=='notes_change' else {'update_reminder','set_recurrence','set_list_color','set_flagged'})
                 and changes[0].get('id')==repairs[0].get('id')==attempts[0].get('result',{}).get('id')
                 and changes[0].get('source_id')==repairs[0].get('source_id'))
 

@@ -91,6 +91,20 @@ class NativeRemindersTests(unittest.TestCase):
         metadata['tags']=[{'id':'tag','name':'Project','native_type':0}]
         self.assertFalse(self.adapter.verify(item,outcome));metadata['tags']=[]
         metadata['has_subtasks']=True;metadata['child_ids']=['unexpected-child'];self.assertFalse(self.adapter.verify(item,outcome))
+
+    def test_native_flag_change_requires_opt_in_and_preserves_other_metadata(self):
+        change={'operation':'set_flagged','source_id':'selected','id':'created','fields':{'flagged':True}}
+        with self.assertRaises(SafetyError):self.adapter.prepare(change)
+        metadata=self.native_reader();item=self.adapter.prepare(change)
+        self.assertFalse(item['before']['native_metadata']['flagged'])
+        from icloud_for_agents.native_protocol import mutation_request
+        envelope=mutation_request('reminders',item)['change']
+        self.assertEqual(envelope['before']['native_metadata'],item['before']['native_metadata'])
+        metadata.update(flagged=True,flag_state=1)
+        self.assertTrue(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
+        metadata['tags']=[{'id':'tag','name':'Synthetic','native_type':0}]
+        self.assertFalse(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
+        with self.assertRaises(SafetyError):self.adapter.prepare({'operation':'set_flagged','source_id':'selected','id':'created','fields':{'flagged':1}})
     def test_selected_native_backend_refuses_missing_or_incomplete_native_snapshot(self):
         metadata=self.native_reader();metadata['tags_complete']=False
         with self.assertRaises(SafetyError):self.existing()

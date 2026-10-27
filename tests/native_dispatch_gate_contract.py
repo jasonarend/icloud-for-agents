@@ -40,12 +40,14 @@ if CommandLine.arguments[2]=="closed" {precondition(dispatched==false)} else {pr
     failure=swift[swift.index('func fail('):swift.index('func dateParts(')]
     with tempfile.TemporaryDirectory(prefix='native-dispatch-timeout-') as directory:
         path=Path(directory);file=path/'main.swift';binary=path/'contract'
-        program='import Foundation\nvar requestAction:String?="apply"\nvar requestService:String?="notes"\nvar mutationDispatched=false\n'+gate+"\nfunc respond(_ value:[String:Any])->Never {let bytes=try! JSONSerialization.data(withJSONObject:value);FileHandle.standardOutput.write(bytes);exit(0)}\n"+failure+'\nif CommandLine.arguments[1]=="entered" {precondition(NativeMutationGate.beginMutation())}\nfail("mutation_failed_or_uncertain")\n'
+        program='import Foundation\nvar requestAction:String?="apply"\nvar requestService:String?=CommandLine.arguments.count>2 ? "reminders" : "notes"\nvar flagGateArmed=CommandLine.arguments.count>2\nvar mutationDispatched=false\n'+gate+"\nfunc respond(_ value:[String:Any])->Never {let bytes=try! JSONSerialization.data(withJSONObject:value);FileHandle.standardOutput.write(bytes);exit(0)}\n"+failure+'\nif CommandLine.arguments[1]=="entered" {precondition(NativeMutationGate.beginMutation())}\nfail("mutation_failed_or_uncertain")\n'
         file.write_text(program);compiled=subprocess.run(['/usr/bin/swiftc',str(file),'-o',str(binary)],capture_output=True,text=True,timeout=60);assert compiled.returncode==0,compiled.stderr
         for state in ('closed','entered'):
             result=subprocess.run([str(binary),state],capture_output=True,text=True,timeout=5);assert result.returncode==0,result.stderr;value=json.loads(result.stdout)
             assert value['mutation_dispatched'] is (state=='entered')
             assert value['error']==('mutation_failed_or_uncertain' if state=='entered' else 'notes_validation_timeout')
+            flag=subprocess.run([str(binary),state,'flag'],capture_output=True,text=True,timeout=5);assert flag.returncode==0,flag.stderr;flag_value=json.loads(flag.stdout)
+            assert flag_value['mutation_dispatched'] is (state=='entered') and flag_value['error']=='mutation_failed_or_uncertain'
     with tempfile.TemporaryDirectory(prefix='native-dispatch-deadline-') as directory:
         path=Path(directory);file=path/'main.swift';binary=path/'contract'
         clocked=gate.replace('ProcessInfo.processInfo.systemUptime','syntheticUptime')

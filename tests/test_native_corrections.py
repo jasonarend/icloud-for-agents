@@ -167,3 +167,22 @@ class NativeCorrectionTests(unittest.TestCase):
         repair=engine.prepare_update_correction(plan['plan_id'],'before');self.assertEqual(engine.execute(repair['plan_id'])['status'],'applied')
         self.assertEqual(engine.reconcile_correction(repair['plan_id'])['status'],'restored_before_after_explicit_correction')
         self.assertEqual(adapter.reader.item['alarms'],[native(original)])
+
+    def test_native_flag_correction_keeps_other_native_state_and_original_audit(self):
+        os.environ['ICLOUD_NATIVE_CONFIG']=json.dumps({'reminders':{'access_mode':'write-enabled','source_ids':['selected'],'advanced_backend':'reminderkit','helper_path':'/synthetic/helper'}})
+        adapter=Adapter();adapter.fail=False;flag=[False];tags=[];read=adapter.reader.read
+        def enriched(action,**fields):
+            result=read(action,**fields)
+            if action=='get' and fields.get('include_native_metadata'):
+                result['item']['native_metadata']={**{k:result['item'][k] for k in ('id','source_id','list_id')},'coverage':['flagged','tags','hierarchy','children'],'flagged':flag[0],'flag_state':int(flag[0]),'tags':copy.deepcopy(tags),'tags_complete':True,'is_subtask':False,'parent_id':None,'has_subtasks':False,'hierarchy_complete':False,'children_status':'provider_reported','child_ids':[],'children_complete':False,'children_fetch_status':'provider_reported'}
+            return result
+        adapter.reader.read=enriched;engine=NativeChanges('reminders','synthetic@example.com',adapter,PlanStore(Path(self.temp.name)/'flag-fixture'));fail=[True]
+        def apply(item):
+            adapter.calls+=1
+            if not fail[0]:flag[0]=item['fields']['flagged']
+            return {'id':'task','source_id':'selected','list_id':'list'}
+        adapter.apply=apply;plan=engine.prepare_once([{'operation':'set_flagged','source_id':'selected','id':'task','fields':{'flagged':True}}])
+        self.assertEqual(engine.execute(plan['plan_id'])['status'],'failed_or_uncertain');tags.append({'id':'tag','name':'Synthetic','native_type':0})
+        with self.assertRaises(SafetyError):engine.prepare_update_correction(plan['plan_id'])
+        tags.clear();fail[0]=False;repair=engine.prepare_update_correction(plan['plan_id']);self.assertEqual(engine.execute(repair['plan_id'])['status'],'applied')
+        self.assertEqual(engine.reconcile_correction(repair['plan_id'])['status'],'verified_after_explicit_correction');self.assertTrue(flag[0])

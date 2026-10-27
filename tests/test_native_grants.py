@@ -264,3 +264,12 @@ class NativeGrantTests(unittest.TestCase):
         allowed=self.manager.checked(self.activate(wider));self.manager.match(allowed,item)
         wider['rules'][0]['fields']=['location_alarms']
         with self.assertRaises(SafetyError):validate_scope('reminders',wider,self.now)
+
+    def test_native_flag_scope_is_separate_from_priority_updates(self):
+        self.engine.name='reminders';self.engine.kind='reminders_change';self.manager.name='reminders'
+        scope=self.scope();scope['rules'][0].update(operation='update_reminder',fields=['priority'])
+        grant=self.manager.checked(self.activate(scope))
+        item={'operation':'set_flagged','source_id':'selected','before':{'item':{'list_id':'folder'}},'fields':{'flagged':True},'requested_fields':['flagged']}
+        with self.assertRaises(SafetyError):self.manager.match(grant,item)
+        scope=self.scope();scope['rules'][0].update(operation='set_flagged',fields=['flagged'])
+        self.manager.match(self.manager.checked(self.activate(scope)),item)

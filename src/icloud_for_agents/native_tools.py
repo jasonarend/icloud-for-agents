@@ -258,12 +258,14 @@ def register_change_tools(mcp):
             Supplied fields for create/update: title, notes, priority (0/1/5/9),
             due/start (explicit date components, optional hour/minute/timezone),
             passive url (or null to clear), recurrence (explicit rule or null at creation),
-            alarms (complete ordinary time-alarm
-            array; [] clears). Each alarm is exactly {absolute_date: integer Unix
-            seconds} or {relative_offset_seconds: integer seconds}; relative
-            alarms require a timed due date and timezone. Review includes exact
-            trigger times and notification effects. Location-text writes and
-            advanced alarms are unsupported. Ordinary recurring edits are refused. set_recurrence requires exact id
+            alarms (complete supported time/location alarm array; [] clears).
+            Time alarms use absolute_date or relative_offset_seconds; relative
+            alarms require a timed due date and timezone. Location alarms contain
+            location with title, latitude, longitude, radius_meters and proximity
+            enter/leave. Review includes exact triggers and notification effects.
+            Location-text writes and unsupported advanced alarms are refused.
+            set_flagged uses exact id and fields.flagged Boolean, requiring the
+            explicitly selected ReminderKit backend. Ordinary recurring edits are refused. set_recurrence requires exact id
             and fields.recurrence_scope="exact_native_rule" plus fields.recurrence
             (rule or null). Rules require frequency, interval, and end (null, count
             or Unix date); optional native weekday/month/year filters are bounded.
