@@ -71,6 +71,22 @@ class NativeReadTests(unittest.TestCase):
             for name,action,value in [('notes','get','unknown'),('notes','get',True),('notes','query','native'),('reminders','get','markdown')]:
                 with self.subTest(name=name,action=action,value=value),self.assertRaises(SafetyError):NativeReader(name).read(action,representation=value)
 
+    def test_private_reminder_metadata_is_opt_in_and_preserves_exact_public_scope(self):
+        config={'reminders':{'source_ids':['selected'],'helper_path':'/synthetic/helper','advanced_backend':'reminderkit'}};calls=[]
+        def dispatch(request,config):calls.append(request);return {'protocol_version':1,'item':{'id':'synthetic'}}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',side_effect=dispatch):
+            NativeReader('reminders').read('get',id='synthetic')
+            NativeReader('reminders').read('get',id='synthetic',include_native_metadata=True)
+        self.assertNotIn('include_native_metadata',calls[0]);self.assertIs(calls[1]['include_native_metadata'],True);self.assertEqual(calls[1]['source_ids'],['selected']);self.assertEqual(calls[1]['id'],'synthetic')
+    def test_private_metadata_defaults_and_other_service_or_action_refuse(self):
+        config={name:{'source_ids':['selected']} for name in ('notes','reminders')}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',side_effect=AssertionError('No helper')):
+            for name,action,value in [('reminders','get',True),('reminders','get',1),('notes','get',True),('reminders','query',True)]:
+                with self.subTest(name=name,action=action,value=value),self.assertRaises(SafetyError):NativeReader(name).read(action,include_native_metadata=value)
+    def test_unknown_advanced_backends_are_not_configuration_authority(self):
+        for config in ({'notes':{'advanced_backend':'reminderkit'}},{'reminders':{'advanced_backend':'unknown'}},{'reminders':{'advanced_backend':True}}):
+            with self.subTest(config=config),self.assertRaises(ValueError):validate_config(config)
+
     def test_disabled_unknown_or_unscoped_refused_before_backend(self):
         with self.env(ICLOUD_ENABLE_NOTES='0'), patch('subprocess.run', side_effect=AssertionError('No helper')):
             with self.assertRaises(SafetyError): NativeReader('notes').read('sources')

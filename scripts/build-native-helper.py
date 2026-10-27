@@ -35,11 +35,13 @@ def main():
     if architecture is None:
         parser.error('Unsupported native build architecture')
     native = root / 'src/icloud_for_agents/native'
-    model_object = bundle / 'Contents' / 'notes-model.o'
-    subprocess.run(['/usr/bin/clang','-fobjc-arc','-arch',architecture,'-mmacosx-version-min=14.0','-c',str(native/'notes-model.m'),'-o',str(model_object)],check=True)
-    subprocess.run(['/usr/bin/swiftc', str(source), str(model_object), '-import-objc-header', str(native/'notes-model.h'), '-framework', 'CoreData', '-lsqlite3', '-target', architecture + '-apple-macos14.0', '-o', str(executable),
-                    '-Xlinker', '-sectcreate', '-Xlinker', '__TEXT', '-Xlinker', '__info_plist', '-Xlinker', str(plist)], check=True)
-    model_object.unlink()
+    objects=[]
+    for name in ('notes-model','reminders-model'):
+        object_file=bundle/'Contents'/(name+'.o');objects.append(object_file)
+        subprocess.run(['/usr/bin/clang','-fobjc-arc','-arch',architecture,'-mmacosx-version-min=14.0','-c',str(native/(name+'.m')),'-o',str(object_file)],check=True)
+    subprocess.run(['/usr/bin/swiftc',str(source),*[str(p) for p in objects],'-import-objc-header',str(native/'bridge.h'),'-framework','CoreData','-lsqlite3','-target',architecture+'-apple-macos14.0','-o',str(executable),
+                    '-Xlinker','-sectcreate','-Xlinker','__TEXT','-Xlinker','__info_plist','-Xlinker',str(plist)],check=True)
+    for path in objects:path.unlink()
     subprocess.run(['/usr/bin/codesign', '--force', '--sign', '-', '--identifier', info['CFBundleIdentifier'], str(bundle)], check=True)
     print(executable)
 

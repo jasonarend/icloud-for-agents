@@ -658,7 +658,19 @@ if action == "get" {
         guard let reminders = reminders else { fail("read_failed") }
         guard reminders.count <= 100000 else { fail("query_limit") }
         guard let reminder = reminders.first(where: { $0.calendarItemIdentifier == id }) else { fail("not_found_in_scope") }
-        respond(["protocol_version": 1, "item": object(reminder)])
+        var result=object(reminder)
+        if let requested=req["include_native_metadata"] {
+            guard let number=requested as? NSNumber,CFGetTypeID(number)==CFBooleanGetTypeID() else {fail("invalid_request")}
+            if number.boolValue {
+                let identity=["id":reminder.calendarItemIdentifier,"source_id":reminder.calendar.source.sourceIdentifier,"list_id":reminder.calendar.calendarIdentifier]
+                guard let encoded=try? JSONSerialization.data(withJSONObject:identity),
+                      let metadata=(try? JSONSerialization.jsonObject(with:ICloudRemindersReadFlag(encoded))) as? [String:Any] else {fail("read_failed")}
+                if metadata["error"] != nil {respond(metadata)}
+                guard let fields=metadata["native_metadata"] as? [String:Any],fields["id"] as? String==identity["id"],fields["source_id"] as? String==identity["source_id"],fields["list_id"] as? String==identity["list_id"] else {fail("read_failed")}
+                result["native_metadata"]=fields
+            }
+        }
+        respond(["protocol_version": 1, "item": result])
     }
     RunLoop.current.run(until: Date(timeIntervalSinceNow: 30))
     fail("read_timeout")

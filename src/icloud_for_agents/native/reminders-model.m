@@ -1,0 +1,59 @@
+// Optional fixed ReminderKit read. No save request, SQL, body projection or selectors from JSON.
+#import "reminders-model.h"
+#import <objc/runtime.h>
+#import <objc/message.h>
+#import <dlfcn.h>
+static NSData *EncodeFlag(NSDictionary *value){return [NSJSONSerialization dataWithJSONObject:value options:0 error:NULL] ?: [NSData data];}
+static NSDictionary *FlagFailure(NSString *category){return @{@"protocol_version":@1,@"error":@"private_metadata_unavailable",@"category":category,@"data_mutated":@NO};}
+static NSString *Signature(Method method){
+    if(!method)return @"";
+    NSString *raw=[NSString stringWithUTF8String:method_getTypeEncoding(method)];
+    return [[raw componentsSeparatedByCharactersInSet:NSCharacterSet.decimalDigitCharacterSet] componentsJoinedByString:@""];
+}
+static BOOL MethodMatches(Class cls,NSString *name,NSString *expected,BOOL meta){return cls && [Signature(meta?class_getClassMethod(cls,NSSelectorFromString(name)):class_getInstanceMethod(cls,NSSelectorFromString(name))) isEqual:expected];}
+static BOOL FlagReadInterface(void){
+    if(NSProcessInfo.processInfo.operatingSystemVersion.majorVersion!=27)return NO;
+    if(!dlopen("/System/Library/PrivateFrameworks/ReminderKit.framework/ReminderKit",RTLD_LAZY|RTLD_LOCAL))return NO;
+    return MethodMatches(NSClassFromString(@"REMObjectID"),@"objectIDWithURL:",@"@@:@",YES) &&
+      MethodMatches(NSClassFromString(@"REMStore"),@"fetchReminderWithObjectID:error:",@"@@:@^@",NO) &&
+      MethodMatches(NSClassFromString(@"REMReminder"),@"remObjectID",@"@@:",NO) &&
+      MethodMatches(NSClassFromString(@"REMReminder"),@"list",@"@@:",NO) &&
+      MethodMatches(NSClassFromString(@"REMReminder"),@"account",@"@@:",NO) &&
+      MethodMatches(NSClassFromString(@"REMReminder"),@"flaggedContext",@"@@:",NO);
+}
+static id ObjectValue(id object,NSString *name){
+    if(!object || !MethodMatches([object class],name,@"@@:",NO))return nil;
+    return ((id(*)(id,SEL))objc_msgSend)(object,NSSelectorFromString(name));
+}
+static NSString *ObjectUUID(id object,NSString *entity){
+    id identity=ObjectValue(object,@"remObjectID");id name=ObjectValue(identity,@"entityName");id uuid=ObjectValue(identity,@"uuid");
+    if(![name isEqual:entity] || ![uuid isKindOfClass:NSUUID.class])return nil;
+    return [uuid UUIDString];
+}
+static BOOL UUIDEqual(NSString *a,NSString *b){return a && b && [a caseInsensitiveCompare:b]==NSOrderedSame;}
+NSData *ICloudRemindersReadFlag(NSData *data){
+    @try{
+        NSDictionary *identity=[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
+        if(![identity isKindOfClass:NSDictionary.class] || identity.count!=3)return EncodeFlag(FlagFailure(@"invalid_public_identity"));
+        for(NSString *key in @[@"id",@"source_id",@"list_id"]){
+            id value=identity[key];NSUUID *uuid=[value isKindOfClass:NSString.class]?[[NSUUID alloc]initWithUUIDString:value]:nil;
+            if(!uuid || !UUIDEqual(uuid.UUIDString,value))return EncodeFlag(FlagFailure(@"unsupported_public_identity"));
+        }
+        if(!FlagReadInterface())return EncodeFlag(FlagFailure(@"unsupported_interface"));
+        Class storeClass=NSClassFromString(@"REMStore"),objectClass=NSClassFromString(@"REMObjectID");
+        id store=[storeClass new];NSURL *url=[NSURL URLWithString:[@"x-apple-reminderkit://REMCDReminder/" stringByAppendingString:identity[@"id"]]];
+        id objectID=((id(*)(id,SEL,id))objc_msgSend)((id)objectClass,NSSelectorFromString(@"objectIDWithURL:"),url);
+        if(!store || !objectID)return EncodeFlag(FlagFailure(@"private_store_unavailable"));
+        NSError *error=nil;id reminder=((id(*)(id,SEL,id,NSError **))objc_msgSend)(store,NSSelectorFromString(@"fetchReminderWithObjectID:error:"),objectID,&error);
+        if(error){NSMutableDictionary *failure=[FlagFailure(@"private_read_denied_or_unavailable") mutableCopy];NSSet *domains=[NSSet setWithArray:@[@"com.apple.reminderkit",@"NSCocoaErrorDomain",@"NSPOSIXErrorDomain",@"EKErrorDomain",@"NSOSStatusErrorDomain"]];failure[@"native_error_domain"]=[domains containsObject:error.domain]?error.domain:@"other";failure[@"native_error_code"]=@(error.code);return EncodeFlag(failure);}
+        if(!reminder)return EncodeFlag(FlagFailure(@"private_reminder_not_found"));
+        id list=ObjectValue(reminder,@"list"),account=ObjectValue(reminder,@"account"),listAccount=ObjectValue(list,@"account");
+        if(!UUIDEqual(ObjectUUID(reminder,@"REMCDReminder"),identity[@"id"]) || !UUIDEqual(ObjectUUID(list,@"REMCDList"),identity[@"list_id"]) ||
+           !UUIDEqual(ObjectUUID(account,@"REMCDAccount"),identity[@"source_id"]) || !UUIDEqual(ObjectUUID(listAccount,@"REMCDAccount"),identity[@"source_id"]))return EncodeFlag(FlagFailure(@"native_identity_mismatch"));
+        id context=ObjectValue(reminder,@"flaggedContext");
+        if(!context || !MethodMatches([context class],@"flagged",@"q@:",NO))return EncodeFlag(FlagFailure(@"unsupported_flag_metadata"));
+        NSInteger flag=((NSInteger(*)(id,SEL))objc_msgSend)(context,NSSelectorFromString(@"flagged"));
+        if(flag!=0 && flag!=1)return EncodeFlag(FlagFailure(@"unknown_flag_state"));
+        return EncodeFlag(@{@"protocol_version":@1,@"native_metadata":@{@"backend":@"reminderkit-flags-v1",@"id":identity[@"id"],@"source_id":identity[@"source_id"],@"list_id":identity[@"list_id"],@"flagged":@((BOOL)(flag==1)),@"flag_state":@(flag),@"coverage":@[@"flagged"],@"native_metadata_complete":@NO,@"observation_consistency":@"separate_provider_reads"}});
+    }@catch(NSException *exception){return EncodeFlag(FlagFailure(@"private_read_exception"));}
+}

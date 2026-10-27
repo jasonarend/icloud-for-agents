@@ -25,9 +25,11 @@ func unexpectedRemindersProbe()->EKAuthorizationStatus {
         script=Path(directory)/'main.swift';script.write_text(source);binary=Path(directory)/'helper'
         info=Path(directory)/'Info.plist';info.write_bytes(plistlib.dumps({'CFBundleIdentifier':'com.jasonarend.icloud-for-agents.native',
             'NSAppleEventsUsageDescription':'Read-only permission-status isolation test; no native content access.'}))
-        native=ROOT/'src/icloud_for_agents/native';model=Path(directory)/'notes-model.o'
-        subprocess.run(['/usr/bin/clang','-fobjc-arc','-c',str(native/'notes-model.m'),'-o',str(model)],capture_output=True,check=True,timeout=60)
-        subprocess.run(['/usr/bin/swiftc',str(script),str(model),'-import-objc-header',str(native/'notes-model.h'),'-framework','CoreData','-lsqlite3','-o',str(binary),'-Xlinker','-sectcreate','-Xlinker','__TEXT','-Xlinker','__info_plist','-Xlinker',str(info)],capture_output=True,check=True,timeout=60)
+        native=ROOT/'src/icloud_for_agents/native';objects=[]
+        for name in ('notes-model','reminders-model'):
+            model=Path(directory)/(name+'.o');objects.append(str(model))
+            subprocess.run(['/usr/bin/clang','-fobjc-arc','-c',str(native/(name+'.m')),'-o',str(model)],capture_output=True,check=True,timeout=60)
+        subprocess.run(['/usr/bin/swiftc',str(script),*objects,'-import-objc-header',str(native/'bridge.h'),'-framework','CoreData','-lsqlite3','-o',str(binary),'-Xlinker','-sectcreate','-Xlinker','__TEXT','-Xlinker','__info_plist','-Xlinker',str(info)],capture_output=True,check=True,timeout=60)
         def call(service):
             request={'protocol_version':1,'service':service,'action':'status'}
             return subprocess.run([str(binary)],input=json.dumps(request),capture_output=True,text=True,timeout=10)

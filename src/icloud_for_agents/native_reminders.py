@@ -121,7 +121,9 @@ class RemindersCreateAdapter:
         if not helper:raise SafetyError('Configure native helper before Reminders writes')
         path=Path(helper)
         if not path.is_file() or path.stat().st_size>50_000_000:raise SafetyError('Invalid native helper')
-        return 'eventkit-creation-v1:'+hashlib.sha256(path.read_bytes()).hexdigest()
+        identity='eventkit-creation-v1:'+hashlib.sha256(path.read_bytes()).hexdigest()
+        if native_config('reminders').get('advanced_backend')=='reminderkit':identity+=':reminderkit-flags-v1'
+        return identity
     def lists(self):
         result=[];offset=0
         while True:
