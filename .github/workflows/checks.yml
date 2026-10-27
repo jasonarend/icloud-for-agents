@@ -37,6 +37,7 @@ jobs:
           .venv/bin/python tests/native_flag_write_stdio_smoke.py
           .venv/bin/python tests/native_urgent_write_stdio_smoke.py
           .venv/bin/python tests/native_subtask_stdio_smoke.py
+          .venv/bin/python tests/native_subtask_reconcile_stdio_smoke.py
           .venv/bin/python tests/native_tag_write_stdio_smoke.py
           .venv/bin/python tests/native_tag_add_stdio_smoke.py
           .venv/bin/python tests/native_tag_replace_stdio_smoke.py

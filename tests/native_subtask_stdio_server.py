@@ -32,6 +32,13 @@ class Adapter(RemindersCreateAdapter):
     def apply(self,item):
         require_write('reminders',item);assert item['operation']=='create_subtask';self.children[item['child_id']]=item['fields']['title']
         return {'id':item['child_id'],'parent_id':item['id'],'source_id':'selected','list_id':'list'}
-adapter=Adapter();native_tools.RemindersCreateAdapter=lambda:adapter
+adapter=Adapter()
+if os.environ.get('BRIDGE_TEST_VERIFY_FAILURE')=='1':
+    original_verify=adapter.verify;verify_calls=[0]
+    def delayed_verify(item,outcome):
+        verify_calls[0]+=1
+        return False if verify_calls[0]==1 else original_verify(item,outcome)
+    adapter.verify=delayed_verify
+native_tools.RemindersCreateAdapter=lambda:adapter
 from icloud_for_agents.server import main
 main()
