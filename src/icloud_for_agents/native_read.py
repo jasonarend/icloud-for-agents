@@ -361,7 +361,7 @@ def register_read_tools(mcp):
         @mcp.tool(annotations=annotations)
         @guard
         def notes_sources() -> dict:
-            """Discover Notes account IDs; OS Automation consent may be requested by macOS."""
+            """Discover Notes account IDs after the user grants OS Automation access."""
             return NativeReader('notes').read('sources')
 
         @mcp.tool(annotations=annotations)

@@ -25,7 +25,7 @@ class NativePermissionTests(unittest.TestCase):
     def test_preview_is_readonly_and_discloses_os_scope(self):
         with patch('subprocess.run',side_effect=AssertionError('No native call')):
             p=self.access.prepare()
-        self.assertIn('Notes Automation',p['review']['payload']['effects']['os_scope'])
+        self.assertIn('Notes Automation',p['review']['payload']['effects']['os_scope']);self.assertIn('iCloud for Agents helper',p['review']['payload']['effects']['requesting_app'])
         self.assertEqual(os.environ['ICLOUD_MAIL_ACCESS'],'read-only')
     def test_approved_request_never_changes_application_access_and_never_replays(self):
         p=self.access.prepare()
@@ -35,6 +35,23 @@ class NativePermissionTests(unittest.TestCase):
         self.assertEqual(result['permission_state'],'granted');self.assertFalse(result['write_access_changed'])
         self.assertFalse(result['data_mutated']);self.assertEqual(os.environ['ICLOUD_MAIL_ACCESS'],'read-only')
         with self.assertRaises(SafetyError):self.access.execute(p['plan_id'])
+    def test_request_reports_helper_process_identity_without_claiming_dialog_attribution(self):
+        identity={'bundle_identifier':'com.jasonarend.icloud-for-agents.native','bundle_name':'iCloud for Agents Native',
+                  'process_name':'icloud-agents-native','launch_mode':'application_exchange','dialog_attribution':'not_verified'}
+        proposal=self.access.prepare()
+        with patch('icloud_for_agents.native_permissions.NativeReader._dispatch',return_value={'permission_state':'granted','requester_identity':identity}):
+            result=self.access.execute(proposal['plan_id'])
+        self.assertEqual(result['requester_identity'],identity)
+        self.assertFalse(result['write_access_changed'])
+        self.assertFalse(result['data_mutated'])
+    def test_unexpected_identity_shape_is_omitted_from_receipt(self):
+        for extra in ({'dialog_attribution':'verified'}, {'process_name':'x'*201}, {'unknown':'private data'}):
+            identity={'bundle_identifier':'test','bundle_name':'test','process_name':'test','launch_mode':'application_exchange','dialog_attribution':'not_verified'}
+            identity.update(extra);proposal=self.access.prepare()
+            with patch('icloud_for_agents.native_permissions.NativeReader._dispatch',return_value={'permission_state':'denied','requester_identity':identity}):
+                result=self.access.execute(proposal['plan_id'])
+            self.assertEqual(result['permission_state'],'denied');self.assertNotIn('requester_identity',result)
+
     def test_strict_request_requires_owner_receipt_before_helper(self):
         os.environ['ICLOUD_APPROVAL_POLICY']='local-receipt';p=self.access.prepare()
         with patch('subprocess.run',side_effect=AssertionError('No native call')),self.assertRaises(FileNotFoundError):self.access.execute(p['plan_id'])

@@ -10,16 +10,18 @@ from pathlib import Path
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--output', type=Path, default=Path('build/native/iCloudAgentsHelper.app'))
+    parser.add_argument('--output', type=Path, default=Path('build/native/iCloud for Agents.app'))
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     bundle = args.output.resolve()
+    if bundle.suffix != '.app':
+        parser.error('The helper output must be a macOS .app bundle')
     executable = bundle / 'Contents/MacOS/icloud-agents-native'
     if bundle.exists():
         parser.error('Existing helper is preserved; use a new output path for a reviewed rebuild')
     executable.parent.mkdir(parents=True)
     info = {'CFBundleIdentifier': 'com.jasonarend.icloud-for-agents.native',
-            'CFBundleName': 'iCloud for Agents Native', 'CFBundleExecutable': executable.name,
+            'CFBundleName': 'iCloud for Agents', 'CFBundleDisplayName': 'iCloud for Agents', 'CFBundleExecutable': executable.name,
             'CFBundleVersion': '3', 'CFBundlePackageType': 'APPL', 'LSUIElement': True,
             'NSAppleEventsUsageDescription': 'Read the Notes accounts you select for your AI assistant. Changes require separate application authorization.',
             'NSAppDataUsageDescription': 'Access local Notes app data for explicitly enabled native Notes features. The server limits operations to selected sources and approved changes.',

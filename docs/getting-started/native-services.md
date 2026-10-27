@@ -10,6 +10,16 @@ Notes exposes account/folder discovery, bounded title pages, title/plaintext and
 
 Ordinary change preparation requires both global and service access to be write-enabled. Exact one-time plans and separately activated standing grants also work from read-only access, as described below. Strict local receipts remain the default; owner-selected trusted-client mode retains its existing authorization contract. Access-status tools report effective scope and policy without contacting Apple. General native-object edits and broader folder organization remain incomplete. Offset pages may shift during external edits; follow next_offset until done, including empty filtered pages.
 
+**Notes permission identity**
+
+The bundled helper is part of iCloud for Agents; the assistant builds and configures it during setup. The person choosing Notes approves the normal macOS Automation request. They do not need to configure a separate product or run a command. This standard path does not select the optional native Notes-store backend or request Full Disk Access.
+
+`notes_status` reports the running process's `requester_identity` when a current helper is configured: its bundle identifier, declared bundle name, process name and launch mode. A reviewed OS-access request also records this identity when the helper supplies it. `dialog_attribution: "not_verified"` is intentional: these fields describe the process reporting them, not the name macOS actually displayed in a consent dialog. An older helper may omit the diagnostic; its omission does not grant permission. Status never requests consent or reads Notes content, and a stopped Notes app, denial or timeout remains a distinct result.
+
+The default development bundle is named `iCloud for Agents.app`, and declares `iCloud for Agents` as its bundle and display name. Existing installations keep their current helper path; setup never relocates or replaces them silently. macOS decides which name to display, so these metadata values are not proof of a prompt label. On one existing Mac, System Settings showed the previously built `iCloudAgentsHelper` entry with Notes enabled. A non-prompting comparison there returned granted for an application launch and denied for the direct executable, even though both reported the same bundle identifier. Use the configured app-launch transport for Notes; do not treat a direct process test as evidence for the app route. A local synthetic MCP client also passed a non-prompting status and exact dedicated-note read through the production stdio server and renamed helper. That does not establish acceptance for a named client.
+
+Acceptance of a client requires observing the real consent dialog, the requesting app in Automation settings and a scoped Notes read through that same client and helper. Record the client version, macOS version, helper build/signature, launch route and outcome without note content. A process identity, already-granted status, ad-hoc signature or synthetic stdio test alone does not prove prompt attribution or upgrade continuity. The current development helper is ad-hoc signed; stable production signing, first-use prompts across clients and permission continuity after updates remain to be verified.
+
 **Owner-controlled setup**
 
 An authorized agent can build the repository-owned helper with `scripts/build-native-helper.py`, using a new output directory for each reviewed build. Swift and codesign are macOS build-time tools; neither a separate MCP server nor an additional Python runtime dependency is required. The resulting app is ad-hoc signed for development. Notes transport validates the owned app directories, entrypoint, declared bundle identity and bundled fixed scripts; symlinked or group/world-writable assets are refused. Approval fingerprints include the executable, bundle metadata and scripts. A release still needs its own signing/distribution and upgrade-permission continuity evidence.
@@ -23,7 +33,7 @@ After the owner selects a service, private settings accept `native_services` alo
     "reminders": {
       "access_mode": "read-only",
       "source_ids": [],
-      "helper_path": "/absolute/path/to/iCloudAgentsHelper.app/Contents/MacOS/icloud-agents-native"
+      "helper_path": "/absolute/path/to/iCloud for Agents.app/Contents/MacOS/icloud-agents-native"
     }
   }
 }

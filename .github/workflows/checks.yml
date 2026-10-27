@@ -68,13 +68,20 @@ jobs:
           .venv/bin/python - <<'PY'
           import json
           import subprocess
-          helper = "build/native/iCloudAgentsHelper.app/Contents/MacOS/icloud-agents-native"
+          helper = "build/native/iCloud for Agents.app/Contents/MacOS/icloud-agents-native"
           for service in ("notes", "reminders"):
               request = {"protocol_version": 1, "service": service, "action": "status"}
               result = subprocess.run([helper], input=json.dumps(request), capture_output=True, text=True, check=True, timeout=15)
               response = json.loads(result.stdout)
               assert response.get("protocol_version") == 1 and response.get("service") == service
               assert "error" not in response
+              if service == "notes":
+                  identity = response["requester_identity"]
+                  assert identity["bundle_identifier"] == "com.jasonarend.icloud-for-agents.native"
+                  assert identity["bundle_name"] == "iCloud for Agents"
+                  assert identity["process_name"] == "icloud-agents-native"
+                  assert identity["launch_mode"] == "direct_executable"
+                  assert identity["dialog_attribution"] == "not_verified"
           print("Both native service status probes passed; no content access or consent request")
           PY
       - name: Build and inspect distributions

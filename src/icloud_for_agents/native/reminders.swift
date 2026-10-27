@@ -129,6 +129,14 @@ func notesPermission(prompt: Bool) -> OSStatus {
     }
     return -1712
 }
+// This identifies this process, not the name shown by the macOS consent dialog.
+func notesRequesterIdentity()->[String:Any] {
+    return ["bundle_identifier":Bundle.main.bundleIdentifier ?? "unavailable",
+            "bundle_name":Bundle.main.object(forInfoDictionaryKey:"CFBundleName") as? String ?? "unavailable",
+            "process_name":ProcessInfo.processInfo.processName,
+            "launch_mode":ipcDirectory == nil ? "direct_executable" : "application_exchange",
+            "dialog_attribution":"not_verified"]
+}
 func fail(_ code: String) -> Never {
     var value:[String:Any]=["protocol_version":1,"error":code]
     if requestAction=="apply" {
@@ -215,7 +223,7 @@ if service == "notes" {
     }
     if action == "status" {
         guard NSRunningApplication.runningApplications(withBundleIdentifier:"com.apple.Notes").contains(where: { !$0.isTerminated }) else {
-            respond(["protocol_version":1,"service":"notes","permission_status":-600,"permission_state":"target_not_running","permission_granted":false,"application_writes_enabled":false])
+            respond(["protocol_version":1,"service":"notes","permission_status":-600,"permission_state":"target_not_running","permission_granted":false,"application_writes_enabled":false,"requester_identity":notesRequesterIdentity()])
         }
         // A fixed application-version read proves actual event access without
         // reading note/account content or using the blocking preflight API.
@@ -224,16 +232,16 @@ if service == "notes" {
             let code=notesReadiness()
             let state = code == noErr ? "granted" : code == -1743 ? "denied" : code == -1744 ? "requires_consent" : code == -600 ? "target_not_running" : "unknown"
             respond(["protocol_version":1,"service":"notes","permission_status":code,"permission_state":state,"permission_granted":code==noErr,
-                     "application_writes_enabled":false,"nonprompting_event_count":notesEventSendCount,"permission_method":"nonprompting_application_metadata_event"])
+                     "application_writes_enabled":false,"nonprompting_event_count":notesEventSendCount,"permission_method":"nonprompting_application_metadata_event","requester_identity":notesRequesterIdentity()])
         }
         RunLoop.current.run(until:Date(timeIntervalSinceNow:8))
-        respond(["protocol_version":1,"service":"notes","permission_status":-1712,"permission_state":"unknown_timeout","permission_granted":false,"application_writes_enabled":false])
+        respond(["protocol_version":1,"service":"notes","permission_status":-1712,"permission_state":"unknown_timeout","permission_granted":false,"application_writes_enabled":false,"requester_identity":notesRequesterIdentity()])
     }
     if action == "request_access" {
         let result = notesPermission(prompt: true)
         let state = result == noErr ? "granted" : result == -1743 ? "denied" : result == -1744 ? "requires_consent" : result == -600 ? "target_not_running" : result == -1712 ? "unknown_timeout" : "unknown"
         respond(["protocol_version": 1, "service": "notes", "permission_status": result, "permission_state": state,
-                 "permission_granted": result == noErr, "application_writes_enabled": false])
+                 "permission_granted": result == noErr, "application_writes_enabled": false, "requester_identity":notesRequesterIdentity()])
     }
     if action == "apply", let change=req["change"] as? [String:Any], change["operation"] as? String == "rename_folder", change["writer_backend"] as? String == "notes-shared" {
         guard let url=Bundle.main.url(forResource:"notes-write",withExtension:"js"),let source=try? String(contentsOf:url,encoding:.utf8) else {fail("notes_bridge_unavailable")}
