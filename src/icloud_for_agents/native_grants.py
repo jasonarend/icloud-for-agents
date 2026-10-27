@@ -108,6 +108,7 @@ class NativeGrants:
                  'exclusions':'No permanent deletion, collaboration changes, invitations, locks, recording or external export.',
                  'sharing':'Notes private ancestors checked; EventKit does not expose reminder-list participant state.',
                  'quotas':'All admitted batch items count, including uncertain or refused items; no automatic refund.'}}
+        if self.name=='notes':payload['effects']['folder_role']='Notes scripting does not verify special folder roles. Do not grant create or edit authority over Recently Deleted.'
         if _replaces is not None:
             payload['replaces']={'grant_id':_replaces['plan_id'],'sha256':digest(_replaces)}
             payload['previous_scope']=_replaces['payload']['scope']

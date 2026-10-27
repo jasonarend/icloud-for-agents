@@ -297,7 +297,8 @@ class NotesCreateAdapter:
         if len(html.encode())>30000:raise SafetyError('Combined Notes body exceeds the native write limit')
         item.update(fields={'title':title,'html':html,'expected_text':project_html(html)['text']},before=before,
                     fidelity_verified=True,effects={'existing_content':effect,'native_objects':'Existing attachments, tables, checklists and unknown structures refused',
-                    'sharing':'none','sync_status':'unconfirmed'})
+                    'sharing':'none','sync_status':'unconfirmed',
+                    'folder_role':'Unverified by scripting; Recently Deleted is not a supported edit target.'})
         return item
 
     def prepare(self,change):
@@ -323,7 +324,8 @@ class NotesCreateAdapter:
             fields=prepare_content(fields)
         item={'operation':operation,'source_id':source,'fields':fields,
               'fidelity_verified':True,'effects':{'sharing':'none','existing_content':'unchanged',
-              'rich_native_features':'not certified by text readback'}}
+              'rich_native_features':'not certified by text readback',
+              'folder_role':'Unverified by scripting; Recently Deleted is not a supported creation target.'}}
         if operation=='create_note':item['folder_id']=change['folder_id']
         if operation=='create_folder' and 'parent_folder_id' in change:
             parent=change['parent_folder_id']

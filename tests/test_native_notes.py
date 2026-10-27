@@ -60,6 +60,7 @@ class NativeNotesTests(unittest.TestCase):
         self.assertEqual(item['before'],self.reader.folder)
         self.assertEqual(item['source_id'],'selected')
         self.assertEqual(item['effects']['existing_content'],'unchanged')
+        self.assertIn('Recently Deleted',item['effects']['folder_role'])
         self.assertNotIn('approved',item)
     def test_duplicate_root_folder_refused(self):
         with self.assertRaises(SafetyError):
@@ -84,6 +85,7 @@ class NativeNotesTests(unittest.TestCase):
         self.assertEqual(item['before']['note'],self.reader.note)
         self.assertTrue(item['fields']['html'].startswith(before))
         self.assertIn('Decision &amp; details',item['fields']['html'])
+        self.assertIn('Recently Deleted',item['effects']['folder_role'])
         self.reader.note['html']=item['fields']['html']
         self.assertTrue(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
     def test_full_replacement_requires_both_title_and_body(self):

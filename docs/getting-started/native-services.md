@@ -247,7 +247,7 @@ On the tested Mac, a synthetic note moved to Recently Deleted in the Notes app r
 
 A separate synthetic rich note with a native table was moved to Recently Deleted and restored through the Notes app. The app displayed the same table in Recently Deleted, and independent reads after restoration matched the original note identity, folder, exported content, table projection and exposed attachment inventory. This does not establish fidelity for other native objects or programmatic restoration.
 
-An audit also found that existing note-create and edit planning can accept the Recently Deleted folder as a target because scripting does not identify its role. An approved edit of a disposable note in that folder returned an uncertain result; the note was restored through the app with its original ID and content. Do not use Recently Deleted as a create or edit target. Reliable special-folder enforcement for these operations remains under development.
+An audit also found that existing note-create and edit planning can accept the Recently Deleted folder as a target because scripting does not identify its role. An approved edit of a disposable note in that folder returned an uncertain result; the note was restored through the app with its original ID and content. Create and edit previews and Notes grant proposals now disclose this limitation, but the warning does not verify the target's role. Do not use Recently Deleted as a create or edit target. Reliable special-folder enforcement for these operations remains under development.
 
 **Recovery-view lookup**
 

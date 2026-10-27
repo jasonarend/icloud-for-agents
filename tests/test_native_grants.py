@@ -55,6 +55,9 @@ class NativeGrantTests(unittest.TestCase):
         self.store.write_once(self.store.path(p['plan_id'],'.approved'),{'plan_id':p['plan_id'],'sha256':p['sha256']})
         self.manager.activate(p['plan_id']);plan=self.engine.prepare_with_grant(p['plan_id'],self.changes())
         self.assertEqual(self.engine.execute(plan['plan_id'])['status'],'applied');self.assertFalse(self.store.path(plan['plan_id'],'.approved').exists())
+    def test_notes_grant_preview_discloses_unverified_special_folder_role(self):
+        proposal=self.manager.prepare(self.scope())
+        self.assertIn('Recently Deleted',proposal['review']['payload']['effects']['folder_role'])
     def test_pending_revoked_expired_and_wrong_owner_cannot_authorize(self):
         p=self.manager.prepare(self.scope())
         with self.assertRaises(SafetyError):self.engine.prepare_with_grant(p['plan_id'],self.changes())
