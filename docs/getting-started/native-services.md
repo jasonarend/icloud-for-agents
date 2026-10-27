@@ -223,6 +223,10 @@ The response adds `item.native_metadata` with Boolean `flagged`, integer `flag_s
 
 Synthetic native tests cover true/false states, exact entity/source/list relationships and missing, unknown or denied metadata. A live read of a dedicated unflagged fixture passes with matching native/public identities, unchanged public metadata, existing Reminders permission and unchanged production settings. A live flagged subtask also passes exact identity and flag readback; other OS versions remain unverified. Apple can change this private interface; keep the backend off unless evaluating it with approved test data.
 
+**Notes recovery observations**
+
+On the tested Mac, a synthetic note moved to Recently Deleted in the Notes app remained accessible through the existing selected-account folder discovery and exact-note reads. The same note was restored through the app to its original test folder and its ID, title and content were verified. The folder was no longer exposed by scripting when it became empty. Folder names alone do not prove a special folder's role, and this observation does not establish programmatic deletion or restoration behavior. Those operations remain under development.
+
 **Recovery-view lookup**
 
 `reminders_recovery_lookup` checks one exact reminder ID in one selected source's native Recently Deleted view when the optional ReminderKit backend is selected. It reports whether that ID appears in the recovery view, identifies its parent and top-level recovery root when it is a subtask, and returns the bounded IDs of its direct children when supplied by the provider, without listing unrelated deleted content. `children_complete` is always false; an unavailable child list is `null`, not an empty list. The provider view and EventKit are separate observations. A missing result does not prove an item was permanently deleted or unrecoverable. The recovery root may have additional effects and must be reviewed separately before any restoration. This read does not delete or restore anything, and it cannot establish the effects of a future deletion.
