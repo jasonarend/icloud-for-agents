@@ -76,15 +76,47 @@ static BOOL denied=NO;
  return [[objectID uuid] isEqual:fixture.remObjectID.uuid]?fixture:nil;
 }
 @end
+static int flagSaves=0;static BOOL saveFails=NO;
+@interface FixtureFlagChange:NSObject
+@property NSInteger flagged;
+@end
+@implementation FixtureFlagChange
+@end
+@interface FixtureReminderChange:NSObject
+@property FixtureFlagChange *flaggedContext;
+@end
+@implementation FixtureReminderChange
+@end
+@interface FixtureSave:NSObject
+@property FixtureReminderChange *change;
+-(id)initWithStore:(id)store;
+-(id)updateReminder:(id)reminder;
+-(BOOL)saveSynchronouslyWithError:(NSError **)error;
+@end
+@implementation FixtureSave
+-(id)initWithStore:(id)store{return [super init];}
+-(id)updateReminder:(id)reminder{self.change=[FixtureReminderChange new];self.change.flaggedContext=[FixtureFlagChange new];return self.change;}
+-(BOOL)saveSynchronouslyWithError:(NSError **)error{flagSaves++;if(saveFails){*error=[NSError errorWithDomain:@"synthetic" code:1 userInfo:nil];return NO;}((FixtureFlag *)fixture.flaggedContext).flagged=self.change.flaggedContext.flagged;return YES;}
+@end
 static FixtureID *Identity(NSString *entity,NSString *value){FixtureID *v=[FixtureID new];v.entityName=entity;v.uuid=[[NSUUID alloc]initWithUUIDString:value];return v;}
 static NSDictionary *Children(NSDictionary *request){NSData *data=[NSJSONSerialization dataWithJSONObject:request options:0 error:NULL];return [NSJSONSerialization JSONObjectWithData:ICloudRemindersReadChildren(data) options:0 error:NULL];}
 static NSDictionary *Hierarchy(NSDictionary *request){NSData *data=[NSJSONSerialization dataWithJSONObject:request options:0 error:NULL];return [NSJSONSerialization JSONObjectWithData:ICloudRemindersReadHierarchy(data) options:0 error:NULL];}
 static NSDictionary *Tags(NSDictionary *request){NSData *data=[NSJSONSerialization dataWithJSONObject:request options:0 error:NULL];return [NSJSONSerialization JSONObjectWithData:ICloudRemindersReadTags(data) options:0 error:NULL];}
 static NSDictionary *Call(NSDictionary *request){NSData *data=[NSJSONSerialization dataWithJSONObject:request options:0 error:NULL];return [NSJSONSerialization JSONObjectWithData:ICloudRemindersReadFlag(data) options:0 error:NULL];}
+static NSDictionary *SetFlag(NSDictionary *request,BOOL allow){NSData *data=[NSJSONSerialization dataWithJSONObject:request options:0 error:NULL];return [NSJSONSerialization JSONObjectWithData:ICloudRemindersSetFlag(data,^{return allow;}) options:0 error:NULL];}
 int main(){@autoreleasepool{
  NSString *task=@"11111111-1111-4111-8111-111111111111",*list=@"22222222-2222-4222-8222-222222222222",*source=@"33333333-3333-4333-8333-333333333333",*other=@"44444444-4444-4444-8444-444444444444";
  fixture=[FixtureReminder new];fixture.remObjectID=Identity(@"REMCDReminder",task);fixture.account=[FixtureAccount new];fixture.account.remObjectID=Identity(@"REMCDAccount",source);fixture.list=[FixtureList new];fixture.list.remObjectID=Identity(@"REMCDList",list);fixture.list.account=fixture.account;FixtureFlag *flag=[FixtureFlag new];fixture.flaggedContext=flag;
  NSDictionary *request=@{@"id":task,@"source_id":source,@"list_id":list};
+ NSDictionary *set=@{@"id":task,@"source_id":source,@"list_id":list,@"expected_flagged":@NO,@"flagged":@YES};
+ NSCAssert(SetFlag(set,NO)[@"error"] && flagSaves==0 && flag.flagged==0,@"closed gate never saves");
+ NSCAssert(SetFlag(@{@"id":other,@"source_id":source,@"list_id":list,@"expected_flagged":@NO,@"flagged":@YES},YES)[@"error"] && flagSaves==0,@"wrong note never saves");
+ NSCAssert(SetFlag(@{@"id":task,@"source_id":source,@"list_id":list,@"expected_flagged":@NO,@"flagged":@1},YES)[@"error"] && flagSaves==0,@"integer is not Boolean");
+ NSCAssert(SetFlag(set,YES)[@"result"] && flagSaves==1 && flag.flagged==1,@"one scoped save changes flag");
+ NSCAssert(SetFlag(set,YES)[@"error"] && flagSaves==1,@"stale snapshot never saves");
+ NSDictionary *clear=@{@"id":task,@"source_id":source,@"list_id":list,@"expected_flagged":@YES,@"flagged":@NO};
+ saveFails=YES;NSDictionary *failed=SetFlag(clear,YES);NSCAssert([failed[@"mutation_dispatched"] boolValue] && flag.flagged==1,@"save failure remains uncertain");saveFails=NO;
+ NSCAssert(SetFlag(clear,YES)[@"result"] && flag.flagged==0,@"flag cleared");
  NSDictionary *first=Call(request);NSCAssert(first[@"native_metadata"] && ![first[@"native_metadata"][@"flagged"] boolValue],@"unflagged actual integer metadata");
  NSCAssert(CFGetTypeID((__bridge CFTypeRef)first[@"native_metadata"][@"flagged"])==CFBooleanGetTypeID(),@"JSON boolean not integer");
  flag.flagged=1;NSDictionary *second=Call(request);NSCAssert([second[@"native_metadata"][@"flagged"] boolValue] && ![second[@"native_metadata"][@"native_metadata_complete"] boolValue],@"flagged and bounded coverage");
@@ -138,10 +170,10 @@ int main(){@autoreleasepool{
 '''
 def run():
     source=(ROOT/'src/icloud_for_agents/native/reminders-model.m').read_text();source=source.replace('    if(NSProcessInfo.processInfo.operatingSystemVersion.majorVersion!=27)return NO;','').replace('    if(!dlopen("/System/Library/PrivateFrameworks/ReminderKit.framework/ReminderKit",RTLD_LAZY|RTLD_LOCAL))return NO;','')
-    for real,fake in [('REMStore','FixtureStore'),('REMObjectID','FixtureID'),('REMReminder','FixtureReminder')]:source=source.replace('NSClassFromString(@"'+real+'")','NSClassFromString(@"'+fake+'")')
+    for real,fake in [('REMStore','FixtureStore'),('REMObjectID','FixtureID'),('REMReminder','FixtureReminder'),('REMSaveRequest','FixtureSave')]:source=source.replace('NSClassFromString(@"'+real+'")','NSClassFromString(@"'+fake+'")')
     with tempfile.TemporaryDirectory(prefix='native-flag-contract-') as directory:
         p=Path(directory);(p/'reminders-model.h').write_text((ROOT/'src/icloud_for_agents/native/reminders-model.h').read_text());(p/'test.m').write_text(source+'\n'+FIXTURE)
         result=subprocess.run(['/usr/bin/clang','-fobjc-arc','-framework','Foundation',str(p/'test.m'),'-o',str(p/'contract')],capture_output=True,text=True,timeout=60);assert result.returncode==0,result.stderr
         result=subprocess.run([str(p/'contract')],capture_output=True,text=True,timeout=5);assert result.returncode==0,result.stderr
-    print(json.dumps({'status':'passed','apple_store_opened':False,'checks':['actual_fixed_read_and_runtime_signatures','true_and_false_integer_flag','exact_task_list_source_and_account_relation','nil_unknown_or_denied_not_empty_success','bounded_tags_and_exact_account_task_identity','hierarchy_parent_scope_and_unknown_refusal','bounded_direct_children_and_scope_refusals','no_arbitrary_selectors_or_save_api']}))
+    print(json.dumps({'status':'passed','apple_store_opened':False,'checks':['actual_fixed_read_and_runtime_signatures','true_and_false_integer_flag','exact_task_list_source_and_account_relation','nil_unknown_or_denied_not_empty_success','bounded_tags_and_exact_account_task_identity','hierarchy_parent_scope_and_unknown_refusal','bounded_direct_children_and_scope_refusals','fixed_unsaved_gate_and_synthetic_save_outcomes','no_arbitrary_selectors']}))
 if __name__=='__main__':run()
