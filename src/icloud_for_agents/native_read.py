@@ -319,6 +319,47 @@ class NativeReader:
         return response
 
 
+def inspect_reminder_hierarchy(reader, identity, max_nodes=10, max_depth=3):
+    """Inspect provider-reported edges without claiming a complete subtree."""
+    if not isinstance(identity,str) or not identity or len(identity)>1000:
+        raise SafetyError('Select one exact reminder ID')
+    if type(max_nodes) is not int or not 1<=max_nodes<=20 or type(max_depth) is not int or not 0<=max_depth<=5:
+        raise SafetyError('Hierarchy inspection requires max_nodes 1..20 and max_depth 0..5')
+    initial_config=native_config('reminders')
+    initial_mode=os.environ.get('ICLOUD_MAIL_ACCESS','read-only')
+    pending=[(identity,None,0)];seen={identity};nodes=[];unexpanded=[]
+    source=list_id=None
+    while pending:
+        current,parent,depth=pending.pop(0)
+        if native_config('reminders')!=initial_config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=initial_mode:
+            raise SafetyError('Reminder access changed during hierarchy inspection')
+        item=reader.read('get',id=current,include_native_hierarchy=True,include_native_children=True)['item']
+        metadata=item['native_metadata']
+        if source is None:source,list_id=item['source_id'],item['list_id']
+        if item['source_id']!=source or item['list_id']!=list_id:
+            raise SafetyError('Hierarchy crossed the selected source or list')
+        if parent is not None and (metadata['is_subtask'] is not True or metadata['parent_id']!=parent):
+            raise SafetyError('Hierarchy changed or a child has a different parent')
+        children=metadata['child_ids']
+        nodes.append({'id':current,'depth':depth,'parent_id':metadata['parent_id'],
+                      'is_subtask':metadata['is_subtask'],'has_subtasks':metadata['has_subtasks'],
+                      'child_ids':children,'children_fetch_status':metadata['children_fetch_status']})
+        if children is None:
+            unexpanded.append({'id':current,'reason':'provider_unavailable'})
+            continue
+        for child in children:
+            if child in seen:raise SafetyError('Hierarchy contains a cycle or duplicate child identity')
+            seen.add(child)
+            if depth>=max_depth:unexpanded.append({'id':child,'parent_id':current,'reason':'depth_limit'})
+            elif len(nodes)+len(pending)>=max_nodes:unexpanded.append({'id':child,'parent_id':current,'reason':'node_limit'})
+            else:pending.append((child,current,depth+1))
+    if native_config('reminders')!=initial_config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=initial_mode:
+        raise SafetyError('Reminder access changed during hierarchy inspection')
+    return {'root_id':identity,'source_id':source,'list_id':list_id,'nodes':nodes,'unexpanded':unexpanded,
+            'hierarchy_complete':False,'observation_consistency':'separate_provider_reads',
+            'scope_note':'Provider-reported edges only; concealed descendants and concurrent changes remain unverified.'}
+
+
 def register_read_tools(mcp):
     """Register only selected services. Dispatch checks owner settings again."""
     from functools import wraps
@@ -385,6 +426,12 @@ def register_read_tools(mcp):
         def reminders_get(id: str, include_native_metadata: bool=False, include_native_tags: bool=False, include_native_hierarchy: bool=False, include_native_children: bool=False) -> dict:
             """Read one exact scoped reminder. Optional native flags/tags/hierarchy/children require owner-selected ReminderKit; other advanced metadata remains incomplete."""
             return NativeReader('reminders').read('get', id=id, include_native_metadata=include_native_metadata, include_native_tags=include_native_tags, include_native_hierarchy=include_native_hierarchy, include_native_children=include_native_children)
+
+        @mcp.tool(annotations=annotations)
+        @guard
+        def reminders_inspect_hierarchy(id: str, max_nodes: int=10, max_depth: int=3) -> dict:
+            """Inspect bounded provider-reported subtask edges. This is not proof of a complete subtree or authority to move/delete."""
+            return inspect_reminder_hierarchy(NativeReader('reminders'),id,max_nodes,max_depth)
 
     if enabled('notes'):
         @mcp.tool(annotations=annotations)

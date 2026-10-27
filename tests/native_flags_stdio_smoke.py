@@ -40,6 +40,9 @@ def run():
                 children=data(call(dict(args,include_native_children=True)))['item']['native_metadata'];assert children['child_ids']==['synthetic-child'] and children['children_complete'] is False and children['coverage']==['children']
                 unknown=data(call({'id':'synthetic-child','include_native_children':True}))['item']['native_metadata'];assert unknown['child_ids'] is None and unknown['children_fetch_status']=='unavailable'
                 assert call(dict(args,include_native_children='invalid')).get('isError')
+                hierarchy_tool=next(t for t in tools if t['name']=='reminders_inspect_hierarchy');assert hierarchy_tool['annotations']['readOnlyHint'] is True
+                tree=data(rpc('tools/call',{'name':'reminders_inspect_hierarchy','arguments':{'id':'synthetic-parent'}})['result']);assert len(tree['nodes'])==2 and tree['nodes'][1]['parent_id']=='synthetic-parent' and tree['hierarchy_complete'] is False
+                assert rpc('tools/call',{'name':'reminders_inspect_hierarchy','arguments':{'id':'synthetic-parent','max_nodes':21}})['result'].get('isError')
                 query=next(t for t in tools if t['name']=='reminders_query');assert query['annotations']['readOnlyHint'] is True
                 flag_query=data(rpc('tools/call',{'name':'reminders_query','arguments':{'flagged':True,'limit':1}})['result']);assert flag_query['items']==[] and flag_query['done'] is False and flag_query['next_offset']==1
                 assert rpc('tools/call',{'name':'reminders_query','arguments':{'flagged':'invalid'}})['result'].get('isError')

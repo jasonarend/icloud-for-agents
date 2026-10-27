@@ -223,6 +223,12 @@ The response adds `item.native_metadata` with Boolean `flagged`, integer `flag_s
 
 Synthetic native tests cover true/false states, exact entity/source/list relationships and missing, unknown or denied metadata. A live read of a dedicated unflagged fixture passes with matching native/public identities, unchanged public metadata, existing Reminders permission and unchanged production settings. A live flagged subtask also passes exact identity and flag readback; other OS versions remain unverified. Apple can change this private interface; keep the backend off unless evaluating it with approved test data.
 
+**Bounded hierarchy inspection**
+
+`reminders_inspect_hierarchy` follows provider-reported child IDs from one exact reminder using the optional ReminderKit backend. It verifies each observed child's parent, list and source, and refuses cycles, inconsistent relationships or access changes. `max_nodes` limits reads to 1–20 and `max_depth` limits traversal to 0–5. Unavailable child contexts and children beyond the bounds are reported as unexpanded.
+
+Each node is a separate provider observation. The result always reports `hierarchy_complete: false`: concealed descendants, concurrent changes and ordering remain unverified. It is useful for inspection, but does not authorize a move or deletion. A local read of a dedicated parent and two subtasks passed; no reminder was changed.
+
 **Tagged Reminder queries**
 
 With the optional ReminderKit backend, `reminders_query` and `reminders_daily` accept `tag` as one exact, case-sensitive native tag name. It can be combined with the flag and other supported filters. The name is matched as returned by the native metadata read; no `#` is added or removed. Tag filtering is read-only and does not create or modify tags.
