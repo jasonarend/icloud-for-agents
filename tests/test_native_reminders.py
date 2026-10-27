@@ -220,6 +220,7 @@ class NativeRemindersTests(unittest.TestCase):
     def test_existing_scope_recurrence_and_completion_are_explicit(self):
         for value in (True,False):
             item=self.existing('set_completed',{'completed':value})
+            self.assertIn('descendant completion states are not verified',item['effects']['hierarchy'])
             self.reader.item['completed']=value
             self.assertTrue(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
         with self.assertRaises(SafetyError):self.existing('set_completed',{'completed':1})

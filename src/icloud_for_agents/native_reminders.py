@@ -300,6 +300,8 @@ class RemindersCreateAdapter:
               'native_metadata':'advanced native-field preservation requires live acceptance',
               'notifications':'Apple controls sync and notification delivery'}}
         if native_config('reminders').get('advanced_backend')=='reminderkit':item['effects']['native_metadata']='Observed flags, native tags, urgent state and partial hierarchy metadata must be unchanged before dispatch and during independent readback; complete subtree and other native metadata remain unverified.'
+        if operation=='set_completed':
+            item['effects']['hierarchy']='Change this reminder’s completion state. Apple controls any effects on related reminders; descendant completion states are not verified by this operation.'
         if 'alarms' in item['fields']:item['effects']['notifications']='Replace the complete supported time/location alarm set; may schedule, reschedule or cancel notifications on synced devices. Past triggers may notify immediately; delivery remains controlled by Apple.'
         if operation=='create_subtask':
             import uuid
