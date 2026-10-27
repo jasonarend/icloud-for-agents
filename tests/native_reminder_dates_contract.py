@@ -28,7 +28,7 @@ func components(_ year:Int,_ month:Int,_ day:Int,_ hour:Int?=nil,_ minute:Int?=n
 }
 '''
     filter_start=source.index('    let filtered = reminders.filter { r in',start)
-    filter_code=source[filter_start:source.index('    if let flag=req["flagged"]',filter_start)]
+    filter_code=source[filter_start:source.index('    if nativeFlag != nil || nativeTag != nil {',filter_start)]
     filter_fixture='''
 var req:[String:Any]=[:]
 var dueFilter:String?=nil

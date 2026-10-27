@@ -104,6 +104,20 @@ class NativeReadTests(unittest.TestCase):
                 with self.subTest(name=name,action=action,value=value),self.assertRaises(SafetyError):NativeReader(name).read(action,flagged=value)
         with self.env(ICLOUD_NATIVE_CONFIG=json.dumps({'reminders':{'source_ids':['selected']}})),patch('platform.system',return_value='Darwin'),self.assertRaises(SafetyError):NativeReader('reminders').read('query',flagged=True)
 
+    def test_tag_filter_requires_exact_bounded_scope_and_helper_evidence(self):
+        config={'reminders':{'source_ids':['selected'],'helper_path':'/synthetic/helper','advanced_backend':'reminderkit'}}
+        evidence={'scanned':1,'matched':0,'observation_consistency':'separate_provider_reads'}
+        response={'items':[],'done':False,'next_offset':1,'pagination_consistency':'live_offset_may_shift','native_tag_filter':evidence}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=response) as dispatch:
+            NativeReader('reminders').read('query',tag='Project',limit=1)
+            self.assertEqual(dispatch.call_args.args[0]['tag'],'Project')
+            for name,action,value in [('reminders','query',''),('reminders','query','x'*513),('reminders','query','bad\nname'),('reminders','get','Project'),('notes','query','Project')]:
+                with self.subTest(name=name,action=action,value=value),self.assertRaises(SafetyError):NativeReader(name).read(action,tag=value)
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value={'items':[],'done':True}),self.assertRaises(SafetyError):
+            NativeReader('reminders').read('query',tag='Project')
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps({'reminders':{'source_ids':['selected']}})),patch('platform.system',return_value='Darwin'),self.assertRaises(SafetyError):
+            NativeReader('reminders').read('query',tag='Project')
+
     def test_old_or_unscoped_helper_cannot_silently_succeed_at_requested_metadata(self):
         config={'reminders':{'source_ids':['selected'],'helper_path':'/synthetic/helper','advanced_backend':'reminderkit'}}
         item={'id':'synthetic','source_id':'selected','list_id':'list'}

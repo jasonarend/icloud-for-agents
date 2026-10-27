@@ -223,6 +223,12 @@ The response adds `item.native_metadata` with Boolean `flagged`, integer `flag_s
 
 Synthetic native tests cover true/false states, exact entity/source/list relationships and missing, unknown or denied metadata. A live read of a dedicated unflagged fixture passes with matching native/public identities, unchanged public metadata, existing Reminders permission and unchanged production settings. A live flagged subtask also passes exact identity and flag readback; other OS versions remain unverified. Apple can change this private interface; keep the backend off unless evaluating it with approved test data.
 
+**Tagged Reminder queries**
+
+With the optional ReminderKit backend, `reminders_query` and `reminders_daily` accept `tag` as one exact, case-sensitive native tag name. It can be combined with the flag and other supported filters. The name is matched as returned by the native metadata read; no `#` is added or removed. Tag filtering is read-only and does not create or modify tags.
+
+Each page checks at most `limit` public candidates against their scoped native metadata. Continue until `done` is true, even when a page contains no matches. Live changes can shift pages or occur between provider reads. Missing tag metadata, identity mismatches, and helpers that do not verify the requested filter are refused.
+
 **Flagged Reminder queries**
 
 When the optional ReminderKit backend is selected, `reminders_query` accepts `flagged: true` or `false` in addition to its existing list, completion, date and priority filters. The same optional filter is available in `reminders_daily`, which can also be scoped to one selected `list_id`. Each returned item includes the observed native flag metadata. Without that backend, flag filtering is refused; it does not silently fall back to guessing from text.

@@ -13,9 +13,13 @@ from icloud_for_agents.native_read import NativeReader
 def dispatch(self,request,config):
     assert self.name=='reminders' and request['source_ids']==['selected']
     if request['action']=='query':
-        assert type(request.get('flagged')) is bool and request['limit']==1
+        assert (type(request.get('flagged')) is bool or isinstance(request.get('tag'),str)) and request['limit']==1
         if 'due_date' in request:assert request['due_date']=='2026-10-27' and request['timezone']=='UTC' and request['completed'] is False and request['list_id']=='list'
-        return {'protocol_version':1,'items':[],'done':False,'next_offset':1,'pagination_consistency':'live_offset_may_shift','native_flag_filter':{'scanned':1,'matched':0,'observation_consistency':'separate_provider_reads'}}
+        result={'protocol_version':1,'items':[],'done':False,'next_offset':1,'pagination_consistency':'live_offset_may_shift'}
+        evidence={'scanned':1,'matched':0,'observation_consistency':'separate_provider_reads'}
+        if 'flagged' in request:result['native_flag_filter']=evidence
+        if 'tag' in request:result['native_tag_filter']=evidence
+        return result
     item={'id':request.get('id','synthetic-task'),'list_id':'list','source_id':'selected','content_complete':False}
     if request.get('include_native_metadata'):
         item['native_metadata']={'id':item['id'],'source_id':item['source_id'],'list_id':item['list_id'],'flagged':True,'flag_state':1,'coverage':['flagged'],'native_metadata_complete':False,'observation_consistency':'separate_provider_reads'}

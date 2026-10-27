@@ -98,11 +98,17 @@ class NativeReader:
         if flagged is not None:
             if self.name!='reminders' or action!='query' or type(flagged) is not bool:raise SafetyError('Flag filtering requires a Boolean on a Reminders query')
             if config.get('advanced_backend')!='reminderkit' or not config.get('helper_path'):raise SafetyError('Flag filtering requires the explicitly selected ReminderKit backend and signed helper')
+        tag=fields.get('tag')
+        if tag is not None:
+            try:
+                if self.name!='reminders' or action!='query' or not isinstance(tag,str) or not tag or len(tag.encode('utf-8'))>512 or any(ord(c)<32 for c in tag):raise ValueError()
+            except (ValueError,UnicodeEncodeError):raise SafetyError('Tag filtering requires one exact bounded native tag name') from None
+            if config.get('advanced_backend')!='reminderkit' or not config.get('helper_path'):raise SafetyError('Tag filtering requires the explicitly selected ReminderKit backend and signed helper')
         if 'representation' in fields and (self.name!='notes' or action!='get'):raise SafetyError('Representation selection is supported only for Notes get')
         representation=fields.pop('representation','native')
         if (not isinstance(representation,str) or representation not in {'native','markdown'} or
                 (representation!='native' and (self.name!='notes' or action!='get'))):raise SafetyError('Markdown is a read-only Notes get representation')
-        if set(fields) - {'id', 'folder_id', 'list_id', 'limit', 'offset', 'completed', 'text', 'due_date', 'timezone', 'include_overdue', 'due_from', 'due_through', 'priorities', 'flagged'}:
+        if set(fields) - {'id', 'folder_id', 'list_id', 'limit', 'offset', 'completed', 'text', 'due_date', 'timezone', 'include_overdue', 'due_from', 'due_through', 'priorities', 'flagged', 'tag'}:
             raise SafetyError('Unknown native read fields')
         limit, offset = fields.get('limit', 50), fields.get('offset', 0)
         if type(limit) is not int or not 1 <= limit <= 100 or type(offset) is not int or not 0 <= offset <= 100000:
@@ -157,10 +163,13 @@ class NativeReader:
                     or ('hierarchy' in expected and (type(metadata.get('is_subtask')) is not bool or 'parent_id' not in metadata or 'has_subtasks' not in metadata or metadata.get('hierarchy_complete') is not False or (metadata.get('has_subtasks') is not None and type(metadata.get('has_subtasks')) is not bool) or not isinstance(metadata.get('children_status'),str) or metadata.get('children_status') not in {'unavailable','provider_reported'} or (metadata.get('children_status')=='unavailable')!=(metadata.get('has_subtasks') is None) or (metadata.get('is_subtask') and not isinstance(metadata.get('parent_id'),str)) or (not metadata.get('is_subtask') and metadata.get('parent_id') is not None)))
                     or ('children' in expected and (metadata.get('children_complete') is not False or 'child_ids' not in metadata or not isinstance(metadata.get('children_fetch_status'),str) or metadata.get('children_fetch_status') not in {'unavailable','provider_reported'} or (metadata.get('children_fetch_status')=='unavailable')!=(metadata.get('child_ids') is None) or (metadata.get('child_ids') is not None and (not isinstance(metadata.get('child_ids'),list) or len(metadata['child_ids'])>100 or any(not isinstance(x,str) or not x for x in metadata['child_ids']) or len(set(metadata['child_ids']))!=len(metadata['child_ids'])))))):
                 raise SafetyError('Configured helper did not provide the requested scoped native metadata; update or review its compatibility')
-        if flagged is not None:
+        if flagged is not None or tag is not None:
             items=result.get('items') if isinstance(result,dict) else None
-            evidence=result.get('native_flag_filter') if isinstance(result,dict) else None
+            keys=(['native_flag_filter'] if flagged is not None else [])+(['native_tag_filter'] if tag is not None else [])
+            evidence=result.get(keys[0]) if isinstance(result,dict) else None
+            expected=(['flagged'] if flagged is not None else [])+(['tags'] if tag is not None else [])
             if (not isinstance(items,list) or not isinstance(evidence,dict)
+                    or any(result.get(key)!=evidence for key in keys)
                     or type(evidence.get('scanned')) is not int or not 0<=evidence['scanned']<=limit
                     or type(evidence.get('matched')) is not int or evidence['matched']!=len(items) or len(items)>evidence['scanned']
                     or evidence.get('observation_consistency')!='separate_provider_reads' or result.get('pagination_consistency')!='live_offset_may_shift'
@@ -170,8 +179,13 @@ class NativeReader:
                         or not isinstance(x.get('id'),str) or not x['id'] or not isinstance(x.get('list_id'),str) or not x['list_id']
                         or x.get('source_id') not in sources or (fields.get('list_id') is not None and x.get('list_id')!=fields['list_id'])
                         or any(x['native_metadata'].get(k)!=x.get(k) for k in ('id','source_id','list_id'))
-                        or x['native_metadata'].get('coverage')!=['flagged'] or x['native_metadata'].get('flagged') is not flagged for x in items)):
-                raise SafetyError('Configured helper did not verify the requested native flag filter; update or review its compatibility')
+                        or x['native_metadata'].get('coverage')!=expected
+                        or (flagged is not None and x['native_metadata'].get('flagged') is not flagged)
+                        or (tag is not None and (x['native_metadata'].get('tags_complete') is not True
+                            or not isinstance(x['native_metadata'].get('tags'),list) or len(x['native_metadata']['tags'])>200
+                            or any(not isinstance(t,dict) or not isinstance(t.get('id'),str) or not isinstance(t.get('name'),str) or type(t.get('native_type')) is not int for t in x['native_metadata']['tags'])
+                            or not any(isinstance(t,dict) and t.get('name')==tag for t in x['native_metadata']['tags']))) for x in items)):
+                raise SafetyError('Configured helper did not verify the requested native filters; update or review its compatibility')
         if self.name=='notes' and action=='status' and config.get('folder_write_backend')=='notes-shared':
             if not config.get('helper_path'):raise SafetyError('Configure the signed helper for optional native Notes store status')
             if native_config('notes')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode:raise SafetyError('Native access changed before optional store status')
@@ -353,18 +367,18 @@ def register_read_tools(mcp):
         def reminders_query(limit: int = 50, offset: int = 0, list_id: str | None = None,
                             completed: bool | None = None, text: str | None = None,
                             due_from: str | None = None, due_through: str | None = None,
-                            timezone: str | None = None, priorities: list[int] | None = None, flagged: bool | None = None) -> dict:
-            """Bounded tasks with optional date, priority and native flag filters. Follow next_offset even on empty filtered pages."""
+                            timezone: str | None = None, priorities: list[int] | None = None, flagged: bool | None = None, tag: str | None = None) -> dict:
+            """Bounded tasks with optional date, priority, native flag and exact tag filters. Follow next_offset even on empty filtered pages."""
             return NativeReader('reminders').read('query',limit=limit,offset=offset,list_id=list_id,
-                completed=completed,text=text,due_from=due_from,due_through=due_through,timezone=timezone,priorities=priorities,flagged=flagged)
+                completed=completed,text=text,due_from=due_from,due_through=due_through,timezone=timezone,priorities=priorities,flagged=flagged,tag=tag)
 
         @mcp.tool(annotations=annotations)
         @guard
         def reminders_daily(date: str, timezone: str, include_overdue: bool = True,
-                            limit: int = 50, offset: int = 0, flagged: bool | None = None, list_id: str | None = None) -> dict:
-            """Read incomplete reminders due on a date, optionally overdue, flagged, or in one list. Follow next_offset until done; no scheduling or delivery."""
+                            limit: int = 50, offset: int = 0, flagged: bool | None = None, list_id: str | None = None, tag: str | None = None) -> dict:
+            """Read incomplete reminders due on a date, optionally overdue, flagged, tagged, or in one list. Follow next_offset until done; no scheduling or delivery."""
             return NativeReader('reminders').read('query', due_date=date, timezone=timezone,
-                include_overdue=include_overdue, completed=False, limit=limit, offset=offset, flagged=flagged, list_id=list_id)
+                include_overdue=include_overdue, completed=False, limit=limit, offset=offset, flagged=flagged, list_id=list_id, tag=tag)
 
         @mcp.tool(annotations=annotations)
         @guard

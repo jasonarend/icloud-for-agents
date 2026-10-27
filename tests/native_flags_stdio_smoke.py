@@ -43,6 +43,10 @@ def run():
                 query=next(t for t in tools if t['name']=='reminders_query');assert query['annotations']['readOnlyHint'] is True
                 flag_query=data(rpc('tools/call',{'name':'reminders_query','arguments':{'flagged':True,'limit':1}})['result']);assert flag_query['items']==[] and flag_query['done'] is False and flag_query['next_offset']==1
                 assert rpc('tools/call',{'name':'reminders_query','arguments':{'flagged':'invalid'}})['result'].get('isError')
+                assert 'tag' in query['inputSchema']['properties']
+                tagged=data(rpc('tools/call',{'name':'reminders_query','arguments':{'tag':'Project','flagged':True,'limit':1}})['result']);assert tagged['native_tag_filter']==tagged['native_flag_filter'] and tagged['next_offset']==1
+                assert rpc('tools/call',{'name':'reminders_query','arguments':{'tag':''}})['result'].get('isError')
+                tagged_daily=data(rpc('tools/call',{'name':'reminders_daily','arguments':{'date':'2026-10-27','timezone':'UTC','tag':'Project','limit':1,'list_id':'list'}})['result']);assert tagged_daily['native_tag_filter']['scanned']==1
                 daily=data(rpc('tools/call',{'name':'reminders_daily','arguments':{'date':'2026-10-27','timezone':'UTC','flagged':True,'limit':1,'list_id':'list'}})['result']);assert daily['items']==[] and daily['done'] is False and daily['next_offset']==1
 
             finally:
