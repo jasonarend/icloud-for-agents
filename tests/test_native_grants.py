@@ -133,6 +133,10 @@ class NativeGrantTests(unittest.TestCase):
         self.store.consume(p['plan_id'],self.engine.account);self.manager.revoke(p['plan_id'])
         with self.assertRaises(SafetyError):self.manager.finalize(p['plan_id'])
         self.assertTrue(self.store.operation_settled(p['plan_id']))
+    def test_note_move_grant_cannot_be_newly_proposed(self):
+        scope=self.scope();scope['rules'][0].update(operation='move_note',fields=['destination_folder_id'],destinations=['destination'])
+        with self.assertRaisesRegex(SafetyError,'special folder roles'):self.manager.prepare(scope)
+
     def test_reminder_move_grant_cannot_be_newly_proposed(self):
         manager=NativeGrants(NativeChanges('reminders',self.engine.account,Adapter('reminders'),self.store))
         scope=self.scope();scope['rules'][0].update(operation='move_reminder',fields=['list_id'],destinations=['destination'])

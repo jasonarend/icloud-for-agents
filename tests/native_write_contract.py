@@ -104,15 +104,7 @@ function run() {
                                 'modified':'2026-10-26T12:00:00.000Z'},
                         'attachments':[{'note_id':'move-id','content_identifier':'cid:asset','name':'synthetic.pdf','id':'asset'}]}}
         result=call(move);assert result.returncode==0,result.stderr
-        nameless_move=dict(move,before={**move['before'],'attachments':[dict(move['before']['attachments'][0],name=None)]})
-        assert json.loads(call(nameless_move,nameless=True).stdout)['result']['id']=='move-id'
-        assert json.loads(result.stdout)['result']['folder_id']=='destination'
-        inherited=json.loads(call(move,ancestor_shared=True).stdout)
-        assert inherited['category']=='shared_write_not_supported' and inherited['mutation_dispatched'] is False
-        refused=json.loads(call(move,destination_shared=True).stdout)
-        assert refused['category']=='shared_write_not_supported' and refused['mutation_dispatched'] is False
-        uncertain=json.loads(call(move,move_fail=True).stdout)
-        assert uncertain['mutation_dispatched'] is True and 'result' not in uncertain
+        refusal=json.loads(result.stdout);assert refusal['category']=='unverified_folder_role_move' and refusal['mutation_dispatched'] is False
         folder={'operation':'create_folder','source_id':'selected','fields':{'title':'New folder'}}
         nested=dict(folder,parent_folder_id='folder',fields={'title':'New child'})
         assert json.loads(call(nested).stdout)['result']['parent_id']=='folder'
@@ -129,7 +121,7 @@ function run() {
         assert response.returncode==0 and json.loads(response.stdout)['category']=='duplicate_folder'
     return {'status':'passed','synthetic_only':True,'native_app_acceptance':False,
             'contract_cases':['create_note','create_folder','title_is_data','source_scope',
-                              'unknown_folder','unknown_operation','duplicate_folder','unrelated_temporary_identity_transition','ambiguous_creation_identity','exact_title_only_repair','changed_repair_snapshot_refused','existing_note_append_and_replace','changed_edit_snapshot_refused','dispatch_evidence_before_constructor_and_setter','validation_refusal_before_dispatch','native_move_with_attachment_inventory','shared_destination_refused','move_failure_after_effect_uncertain','shared_ancestor_refused','nullable_native_attachment_preserved','nested_private_folder_creation']}
+                              'unknown_folder','unknown_operation','duplicate_folder','unrelated_temporary_identity_transition','ambiguous_creation_identity','exact_title_only_repair','changed_repair_snapshot_refused','existing_note_append_and_replace','changed_edit_snapshot_refused','dispatch_evidence_before_constructor_and_setter','validation_refusal_before_dispatch','unverified_special_folder_move_refused_before_dispatch','nested_private_folder_creation']}
 
 
 if __name__=='__main__':

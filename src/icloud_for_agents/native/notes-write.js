@@ -42,6 +42,7 @@ function applyNotes(app, req, beginMutation, nativePhase) {
     if (req.protocol_version!==1 || req.action!=='apply' || !Array.isArray(req.source_ids)) throw Error('invalid_request');
     const item=req.change;
     if (!item || !['create_note','create_folder','repair_note_body','append_note','prepend_note','replace_text','update_note','move_note','rename_folder'].includes(item.operation) || !req.source_ids.includes(item.source_id)) throw Error('unsupported_operation');
+    if(item.operation==='move_note')throw Error('unverified_folder_role_move');
     const accounts=app.accounts().filter(a=>a.id()===item.source_id);
     if(accounts.length!==1)throw Error('not_found_in_scope');
     const account=accounts[0];
@@ -186,7 +187,7 @@ function applyNotes(app, req, beginMutation, nativePhase) {
     return JSON.stringify({protocol_version:1,result:{id:createdID,source_id:item.source_id,folder_id:item.folder_id,saved_locally:true}});
     } catch(error) {
         const match=String(error).match(/-\d{3,6}/);
-        const known=['invalid_request','unsupported_operation','not_found_in_scope','invalid_fields','folder_limit','duplicate_folder','shared_write_not_supported','created_identity_uncertain','unsupported_repair_target','snapshot_changed','unsupported_edit_target','unsupported_move_command','moved_identity_uncertain','folder_ancestry_unavailable','native_dispatch_cancelled'];
+        const known=['invalid_request','unsupported_operation','not_found_in_scope','invalid_fields','folder_limit','duplicate_folder','shared_write_not_supported','created_identity_uncertain','unsupported_repair_target','snapshot_changed','unsupported_edit_target','unsupported_move_command','unverified_folder_role_move','moved_identity_uncertain','folder_ancestry_unavailable','native_dispatch_cancelled'];
         const category=known.find(value=>String(error).includes(value)) || 'provider_exception';
         return JSON.stringify({protocol_version:1,error:'notes_operation_failed',stage:stage,category:category,mutation_dispatched:mutationDispatched,
             error_code:match?Number(match[0]):-2700});

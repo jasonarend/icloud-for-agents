@@ -135,9 +135,9 @@ def register_change_tools(mcp):
             (optional parent_folder_id, title), append_note/prepend_note (id,
             folder_id, body/format), replace_text (id, folder_id, exact find,
             replacement and integer expected_matches), update_note (id, folder_id,
-            complete title/body/format), move_note (id, folder_id, exact
-            destination_folder_id), rename_folder (folder_id, title; requires the
+            complete title/body/format), rename_folder (folder_id, title; requires the
             explicitly selected development native writer and store metadata).
+            Note moves are paused until special folder roles can be verified.
             All require source_id and fields object.
             Literal replacement preserves the title; prepend follows the title.
             Existing native objects and unsupported body rewrites are refused.

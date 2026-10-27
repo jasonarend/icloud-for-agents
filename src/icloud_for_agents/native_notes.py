@@ -225,12 +225,9 @@ class NotesCreateAdapter:
         return {'folder':folder,'note':note,'attachments':attachments['attachments']}
 
     def move_snapshot(self,item):
-        before=self.note_snapshot(item,rewrite=False)
-        destination=self.private_folder(item['fields']['destination_folder_id'],item['source_id'])
-        if destination.get('source_id')!=item['source_id'] or destination.get('shared') is not False:
-            raise SafetyError('Move destination must be an unshared folder in the same source')
-        before['destination']=destination
-        return before
+        # Notes scripting does not expose a trustworthy special-folder role.
+        # Recheck old plans as well as fresh proposals until a safe route exists.
+        raise SafetyError('Notes moves are unavailable until special folder roles can be verified before dispatch')
 
     def prepare_move(self,change):
         if set(change)-{'operation','source_id','folder_id','id','fields'}:

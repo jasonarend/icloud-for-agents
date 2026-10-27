@@ -128,39 +128,18 @@ class NativeNotesTests(unittest.TestCase):
     def move(self):
         return self.adapter.prepare({'operation':'move_note','source_id':'selected','folder_id':'folder','id':'created',
                                      'fields':{'destination_folder_id':'destination'}})
-    def test_native_move_preserves_rich_html_and_attachment_identities(self):
-        self.reader.note['html']='<div>Spec</div><object><table><tr><td>Native cell</td></tr></table></object>'
-        self.reader.attachments=[{'id':'asset','name':'synthetic.pdf','content_identifier':'cid:asset','note_id':'created'}]
-        item=self.move();self.assertNotIn('html',item['fields'])
-        self.assertEqual(item['before']['attachments'],self.reader.attachments)
-        self.reader.note['folder_id']='destination'
-        outcome={'id':'created','source_id':'selected','folder_id':'destination'}
-        self.assertTrue(self.adapter.verify(item,outcome))
-        self.reader.note['html']='<div>Missing table</div>'
+    def test_move_and_stale_move_snapshot_refuse_unverified_folder_roles(self):
+        with self.assertRaisesRegex(SafetyError,'special folder roles'):self.move()
+        old={'operation':'move_note','source_id':'selected','folder_id':'folder','id':'created','fields':{'destination_folder_id':'destination'}}
+        with self.assertRaisesRegex(SafetyError,'special folder roles'):self.adapter.snapshot(old)
+
+    def test_historical_move_readback_retains_content_checks(self):
+        before=self.adapter.note_snapshot({'operation':'move_note','source_id':'selected','folder_id':'folder','id':'created'},rewrite=False)
+        before['destination']=self.adapter.private_folder('destination','selected')
+        item={'operation':'move_note','source_id':'selected','folder_id':'folder','id':'created','fields':{'destination_folder_id':'destination'},'before':before}
+        self.reader.note['folder_id']='destination';outcome={'id':'created','source_id':'selected','folder_id':'destination'}
+        self.assertTrue(self.adapter.verify(item,outcome));self.reader.note['html']='<div>changed</div>'
         self.assertFalse(self.adapter.verify(item,outcome))
-    def test_move_refuses_other_sources_shared_destinations_and_noop(self):
-        for key,value in [('source_id','other'),('shared',True)]:
-            previous=self.reader.destination[key];self.reader.destination[key]=value
-            with self.subTest(key=key),self.assertRaises(SafetyError):self.move()
-            self.reader.destination[key]=previous
-        with self.assertRaises(SafetyError):
-            self.adapter.prepare({'operation':'move_note','source_id':'selected','folder_id':'folder','id':'created','fields':{'destination_folder_id':'folder'}})
-    def test_shared_or_unavailable_ancestors_refuse_before_content_access(self):
-        parent={'id':'parent','title':'Parent','source_id':'selected','parent_id':'selected','shared':True}
-        self.reader.parents['parent']=parent;self.reader.destination['parent_id']='parent'
-        with self.assertRaises(SafetyError):self.move()
-        parent['shared']=False;item=self.move()
-        self.assertEqual(item['before']['destination']['private_ancestors'],[parent])
-        parent['parent_id']='parent'
-        with self.assertRaises(SafetyError):self.move()
-    def test_move_readback_rejects_changed_assets_creation_or_destination(self):
-        self.reader.attachments=[{'id':'asset','name':'synthetic.pdf','content_identifier':'cid:asset','note_id':'created'}]
-        item=self.move();self.reader.note['folder_id']='destination';outcome={'id':'created','source_id':'selected','folder_id':'destination'}
-        self.assertTrue(self.adapter.verify(item,outcome))
-        self.reader.attachments=[];self.assertFalse(self.adapter.verify(item,outcome))
-        self.reader.attachments=item['before']['attachments'];self.reader.note['created']='changed'
-        self.assertFalse(self.adapter.verify(item,outcome))
-        self.assertFalse(self.adapter.verify(item,dict(outcome,folder_id='folder')))
 
     def test_nested_folder_creation_binds_private_parent_and_direct_siblings(self):
         item=self.adapter.prepare({'operation':'create_folder','source_id':'selected','parent_folder_id':'folder','fields':{'title':'Synthetic'}})

@@ -95,6 +95,8 @@ class NativeGrants:
         return result
     def prepare(self,scope,*,_replaces=None):
         validate_scope(self.name,scope,self.store.clock())
+        if self.name=='notes' and any(rule['operation']=='move_note' for rule in scope['rules']):
+            raise SafetyError('Notes move grants are unavailable until special folder roles can be verified')
         if self.name=='reminders' and any(rule['operation']=='move_reminder' for rule in scope['rules']):
             raise SafetyError('Reminder move grants are unavailable until complete hierarchy effects can be verified')
         context=self.engine.context(True)
