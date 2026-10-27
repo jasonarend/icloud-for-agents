@@ -839,7 +839,8 @@ guard !selected.isEmpty else {
         if nativeTag != nil {response["native_tag_filter"]=evidence}
         respond(response)
     }
-    respond(["protocol_version": 1, "items": [], "done": true])
+    respond(["protocol_version": 1, "items": [], "done": true, "next_offset": offset,
+             "pagination_consistency": "live_offset_may_shift"])
 }
 let dueFilter = req["due_date"] as? String
 let dueFrom = req["due_from"] as? String

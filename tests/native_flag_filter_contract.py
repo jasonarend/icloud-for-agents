@@ -14,6 +14,7 @@ var req:[String:Any]=["flagged":scenario=="false" ? false : true]
 if scenario=="invalid" {req["flagged"]=1}
 if scenario=="tag" || scenario=="both" || scenario=="case" {req["tag"]=scenario=="case" ? "project" : "Project"}
 if scenario=="tag" || scenario=="case" {req.removeValue(forKey:"flagged")}
+if scenario=="unfiltered" {req.removeValue(forKey:"flagged")}
 if scenario=="urgent" || scenario=="urgent_false" {req.removeValue(forKey:"flagged");req["urgent"]=scenario=="urgent"}
 let nativeFlag=req["flagged"]
 let nativeUrgent=req["urgent"]
@@ -50,6 +51,8 @@ def run():
         value=json.loads(empty_result.stdout);assert value['items']==[] and value['done'] is True and value['next_offset']==0 and value['native_flag_filter']['scanned']==0
         assert subprocess.run([str(p/'empty'),'invalid','0'],capture_output=True,text=True,check=True,timeout=5).stdout.strip()=='error:invalid_request'
         empty_tag=json.loads(subprocess.run([str(p/'empty'),'both','0'],capture_output=True,text=True,check=True,timeout=5).stdout);assert empty_tag['native_flag_filter']==empty_tag['native_tag_filter']
+        unfiltered=json.loads(subprocess.run([str(p/'empty'),'unfiltered','7'],capture_output=True,text=True,check=True,timeout=5).stdout)
+        assert unfiltered=={'protocol_version':1,'items':[],'done':True,'next_offset':7,'pagination_consistency':'live_offset_may_shift'}
 
     print(json.dumps({'status':'passed','apple_store_opened':False,'checks':['bounded_scan','empty_page_not_done','empty_source_has_filter_evidence','true_false_matching','invalid_type_and_unavailable_metadata_refused']}))
 if __name__=='__main__':run()
