@@ -164,8 +164,8 @@ class NativeChanges:
                             if key not in item['fields'] and not (key=='has_alarms' and 'alarms' in item['fields']) and current.get(key)!=item['before']['item'].get(key):raise SafetyError('Unrequested state changed; rollback cannot overwrite it')
                     fields={key:desired.get(key) for key in ('title','notes','priority','due','start','url')}
                     if 'alarms' in item['fields']:
-                        from .native_reminders import public_time_alarms
-                        fields['alarms']=public_time_alarms(item['before']['item'].get('alarms',[])) if target=='before' else item['fields']['alarms']
+                        from .native_reminders import public_supported_alarms
+                        fields['alarms']=public_supported_alarms(item['before']['item'].get('alarms',[])) if target=='before' else item['fields']['alarms']
                     for key in ('due','start'):
                         if isinstance(fields[key],dict):fields[key]={k:v for k,v in fields[key].items() if k in {'year','month','day','hour','minute','timezone'} and v is not None}
                     from .native_once import planning
@@ -230,8 +230,8 @@ class NativeChanges:
             elif rollback:
                 fields={key:intended['before']['item'].get(key) for key in ('title','notes','priority','due','start','url')}
                 if 'alarms' in intended['fields']:
-                    from .native_reminders import public_time_alarms
-                    fields['alarms']=public_time_alarms(intended['before']['item'].get('alarms',[]))
+                    from .native_reminders import public_supported_alarms
+                    fields['alarms']=public_supported_alarms(intended['before']['item'].get('alarms',[]))
                 intended=dict(intended,fields=fields)
             if (result.get('status')!='applied' or not self.adapter.verify(intended,original_result['attempted'][0]['result'])):
                 raise SafetyError('Original requested state still does not verify; uncertainty retained')

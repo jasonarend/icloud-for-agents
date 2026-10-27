@@ -148,3 +148,22 @@ class NativeCorrectionTests(unittest.TestCase):
         repair=engine.prepare_update_correction(p['plan_id'],'before');self.assertEqual(engine.execute(repair['plan_id'])['status'],'applied')
         self.assertEqual(engine.reconcile_correction(repair['plan_id'])['status'],'restored_before_after_explicit_correction')
         self.assertEqual(adapter.reader.item['alarms'],[]);self.assertFalse(adapter.reader.item['has_alarms'])
+
+    def test_location_alarm_readback_failure_can_restore_reviewed_original(self):
+        adapter=Adapter();adapter.fail=False
+        place={'title':'Synthetic','latitude':12.25,'longitude':-34.5,'radius_meters':250}
+        def native(value):return {'absolute_date':None,'relative_offset_seconds':0,'type':0,'proximity':1 if value['proximity']=='enter' else 2,'structured_location':{k:v for k,v in value.items() if k!='proximity'},'email_address':None,'sound_name':None}
+        original={**place,'proximity':'enter'};requested={**place,'proximity':'leave'}
+        adapter.reader.item.update(alarms=[native(original)],has_alarms=True,public_metadata_complete=True)
+        engine=NativeChanges('reminders','synthetic@example.com',adapter,PlanStore(Path(self.temp.name)/'location-fixture'));fail=[True]
+        def apply(item):
+            adapter.calls+=1;value=copy.deepcopy(item['fields']['alarms'][0]['location'])
+            if fail[0]:value['radius_meters']+=1
+            adapter.reader.item['alarms']=[native(value)];adapter.reader.item['has_alarms']=True
+            return {'id':'task','source_id':'selected','list_id':'list'}
+        adapter.apply=apply
+        plan=engine.prepare_once([{'operation':'update_reminder','source_id':'selected','id':'task','fields':{'alarms':[{'location':requested}]}}])
+        self.assertEqual(engine.execute(plan['plan_id'])['status'],'failed_or_uncertain');fail[0]=False
+        repair=engine.prepare_update_correction(plan['plan_id'],'before');self.assertEqual(engine.execute(repair['plan_id'])['status'],'applied')
+        self.assertEqual(engine.reconcile_correction(repair['plan_id'])['status'],'restored_before_after_explicit_correction')
+        self.assertEqual(adapter.reader.item['alarms'],[native(original)])
