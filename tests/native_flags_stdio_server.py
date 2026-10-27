@@ -16,7 +16,7 @@ def dispatch(self,request,config):
         assert type(request.get('flagged')) is bool and request['limit']==1
         if 'due_date' in request:assert request['due_date']=='2026-10-27' and request['timezone']=='UTC' and request['completed'] is False and request['list_id']=='list'
         return {'protocol_version':1,'items':[],'done':False,'next_offset':1,'native_flag_filter':{'scanned':1,'matched':0}}
-    item={'id':'synthetic-task','list_id':'list','source_id':'selected','content_complete':False}
+    item={'id':request.get('id','synthetic-task'),'list_id':'list','source_id':'selected','content_complete':False}
     if request.get('include_native_metadata'):
         item['native_metadata']={'flagged':True,'flag_state':1,'coverage':['flagged'],'native_metadata_complete':False,'observation_consistency':'separate_provider_reads'}
     if request.get('include_native_tags'):
@@ -25,7 +25,8 @@ def dispatch(self,request,config):
         metadata['coverage'].append('tags')
     if request.get('include_native_hierarchy'):
         metadata=item.setdefault('native_metadata',{'coverage':[],'native_metadata_complete':False})
-        metadata.update(is_subtask=False,parent_id=None,has_subtasks=False,hierarchy_complete=False,children_status='provider_reported')
+        if item['id']=='synthetic-child':metadata.update(is_subtask=True,parent_id='synthetic-parent',has_subtasks=None,hierarchy_complete=False,children_status='unavailable')
+        else:metadata.update(is_subtask=False,parent_id=None,has_subtasks=False,hierarchy_complete=False,children_status='provider_reported')
         metadata['coverage'].append('hierarchy')
     return {'protocol_version':1,'item':item}
 NativeReader._dispatch=dispatch

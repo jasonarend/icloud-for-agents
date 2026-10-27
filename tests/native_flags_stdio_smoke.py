@@ -34,6 +34,7 @@ def run():
                 assert call(dict(args,include_native_tags='execute-script')).get('isError')
                 hierarchy_schema=tool['inputSchema']['properties']['include_native_hierarchy'];assert hierarchy_schema['type']=='boolean' and hierarchy_schema['default'] is False
                 hierarchy=data(call(dict(args,include_native_hierarchy=True)))['item']['native_metadata'];assert hierarchy['is_subtask'] is False and hierarchy['hierarchy_complete'] is False and hierarchy['coverage']==['hierarchy']
+                child=data(call({'id':'synthetic-child','include_native_hierarchy':True}))['item']['native_metadata'];assert child['is_subtask'] is True and child['parent_id']=='synthetic-parent' and child['has_subtasks'] is None and child['children_status']=='unavailable'
                 assert call(dict(args,include_native_hierarchy='invalid')).get('isError')
                 query=next(t for t in tools if t['name']=='reminders_query');assert query['annotations']['readOnlyHint'] is True
                 flag_query=data(rpc('tools/call',{'name':'reminders_query','arguments':{'flagged':True,'limit':1}})['result']);assert flag_query['items']==[] and flag_query['done'] is False and flag_query['next_offset']==1

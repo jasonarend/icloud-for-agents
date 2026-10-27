@@ -115,7 +115,8 @@ int main(){@autoreleasepool{
  parent.account=[FixtureAccount new];parent.account.remObjectID=Identity(@"REMCDAccount",other);NSCAssert(Hierarchy(request)[@"error"],@"foreign parent refused");parent.account=fixture.account;
  parent.remObjectID=fixture.remObjectID;NSCAssert(Hierarchy(request)[@"error"],@"self parent refused");parent.remObjectID=Identity(@"REMCDReminder",other);
  hierarchy.denied=YES;NSCAssert([Hierarchy(request)[@"category"] isEqual:@"hierarchy_read_unavailable"],@"read error not false");hierarchy.denied=NO;
- fixture.isSubtask=NO;NSCAssert(Hierarchy(request)[@"error"],@"contradictory parent refused");fixture.parentReminder=nil;fixture.subtaskContext=nil;NSCAssert(Hierarchy(request)[@"error"],@"missing context refused");
+ fixture.isSubtask=NO;NSCAssert(Hierarchy(request)[@"error"],@"contradictory parent refused");fixture.parentReminder=nil;fixture.subtaskContext=nil;NSDictionary *partial=Hierarchy(request)[@"native_metadata"];NSCAssert(partial && partial[@"has_subtasks"]==[NSNull null] && [partial[@"children_status"] isEqual:@"unavailable"] && ![partial[@"hierarchy_complete"] boolValue],@"missing context is unknown, never no children");
+ fixture.isSubtask=YES;fixture.parentReminder=parent;partial=Hierarchy(request)[@"native_metadata"];NSCAssert([partial[@"parent_id"] isEqual:other] && partial[@"has_subtasks"]==[NSNull null],@"known scoped parent with unavailable child metadata");
  puts("fixed native flag read: scope, types, denied/missing/unknown refusal passed");return 0;
 }}
 '''

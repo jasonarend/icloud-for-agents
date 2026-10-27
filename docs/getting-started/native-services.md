@@ -193,11 +193,11 @@ Synthetic checks cover native AppKit/CoreGraphics conversion, invalid inputs, sn
 
 **Optional Reminder hierarchy hints (development)**
 
-With the explicitly selected ReminderKit backend, `reminders_get` accepts `include_native_hierarchy: true` for one exact scoped reminder. It reports whether the provider identifies it as a subtask, a verified same-source/same-list parent ID when present, and the provider's `has_subtasks` hint. An unknown interface, missing context, contradictory parent, foreign parent or provider read error is refused rather than represented as an empty hierarchy. Flags, tags and hierarchy can be requested independently; each is a separate provider observation.
+With the explicitly selected ReminderKit backend, `reminders_get` accepts `include_native_hierarchy: true` for one exact scoped reminder. It reports whether the provider identifies it as a subtask, a verified same-source/same-list parent ID when present, and the provider's `has_subtasks` hint. An unknown interface, contradictory parent, foreign parent or provider read error is refused. When the provider supplies no child context, `has_subtasks` is `null` and `children_status` is `"unavailable"`; the verified parent remains available. Flags, tags and hierarchy can be requested independently; each is a separate provider observation.
 
 This is not a complete subtree inventory. `hierarchy_complete` remains false; child IDs, concealed or unsupported descendants, ordering and cross-device behavior are not verified. Do not use a false `has_subtasks` value as proof that deleting or moving a reminder has no impact on children. Creating or changing parent/child relationships and deleting reminders remain unsupported. The default EventKit path never requests these private metadata reads.
 
-Synthetic tests cover parent identity, foreign/self parents, contradictory state and provider errors. A live read of a dedicated unparented fixture returns the provider's no-children hint without changing public metadata or OS permissions. Live parent/child fixtures remain unverified.
+Synthetic tests cover parent identity, foreign/self parents, contradictory state and provider errors. Live dedicated parent/child fixtures return the matching parent ID, the parent's child-presence hint and an unavailable child-presence value for the leaf; the public metadata and OS permissions are unchanged. Nested descendants, concealed items and cross-device behavior remain unverified.
 
 **Read-only Markdown views**
 
