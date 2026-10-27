@@ -1,4 +1,4 @@
-"""Optional flag reads through real MCP stdio; synthetic provider only."""
+"""Optional flag/tag reads through real MCP stdio; synthetic provider only."""
 import json,os,select,subprocess,sys,tempfile,time
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
@@ -13,7 +13,7 @@ def run():
                 while time.monotonic()<deadline:
                     if select.select([process.stdout],[],[],1)[0]:
                         line=process.stdout.readline()
-                        if not line:raise AssertionError('Synthetic Markdown server exited')
+                        if not line:raise AssertionError('Synthetic native metadata server exited')
                         result=json.loads(line)
                         if result.get('id')==current:return result
                 raise AssertionError('Synthetic MCP timeout')
@@ -28,11 +28,15 @@ def run():
                 args={'id':'synthetic-task'};native=data(call(args));assert 'native_metadata' not in native['item']
                 projected=data(call(dict(args,include_native_metadata=True)));item=projected['item'];metadata=item.pop('native_metadata');assert item==native['item'];assert metadata['flagged'] is True and metadata['coverage']==['flagged'] and metadata['native_metadata_complete'] is False
                 assert call(dict(args,include_native_metadata='execute-script')).get('isError')
+                tag_schema=tool['inputSchema']['properties']['include_native_tags'];assert tag_schema['type']=='boolean' and tag_schema['default'] is False
+                tags=data(call(dict(args,include_native_tags=True)))['item']['native_metadata'];assert tags['tags'][0]['name']=='Project' and tags['coverage']==['tags'] and tags['tags_complete'] is True
+                combined=data(call(dict(args,include_native_tags=True,include_native_metadata=True)))['item']['native_metadata'];assert combined['coverage']==['flagged','tags']
+                assert call(dict(args,include_native_tags='execute-script')).get('isError')
             finally:
                 process.stdin.close()
                 try:process.wait(timeout=10)
                 except subprocess.TimeoutExpired:process.terminate();process.wait(timeout=5)
                 process.stdout.close()
         assert process.returncode==0,(home/'stderr.log').read_text();assert json.loads(audit.read_text())==[]
-    report={'status':'passed','real_mcp_stdio':True,'synthetic_provider_only':True,'checks':['default_compatibility','boolean_schema','optional_flag_metadata','public_metadata_retained','read_only_annotations','invalid_selector_refused','no_os_network_or_credentials']};print(json.dumps(report));return report
+    report={'status':'passed','real_mcp_stdio':True,'synthetic_provider_only':True,'checks':['default_compatibility','boolean_schema','optional_flag_and_tag_metadata','public_metadata_retained','read_only_annotations','invalid_selector_refused','no_os_network_or_credentials']};print(json.dumps(report));return report
 if __name__=='__main__':run()

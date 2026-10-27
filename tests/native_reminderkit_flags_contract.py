@@ -1,4 +1,4 @@
-"""Shipped fixed ReminderKit read against synthetic objects, without Apple stores."""
+"""Shipped fixed ReminderKit flag/tag reads against synthetic objects, without Apple stores."""
 import json,subprocess,tempfile
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
@@ -27,11 +27,26 @@ FIXTURE=r'''
 @end
 @implementation FixtureFlag
 @end
+@interface FixtureTags:NSObject
+@property id hashtags;
+@end
+@implementation FixtureTags
+@end
+@interface FixtureTag:NSObject
+@property FixtureID *remObjectID;
+@property FixtureID *accountID;
+@property FixtureID *reminderID;
+@property NSString *name;
+@property NSInteger type;
+@end
+@implementation FixtureTag
+@end
 @interface FixtureReminder:NSObject
 @property FixtureID *remObjectID;
 @property FixtureAccount *account;
 @property FixtureList *list;
 @property id flaggedContext;
+@property id hashtagContext;
 @end
 @implementation FixtureReminder
 @end
@@ -48,6 +63,7 @@ static BOOL denied=NO;
 }
 @end
 static FixtureID *Identity(NSString *entity,NSString *value){FixtureID *v=[FixtureID new];v.entityName=entity;v.uuid=[[NSUUID alloc]initWithUUIDString:value];return v;}
+static NSDictionary *Tags(NSDictionary *request){NSData *data=[NSJSONSerialization dataWithJSONObject:request options:0 error:NULL];return [NSJSONSerialization JSONObjectWithData:ICloudRemindersReadTags(data) options:0 error:NULL];}
 static NSDictionary *Call(NSDictionary *request){NSData *data=[NSJSONSerialization dataWithJSONObject:request options:0 error:NULL];return [NSJSONSerialization JSONObjectWithData:ICloudRemindersReadFlag(data) options:0 error:NULL];}
 int main(){@autoreleasepool{
  NSString *task=@"11111111-1111-4111-8111-111111111111",*list=@"22222222-2222-4222-8222-222222222222",*source=@"33333333-3333-4333-8333-333333333333",*other=@"44444444-4444-4444-8444-444444444444";
@@ -64,6 +80,20 @@ int main(){@autoreleasepool{
  denied=YES;NSDictionary *failure=Call(request);NSCAssert([failure[@"category"] isEqual:@"private_read_denied_or_unavailable"] && [failure[@"native_error_domain"] isEqual:@"other"] && ![[failure description] containsString:@"private-content"],@"denial not empty and private diagnostics redacted");denied=NO;
  NSCAssert(Call(@{@"id":@YES,@"source_id":source,@"list_id":list})[@"error"],@"bad types");
  NSCAssert(Call(@{@"id":task,@"source_id":source,@"list_id":list,@"selector":@"anything"})[@"error"],@"no arbitrary selectors");
+ FixtureTags *context=[FixtureTags new];context.hashtags=@[];fixture.hashtagContext=context;
+ NSCAssert([Tags(request)[@"native_metadata"][@"tags_complete"] boolValue] && [Tags(request)[@"native_metadata"][@"tags"] count]==0,@"verified empty collection");
+ FixtureTag *tag=[FixtureTag new];tag.remObjectID=Identity(@"REMCDHashtag",other);tag.accountID=fixture.account.remObjectID;tag.reminderID=fixture.remObjectID;tag.name=@"Project";tag.type=0;context.hashtags=@[tag];
+ NSDictionary *tagResult=Tags(request);NSCAssert([tagResult[@"native_metadata"][@"tags"][0][@"name"] isEqual:@"Project"],@"native tag exposed");
+ context.hashtags=[NSSet setWithObject:tag];NSCAssert(Tags(request)[@"native_metadata"],@"native set collection");
+ context.hashtags=[NSOrderedSet orderedSetWithObject:tag];NSCAssert(Tags(request)[@"native_metadata"],@"native ordered collection");
+ context.hashtags=@[tag,tag];NSCAssert(Tags(request)[@"error"],@"duplicate identities refused");context.hashtags=@[tag];
+ tag.accountID=Identity(@"REMCDAccount",other);NSCAssert(Tags(request)[@"error"],@"foreign account refused");tag.accountID=fixture.account.remObjectID;
+ tag.reminderID=Identity(@"REMCDReminder",other);NSCAssert(Tags(request)[@"error"],@"foreign task refused");tag.reminderID=fixture.remObjectID;
+ tag.name=[@"x" stringByPaddingToLength:513 withString:@"x" startingAtIndex:0];NSCAssert(Tags(request)[@"error"],@"oversized tag refused");tag.name=@"Project";
+ NSMutableArray *tooMany=[NSMutableArray array];for(int i=0;i<201;i++)[tooMany addObject:tag];context.hashtags=tooMany;NSCAssert(Tags(request)[@"error"],@"bounded collection refused");
+ context.hashtags=nil;NSCAssert(Tags(request)[@"error"],@"nil tags not empty success");
+ context.hashtags=@"unknown";NSCAssert(Tags(request)[@"error"],@"unknown collection refused");
+ fixture.hashtagContext=nil;NSCAssert(Tags(request)[@"error"],@"missing context refused");
  puts("fixed native flag read: scope, types, denied/missing/unknown refusal passed");return 0;
 }}
 '''
@@ -74,5 +104,5 @@ def run():
         p=Path(directory);(p/'reminders-model.h').write_text((ROOT/'src/icloud_for_agents/native/reminders-model.h').read_text());(p/'test.m').write_text(source+'\n'+FIXTURE)
         result=subprocess.run(['/usr/bin/clang','-fobjc-arc','-framework','Foundation',str(p/'test.m'),'-o',str(p/'contract')],capture_output=True,text=True,timeout=60);assert result.returncode==0,result.stderr
         result=subprocess.run([str(p/'contract')],capture_output=True,text=True,timeout=5);assert result.returncode==0,result.stderr
-    print(json.dumps({'status':'passed','apple_store_opened':False,'checks':['actual_fixed_read_and_runtime_signatures','true_and_false_integer_flag','exact_task_list_source_and_account_relation','nil_unknown_or_denied_not_empty_success','no_arbitrary_selectors_or_save_api']}))
+    print(json.dumps({'status':'passed','apple_store_opened':False,'checks':['actual_fixed_read_and_runtime_signatures','true_and_false_integer_flag','exact_task_list_source_and_account_relation','nil_unknown_or_denied_not_empty_success','bounded_tags_and_exact_account_task_identity','no_arbitrary_selectors_or_save_api']}))
 if __name__=='__main__':run()

@@ -1,4 +1,4 @@
-"""Actual read tools and projection with synthetic provider data, no OS or network."""
+"""Actual native metadata read tools with synthetic provider data, no OS or network."""
 import atexit,json,os,sys
 from pathlib import Path
 blocked=[]
@@ -15,6 +15,10 @@ def dispatch(self,request,config):
     item={'id':'synthetic-task','list_id':'list','source_id':'selected','content_complete':False}
     if request.get('include_native_metadata'):
         item['native_metadata']={'flagged':True,'flag_state':1,'coverage':['flagged'],'native_metadata_complete':False,'observation_consistency':'separate_provider_reads'}
+    if request.get('include_native_tags'):
+        metadata=item.setdefault('native_metadata',{'coverage':[],'native_metadata_complete':False})
+        metadata.update(tags=[{'id':'tag','name':'Project','native_type':0}],tags_complete=True)
+        metadata['coverage'].append('tags')
     return {'protocol_version':1,'item':item}
 NativeReader._dispatch=dispatch
 from icloud_for_agents.server import main

@@ -87,10 +87,13 @@ class NativeReader:
         sources = config.get('source_ids', [])
         if action not in {'status', 'sources'} and not sources:
             raise SafetyError('Select exact native source IDs before reading content')
-        if 'include_native_metadata' in fields and (self.name!='reminders' or action!='get'):raise SafetyError('Native metadata selection is supported only for Reminders get')
-        include_native=fields.pop('include_native_metadata',False)
-        if type(include_native) is not bool or (include_native and (self.name!='reminders' or action!='get')):raise SafetyError('Native metadata selection is supported only for Reminders get')
-        if include_native and (config.get('advanced_backend')!='reminderkit' or not config.get('helper_path')):raise SafetyError('Native flag reads require the explicitly selected ReminderKit backend and signed helper')
+        native_selections={}
+        for key in ('include_native_metadata','include_native_tags'):
+            if key in fields and (self.name!='reminders' or action!='get'):raise SafetyError('Native metadata selection is supported only for Reminders get')
+            value=fields.pop(key,False)
+            if type(value) is not bool:raise SafetyError('Native metadata selection must be Boolean')
+            if value and (config.get('advanced_backend')!='reminderkit' or not config.get('helper_path')):raise SafetyError('Native metadata reads require the explicitly selected ReminderKit backend and signed helper')
+            if value:native_selections[key]=True
         if 'representation' in fields and (self.name!='notes' or action!='get'):raise SafetyError('Representation selection is supported only for Notes get')
         representation=fields.pop('representation','native')
         if (not isinstance(representation,str) or representation not in {'native','markdown'} or
@@ -126,7 +129,7 @@ class NativeReader:
             raise SafetyError('Invalid overdue filter')
         request = {'protocol_version': 1, 'action': action, 'source_ids': sources,
                    **{k: v for k, v in fields.items() if v is not None}}
-        if include_native:request['include_native_metadata']=True
+        request.update(native_selections)
         if action in {'folders','query','search','attachments','lists'}:
             request.setdefault('limit',limit);request.setdefault('offset',offset)
         if self.name=='notes' and action=='folder_role':
@@ -262,7 +265,7 @@ class NativeReader:
             if self.name == 'notes' and code == 'permission_required':
                 raise SafetyError('Notes Automation permission is required; the user must approve access in macOS Privacy & Security.')
             detail=''
-            if code=='private_metadata_unavailable' and response.get('category') in {'unsupported_public_identity','unsupported_interface','private_store_unavailable','private_read_denied_or_unavailable','private_reminder_not_found','native_identity_mismatch','unsupported_flag_metadata','unknown_flag_state','private_read_exception'}:detail=' ('+response['category']+')'
+            if code=='private_metadata_unavailable' and response.get('category') in {'unsupported_public_identity','unsupported_interface','private_store_unavailable','private_read_denied_or_unavailable','private_reminder_not_found','native_identity_mismatch','unsupported_flag_metadata','unsupported_tag_metadata','unknown_flag_state','private_read_exception'}:detail=' ('+response['category']+')'
             if code=='private_metadata_unavailable' and response.get('native_error_domain') in {'com.apple.reminderkit','NSCocoaErrorDomain','NSPOSIXErrorDomain','EKErrorDomain','NSOSStatusErrorDomain','other'} and type(response.get('native_error_code')) is int:detail+=' [SDK '+response['native_error_domain']+' '+str(response['native_error_code'])+']'
             raise SafetyError('Native read refused: ' + (code if code in allowed else 'helper_error')+detail)
         return response
@@ -331,9 +334,9 @@ def register_read_tools(mcp):
 
         @mcp.tool(annotations=annotations)
         @guard
-        def reminders_get(id: str, include_native_metadata: bool=False) -> dict:
-            """Read one exact scoped reminder. Optional native flag metadata requires owner-selected ReminderKit; other advanced metadata remains incomplete."""
-            return NativeReader('reminders').read('get', id=id, include_native_metadata=include_native_metadata)
+        def reminders_get(id: str, include_native_metadata: bool=False, include_native_tags: bool=False) -> dict:
+            """Read one exact scoped reminder. Optional native flags/tags require owner-selected ReminderKit; other advanced metadata remains incomplete."""
+            return NativeReader('reminders').read('get', id=id, include_native_metadata=include_native_metadata, include_native_tags=include_native_tags)
 
     if enabled('notes'):
         @mcp.tool(annotations=annotations)
