@@ -289,6 +289,17 @@ class NativeReadTests(unittest.TestCase):
             with self.subTest(invalid=invalid),self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',side_effect=AssertionError('No helper')),self.assertRaises(SafetyError):
                 NativeReader('notes').read('search',text='table',**invalid)
 
+    def test_title_only_search_rejects_old_helpers_body_and_scope_drift(self):
+        config={'notes':{'source_ids':['selected']}}
+        row={'id':'note','title':'Synthetic Title','source_id':'selected','folder_id':'folder','excerpt':'','locked':False,'content_complete':False}
+        def page(**extra):return {'items':[dict(row)],'table_projection_candidates':[],'match_scope':'title',**extra}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=page()) as dispatch:
+            value=NativeReader('notes').read('search',text='Title',folder_id='folder',match_scope='title')
+            self.assertEqual(value['items'][0]['id'],'note');self.assertEqual(dispatch.call_args.args[0]['match_scope'],'title')
+        for invalid in ({'items':[]}, {**page(),'table_projection_candidates':[{'html':'private'}]}, {**page(),'items':[{**row,'excerpt':'body'}]}, {**page(),'items':[{**row,'folder_id':'other'}]}):
+            with self.subTest(invalid=invalid),self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=invalid),self.assertRaises(SafetyError):
+                NativeReader('notes').read('search',text='Title',folder_id='folder',match_scope='title')
+
     def test_due_range_and_priority_filters_refuse_invalid_values_before_sdk(self):
         cases=[{'due_from':'2026-10-28','due_through':'2026-10-27','timezone':'UTC'},
                {'due_from':'2026-10-27'}, {'due_date':'2026-10-27','due_from':'2026-10-26','timezone':'UTC'},

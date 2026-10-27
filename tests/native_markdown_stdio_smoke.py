@@ -32,6 +32,7 @@ def run():
                 args_search={'text':'Priority','modified_from':'2026-10-27T12:00:00Z','modified_before':'2026-10-27T13:00:00Z'}
                 matched=data(rpc('tools/call',{'name':'notes_search','arguments':args_search})['result']);assert matched['items'][0]['modified']=='2026-10-27T12:30:00.000Z' and matched['items'][0]['match_source']=='exported_table_text'
                 assert rpc('tools/call',{'name':'notes_search','arguments':dict(args_search,modified_before='2026-10-27T11:00:00Z')})['result'].get('isError')
+                titles=data(rpc('tools/call',{'name':'notes_search','arguments':{'text':'Title','folder_id':'folder','match_scope':'title'}})['result']);assert titles['items'][0]['title']=='Synthetic Title' and titles['items'][0]['excerpt']==''
                 args={'folder_id':'folder','id':'synthetic-note'};native=data(call(args));assert 'markdown' not in native['item']
                 projected=data(call(dict(args,representation='markdown')));item=projected['item'];assert item['html']==native['item']['html'];assert 'Priority' in item['markdown'] and '| ---' in item['markdown'];assert item['markdown_projection']['round_trip_safe'] is False
                 assert call(dict(args,representation='execute-script')).get('isError');assert call(dict(args,representation=True)).get('isError')

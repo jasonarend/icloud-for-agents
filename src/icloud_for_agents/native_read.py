@@ -120,6 +120,9 @@ class NativeReader:
         representation=fields.pop('representation','native')
         if (not isinstance(representation,str) or representation not in {'native','markdown'} or
                 (representation!='native' and (self.name!='notes' or action!='get'))):raise SafetyError('Markdown is a read-only Notes get representation')
+        match_scope=fields.pop('match_scope','all')
+        if not isinstance(match_scope,str) or match_scope not in {'all','title'} or (match_scope!='all' and (self.name!='notes' or action!='search')):
+            raise SafetyError('Title-only search is supported only for Notes search')
         if set(fields) - {'id', 'folder_id', 'list_id', 'limit', 'offset', 'completed', 'text', 'due_date', 'timezone', 'include_overdue', 'due_from', 'due_through', 'priorities', 'flagged', 'tag', 'source_id', 'modified_from', 'modified_before'}:
             raise SafetyError('Unknown native read fields')
         modified={k:fields[k] for k in ('modified_from','modified_before') if fields.get(k) is not None}
@@ -161,6 +164,7 @@ class NativeReader:
             raise SafetyError('Invalid overdue filter')
         request = {'protocol_version': 1, 'action': action, 'source_ids': sources,
                    **{k: v for k, v in fields.items() if v is not None}}
+        if match_scope=='title':request['match_scope']='title'
         if action=='model_folder_role':request['source_ids']=[fields['source_id']]
         request.update(native_selections)
         if action in {'folders','query','search','attachments','lists'}:
@@ -245,6 +249,15 @@ class NativeReader:
             candidates=result.pop('table_projection_candidates',[])
             if not isinstance(candidates,list) or len(candidates)>limit:
                 raise SafetyError('Invalid bounded Notes search projection')
+            if match_scope=='title':
+                if (native_config('notes')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode
+                        or result.get('match_scope')!='title' or candidates or not isinstance(result.get('items'),list)
+                        or any(not isinstance(row,dict) or not isinstance(row.get('id'),str) or not row['id']
+                               or row.get('source_id') not in sources or not isinstance(row.get('folder_id'),str) or not row['folder_id']
+                               or (fields.get('folder_id') is not None and row['folder_id']!=fields['folder_id'])
+                               or not isinstance(row.get('title'),str) or fields['text'].lower() not in row['title'].lower()
+                               or row.get('excerpt')!='' for row in result['items'])):
+                    raise SafetyError('Configured helper did not verify title-only Notes search')
             if modified:
                 if (native_config('notes')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode
                         or result.get('modified_filter')!={'from':modified.get('modified_from'),'before':modified.get('modified_before'),'semantics':'utc_inclusive_from_exclusive_before'}
@@ -635,9 +648,10 @@ def register_read_tools(mcp):
         @mcp.tool(annotations=annotations)
         @guard
         def notes_search(text: str, folder_id: str | None = None, limit: int = 50, offset: int = 0,
-                         modified_from: str | None = None, modified_before: str | None = None) -> dict:
-            """Search bounded title, plaintext and exported table text. Optional UTC modification bounds are inclusive from and exclusive before; follow next_offset even after empty pages."""
-            return NativeReader('notes').read('search', text=text, folder_id=folder_id, limit=limit, offset=offset, modified_from=modified_from, modified_before=modified_before)
+                         modified_from: str | None = None, modified_before: str | None = None,
+                         match_scope: Literal['all','title'] = 'all') -> dict:
+            """Search bounded title, plaintext and exported table text, or titles only without reading bodies. UTC modification bounds are inclusive from and exclusive before; follow next_offset even after empty pages."""
+            return NativeReader('notes').read('search', text=text, folder_id=folder_id, limit=limit, offset=offset, modified_from=modified_from, modified_before=modified_before,match_scope=match_scope)
 
         @mcp.tool(annotations=annotations)
         @guard
