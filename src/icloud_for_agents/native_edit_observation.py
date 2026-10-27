@@ -38,4 +38,5 @@ def inspect_uncertain_note_edit(engine, plan_id, folder_id):
             'observed_folder_id':folder_id,'observable_content_matches_before':unchanged,
             'original_modified':note.get('modified'),'observed_modified':current.get('modified'),
             'terminal_exchange_observed':True,'helper_outcome':exchange['helper_outcome'],
+            'terminal_exchange_sha256':digest(exchange),
             'data_mutated':False,'original_uncertainty_retained':True,'causal_dispatch_proven':False,'do_not_retry':True}

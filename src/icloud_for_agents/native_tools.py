@@ -32,7 +32,7 @@ def editor(name,write=False):
 def check_plan_scope(name,plan_id):
     status=access_status(name)
     plan=PlanStore().read(PlanStore().path(plan_id,'.json'))
-    allowed={name+'_change'} | ({'notes_recovery','notes_move_recovery'} if name=='notes' else set())
+    allowed={name+'_change'} | ({'notes_recovery','notes_move_recovery','notes_edit_recovery'} if name=='notes' else set())
     if plan.get('kind') not in allowed or plan.get('payload',{}).get('account')!=owner():
         raise SafetyError('Plan belongs to another service or owner')
     if not set(plan['payload'].get('context',{}).get('source_ids',[]))<=set(status['source_ids']):
@@ -103,6 +103,7 @@ def register_change_tools(mcp):
 
     if enabled('notes'):
         from .native_move_recovery import NotesMoveRecovery
+        from .native_edit_recovery import NotesEditRecovery
         @mcp.tool(annotations=READ)
         @guard
         def notes_inspect_uncertain_edit(plan_id:str, folder_id:str)->dict:
@@ -110,6 +111,30 @@ def register_change_tools(mcp):
             from .native_edit_observation import inspect_uncertain_note_edit
             check_plan_scope('notes',plan_id)
             return inspect_uncertain_note_edit(editor('notes'),plan_id,folder_id)
+
+        @mcp.tool(annotations=WRITE)
+        @guard
+        def notes_prepare_edit_recovery(plan_id:str, folder_id:str)->dict:
+            """Prepare a reviewed acknowledgement of an exact unchanged note after an uncertain edit; no native data is changed."""
+            check_plan_scope('notes',plan_id)
+            return NotesEditRecovery(owner()).prepare(plan_id,folder_id)
+        @mcp.tool(annotations=WRITE)
+        @guard
+        def notes_accept_edit_recovery(plan_id:str)->dict:
+            """Accept the exact reviewed observation under the selected approval policy; no retry or causal dispatch claim."""
+            check_plan_scope('notes',plan_id)
+            return NotesEditRecovery(owner()).execute(plan_id)
+        @mcp.tool(annotations=WRITE)
+        @guard
+        def notes_finalize_edit_recovery(plan_id:str)->dict:
+            """Finalize an already accepted observation after interruption without native mutation."""
+            check_plan_scope('notes',plan_id)
+            return NotesEditRecovery(owner()).finalize(plan_id)
+        @mcp.tool(annotations=WRITE)
+        @guard
+        def notes_abandon_edit_recovery(plan_id:str)->dict:
+            """Withdraw an observation without clearing the original uncertainty."""
+            return NotesEditRecovery(owner()).abandon(plan_id)
 
         @mcp.tool(annotations=WRITE)
         @guard
