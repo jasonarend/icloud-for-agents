@@ -82,6 +82,8 @@ class NativeRemindersTests(unittest.TestCase):
         return metadata
     def test_selected_native_backend_binds_and_verifies_preserved_flags_and_tags(self):
         metadata=self.native_reader();item=self.existing();self.assertIs(item['before']['native_metadata']['flagged'],False)
+        from icloud_for_agents.native_protocol import mutation_request
+        self.assertEqual(mutation_request('reminders',item)['change']['before']['native_metadata'],item['before']['native_metadata'])
         self.reader.item['notes']='Edited body';outcome={'id':'created','source_id':'selected'}
         self.assertTrue(self.adapter.verify(item,outcome))
         metadata['flagged']=True;metadata['flag_state']=1

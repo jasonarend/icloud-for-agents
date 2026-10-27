@@ -34,6 +34,17 @@ class NativeProtocolTests(unittest.TestCase):
         request=mutation_request('reminders',item)
         self.assertEqual(request['change']['before'],{'item':before})
         self.assertNotIn('effects',request['change'])
+    def test_existing_reminder_envelope_preserves_optional_native_prewrite_guard(self):
+        native={'id':'task','source_id':'selected','list_id':'list','flagged':True,'flag_state':1,
+                'tags':[{'id':'tag','name':'Project','native_type':0}],'tags_complete':True,'coverage':['flagged','tags']}
+        for operation in ('update_reminder','set_completed','move_reminder','set_recurrence'):
+            item={'operation':operation,'source_id':'selected','id':'task','fields':{},
+                  'before':{'item':{'id':'task'},'native_metadata':native,'list':{'id':'list'}}}
+            with self.subTest(operation=operation):
+                request=mutation_request('reminders',item)
+                self.assertEqual(request['change']['before'],{'item':{'id':'task'},'native_metadata':native})
+                self.assertNotIn('list',request['change']['before'])
+
     def test_move_keeps_attachment_inventory_and_exact_identity(self):
         item=self.item();item['operation']='move_note';item['fields']={'title':'Synthetic','destination_folder_id':'destination'}
         item['before']['attachments']=[{'id':'asset','note_id':'note','content_identifier':'cid:asset','name':'synthetic.pdf'}]

@@ -21,7 +21,9 @@ def mutation_request(service,item):
             if operation=='move_note':change['before']['attachments']=before['attachments']
     elif service=='reminders' and operation in {'create_list','create_reminder','update_reminder','set_completed','move_reminder','rename_list','set_list_color','set_recurrence'}:
         change={key:item[key] for key in ('operation','source_id','list_id','id','fields') if key in item}
-        if operation in {'update_reminder','set_completed','move_reminder','set_recurrence'}:change['before']={'item':item['before']['item']}
+        if operation in {'update_reminder','set_completed','move_reminder','set_recurrence'}:
+            change['before']={'item':item['before']['item']}
+            if 'native_metadata' in item['before']:change['before']['native_metadata']=item['before']['native_metadata']
         if operation in {'rename_list','set_list_color'}:change['before']=item['before']
     else:
         # Unknown operations are never introduced by the fixed MCP adapters.
