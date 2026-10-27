@@ -28,8 +28,14 @@ class NativeMutationGate:NSObject {
     private static let lock=NSLock()
     private static var closed=false
     private static var dispatched=false
+    private static var deadline:TimeInterval?
+    class func armDeadline() {
+        lock.lock();defer {lock.unlock()}
+        if deadline == nil {deadline=ProcessInfo.processInfo.systemUptime+25}
+    }
     @objc class func beginMutation()->Bool {
         lock.lock();defer {lock.unlock()}
+        if let limit=deadline,ProcessInfo.processInfo.systemUptime>=limit {closed=true}
         if closed {return false}
         dispatched=true;return true
     }
@@ -182,6 +188,7 @@ if service == "notes" {
         launchLock.lock();let ready=finished && launched;launchLock.unlock()
         guard ready else {fail("notes_application_launch_failed")}
     }
+    if action == "apply" {NativeMutationGate.armDeadline()}
     if action == "diagnose_read_access" {
         // Explicit operator setup probe: a real, minimal read through normal OS
         // enforcement. Does not inspect note bodies, alter policy or approve consent.

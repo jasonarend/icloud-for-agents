@@ -38,7 +38,7 @@ int main(){@autoreleasepool{
  for(int mode=0;mode<3;mode++) {
   special=mode==0;shared=mode==1;
   if(mode==2)[fixture performBlockAndWait:^{[root setValue:@1 forKey:@"folderType"];[fixture save:NULL];}];
-  NSDictionary *refused=[NSJSONSerialization JSONObjectWithData:ICloudNotesModelRename(data,^BOOL{NSCAssert(NO,@"special/shared must not dispatch");return YES;}) options:0 error:NULL];NSCAssert([refused[@"category"] isEqual:@"snapshot_changed"],@"role refusal");
+  NSDictionary *refused=[NSJSONSerialization JSONObjectWithData:ICloudNotesModelRename(data,^BOOL{NSCAssert(NO,@"special/shared must not dispatch");return YES;}) options:0 error:NULL];NSCAssert([refused[@"category"] isEqual:@"unsupported_edit_target"],@"role refusal");
   special=NO;shared=NO;
   if(mode==2)[fixture performBlockAndWait:^{[root setValue:@0 forKey:@"folderType"];[fixture save:NULL];}];
  }
@@ -50,7 +50,7 @@ int main(){@autoreleasepool{
  [fixture performBlockAndWait:^{NSCAssert([[root valueForKey:@"title"] isEqual:@"External pending"],@"pending untouched");[fixture rollback];}];
  NSDictionary *saved=[NSJSONSerialization JSONObjectWithData:ICloudNotesModelRename(data,^BOOL{entries++;return YES;}) options:0 error:NULL];NSCAssert(saved[@"result"] && entries==3,@"saved exact target");
  [fixture performBlockAndWait:^{NSCAssert([[root valueForKey:@"title"] isEqual:@"Renamed"] && !fixture.hasChanges,@"saved");}];
- NSDictionary *stale=[NSJSONSerialization JSONObjectWithData:ICloudNotesModelRename(data,^BOOL{NSCAssert(NO,@"stale must not dispatch");return YES;}) options:0 error:NULL];NSCAssert([stale[@"category"] isEqual:@"snapshot_changed"],@"stale");
+ NSDictionary *stale=[NSJSONSerialization JSONObjectWithData:ICloudNotesModelRename(data,^BOOL{NSCAssert(NO,@"stale must not dispatch");return YES;}) options:0 error:NULL];NSCAssert([stale[@"category"] isEqual:@"snapshot_changed"] && [stale[@"diagnostic_stage"] isEqual:@"compare_persisted_title"],@"stale with redacted stage");
  puts("in-memory native model: closed gate, pre-save rollback, dirty context, special/shared roles, exact save and stale snapshot passed");return 0;
 }}
 '''

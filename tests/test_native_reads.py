@@ -23,6 +23,15 @@ class NativeReadTests(unittest.TestCase):
         env.update(extra)
         return patch.dict(os.environ, env, clear=True)
 
+    def test_native_store_refusal_has_safe_separate_access_guidance(self):
+        from icloud_for_agents.native_read import _confirmed_refusal
+        request={'service':'notes','action':'apply'}
+        failure=_confirmed_refusal('notes',request,{'error':'notes_model_refused','category':'notes_model_store_unavailable','mutation_dispatched':False,'diagnostic_stage':'resolve_exact_folder'})
+        self.assertEqual(failure.evidence['reason'],'notes_model_store_unavailable')
+        self.assertIn('Automation access is separate',str(failure));self.assertFalse(failure.evidence['mutation_dispatched'])
+        injected=_confirmed_refusal('notes',request,{'error':'notes_model_refused','category':'untrusted arbitrary content','mutation_dispatched':False})
+        self.assertEqual(injected.evidence['reason'],'helper_validation');self.assertNotIn('untrusted arbitrary content',str(injected))
+
     def test_disabled_unknown_or_unscoped_refused_before_backend(self):
         with self.env(ICLOUD_ENABLE_NOTES='0'), patch('subprocess.run', side_effect=AssertionError('No helper')):
             with self.assertRaises(SafetyError): NativeReader('notes').read('sources')

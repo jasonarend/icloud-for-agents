@@ -46,7 +46,13 @@ if CommandLine.arguments[2]=="closed" {precondition(dispatched==false)} else {pr
             result=subprocess.run([str(binary),state],capture_output=True,text=True,timeout=5);assert result.returncode==0,result.stderr;value=json.loads(result.stdout)
             assert value['mutation_dispatched'] is (state=='entered')
             assert value['error']==('mutation_failed_or_uncertain' if state=='entered' else 'notes_validation_timeout')
-    return {'status':'passed','real_notes_access':False,'cases':['production_bridge_resolves_gate_class','cancel_before_dispatch_has_no_native_primitive','primitive_entry_recorded_monotonically','closed_gate_prevents_later_mutation','synthetic_folder_creation_only','timeout_before_primitive_proves_no_dispatch','timeout_after_entry_remains_uncertain']}
+    with tempfile.TemporaryDirectory(prefix='native-dispatch-deadline-') as directory:
+        path=Path(directory);file=path/'main.swift';binary=path/'contract'
+        clocked=gate.replace('ProcessInfo.processInfo.systemUptime','syntheticUptime')
+        file.write_text('import Foundation\nvar syntheticUptime:TimeInterval=100\n'+clocked+'\nNativeMutationGate.armDeadline()\nsyntheticUptime=126\nprecondition(!NativeMutationGate.beginMutation())\nprecondition(!NativeMutationGate.cancel())\nprint("expired gate refused before primitive")\n')
+        compiled=subprocess.run(['/usr/bin/swiftc',str(file),'-o',str(binary)],capture_output=True,text=True,timeout=60);assert compiled.returncode==0,compiled.stderr
+        subprocess.run([str(binary)],capture_output=True,text=True,check=True,timeout=5)
+    return {'status':'passed','real_notes_access':False,'cases':['production_bridge_resolves_gate_class','cancel_before_dispatch_has_no_native_primitive','primitive_entry_recorded_monotonically','closed_gate_prevents_later_mutation','synthetic_folder_creation_only','timeout_before_primitive_proves_no_dispatch','timeout_after_entry_remains_uncertain','monotonic_deadline_refuses_late_primitive_even_if_main_loop_stalls']}
 
 if __name__=='__main__':
     result=run();path=ROOT/'build/reports/NATIVE-DISPATCH-GATE-CONTRACT.json';path.parent.mkdir(parents=True,exist_ok=True);path.write_text(json.dumps(result,indent=2)+'\n');print(json.dumps(result,indent=2))

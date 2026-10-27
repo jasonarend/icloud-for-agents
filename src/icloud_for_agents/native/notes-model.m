@@ -8,8 +8,8 @@
 static NSData *Encode(NSDictionary *value) {
     return [NSJSONSerialization dataWithJSONObject:value options:0 error:NULL] ?: [NSData data];
 }
-static NSDictionary *Failure(NSString *reason,BOOL dispatched) {
-    return @{@"protocol_version":@1,@"error":@"notes_model_refused",@"category":reason,@"mutation_dispatched":@(dispatched)};
+static NSDictionary *Failure(NSString *reason,BOOL dispatched,NSString *stage) {
+    return @{@"protocol_version":@1,@"error":@"notes_model_refused",@"category":reason,@"mutation_dispatched":@(dispatched),@"diagnostic_stage":stage};
 }
 static BOOL ModelAvailable(void) {
     if(NSProcessInfo.processInfo.operatingSystemVersion.majorVersion!=27)return NO;
@@ -54,75 +54,101 @@ static BOOL Inventory(NSManagedObject *folder,NSString *source,NSUInteger depth,
 static NSArray *Sorted(NSArray *rows) {return [rows sortedArrayUsingComparator:^NSComparisonResult(NSDictionary *a,NSDictionary *b){return [a[@"id"] compare:b[@"id"] options:NSLiteralSearch];}];}
 
 NSData *ICloudNotesModelRename(NSData *data,BOOL (^enterMutation)(void)) {
-    __block BOOL dispatched=NO;__block NSManagedObjectContext *moc=nil;__block NSDictionary *answer=nil;
+    __block BOOL dispatched=NO;__block NSManagedObjectContext *moc=nil;__block NSDictionary *answer=nil;__block NSString *stage=@"request_validation";
     @try {
         NSDictionary *request=[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
-        if(![request isKindOfClass:NSDictionary.class])return Encode(Failure(@"invalid_request",NO));
+        if(![request isKindOfClass:NSDictionary.class])return Encode(Failure(@"invalid_request",NO,stage));
         NSDictionary *change=request[@"change"];
-        if(![change isKindOfClass:NSDictionary.class])return Encode(Failure(@"invalid_request",NO));
+        if(![change isKindOfClass:NSDictionary.class])return Encode(Failure(@"invalid_request",NO,stage));
         NSDictionary *fields=change[@"fields"],*before=change[@"before"];
-        if(![fields isKindOfClass:NSDictionary.class] || ![before isKindOfClass:NSDictionary.class])return Encode(Failure(@"invalid_request",NO));
+        if(![fields isKindOfClass:NSDictionary.class] || ![before isKindOfClass:NSDictionary.class])return Encode(Failure(@"invalid_request",NO,stage));
         NSDictionary *expected=before[@"inventory"],*role=before[@"role"];
         NSString *source=change[@"source_id"],*identity=change[@"id"],*title=fields[@"title"];
         NSArray *sources=request[@"source_ids"];
-        if(![change isKindOfClass:NSDictionary.class] || ![fields isKindOfClass:NSDictionary.class] || ![before isKindOfClass:NSDictionary.class] || ![expected isKindOfClass:NSDictionary.class] || ![role isKindOfClass:NSDictionary.class] || ![source isKindOfClass:NSString.class] || ![identity isKindOfClass:NSString.class] || ![sources isKindOfClass:NSArray.class] || sources.count!=1 || ![sources[0] isEqual:source] || ![change[@"folder_id"] isEqual:identity] || ![change[@"operation"] isEqual:@"rename_folder"] || ![change[@"writer_backend"] isEqual:@"notes-shared"] || ![title isKindOfClass:NSString.class] || title.length<1 || title.length>1000 || [title rangeOfCharacterFromSet:NSCharacterSet.controlCharacterSet].location!=NSNotFound || ![role[@"folder_id"] isEqual:identity] || ![role[@"source_id"] isEqual:source] || ![role[@"storage_kind"] isEqual:@"regular"] || ![role[@"title"] isKindOfClass:NSString.class])return Encode(Failure(@"invalid_request",NO));
-        if(![expected[@"folders"] isKindOfClass:NSArray.class] || ![expected[@"notes"] isKindOfClass:NSArray.class] || [expected[@"folders"] count]<1 || [expected[@"folders"] count]>100 || [expected[@"notes"] count]>200 || expected.count!=3 || fields.count!=1)return Encode(Failure(@"invalid_request",NO));
-        if(!ModelAvailable())return Encode(Failure(@"unsupported_edit_target",NO));
-        Class cls=NSClassFromString(@"ICNoteContext");
-        ((void(*)(id,SEL,unsigned long long))objc_msgSend)((id)cls,NSSelectorFromString(@"startSharedContextWithOptions:"),0);
-        id context=((id(*)(id,SEL))objc_msgSend)((id)cls,NSSelectorFromString(@"sharedContext"));
-        id candidate=[context valueForKey:@"managedObjectContext"];
-        if(![candidate isKindOfClass:NSManagedObjectContext.class])return Encode(Failure(@"notes_model_unavailable",NO));
-        moc=candidate;
+        if(![change isKindOfClass:NSDictionary.class] || ![fields isKindOfClass:NSDictionary.class] || ![before isKindOfClass:NSDictionary.class] || ![expected isKindOfClass:NSDictionary.class] || ![role isKindOfClass:NSDictionary.class] || ![source isKindOfClass:NSString.class] || ![identity isKindOfClass:NSString.class] || ![sources isKindOfClass:NSArray.class] || sources.count!=1 || ![sources[0] isEqual:source] || ![change[@"folder_id"] isEqual:identity] || ![change[@"operation"] isEqual:@"rename_folder"] || ![change[@"writer_backend"] isEqual:@"notes-shared"] || ![title isKindOfClass:NSString.class] || title.length<1 || title.length>1000 || [title rangeOfCharacterFromSet:NSCharacterSet.controlCharacterSet].location!=NSNotFound || ![role[@"folder_id"] isEqual:identity] || ![role[@"source_id"] isEqual:source] || ![role[@"storage_kind"] isEqual:@"regular"] || ![role[@"title"] isKindOfClass:NSString.class])return Encode(Failure(@"invalid_request",NO,stage));
+        if(![expected[@"folders"] isKindOfClass:NSArray.class] || ![expected[@"notes"] isKindOfClass:NSArray.class] || [expected[@"folders"] count]<1 || [expected[@"folders"] count]>100 || [expected[@"notes"] count]>200 || expected.count!=3 || fields.count!=1)return Encode(Failure(@"invalid_request",NO,stage));
+        stage=@"interface_check";
+        if(!ModelAvailable())return Encode(Failure(@"unsupported_edit_target",NO,stage));
+        stage=@"context_initialization";
+        void (^initializeContext)(void)=^{
+            @try {
+            Class cls=NSClassFromString(@"ICNoteContext");
+            ((void(*)(id,SEL,unsigned long long))objc_msgSend)((id)cls,NSSelectorFromString(@"startSharedContextWithOptions:"),0);
+            id context=((id(*)(id,SEL))objc_msgSend)((id)cls,NSSelectorFromString(@"sharedContext"));
+            id candidate=[context valueForKey:@"managedObjectContext"];
+            if([candidate isKindOfClass:NSManagedObjectContext.class])moc=candidate;
+            } @catch(NSException *exception) {answer=Failure(@"notes_model_exception",NO,stage);}
+        };
+        if(NSThread.isMainThread)initializeContext();else dispatch_sync(dispatch_get_main_queue(),initializeContext);
+        if(answer)return Encode(answer);
+        if(!moc)return Encode(Failure(@"notes_model_unavailable",NO,stage));
         [moc performBlockAndWait:^{
             @try {
-                if(moc.hasChanges) {answer=Failure(@"notes_model_has_unrelated_changes",NO);return;}
+                if(moc.hasChanges) {answer=Failure(@"notes_model_has_unrelated_changes",NO,stage);return;}
+                stage=@"resolve_exact_folder";
                 NSURL *url=[NSURL URLWithString:identity];NSManagedObjectID *oid=url?[moc.persistentStoreCoordinator managedObjectIDForURIRepresentation:url]:nil;
                 NSManagedObject *folder=oid?[moc existingObjectWithID:oid error:NULL]:nil;
-                if(!folder || ![Identity(folder) isEqual:identity] || !FolderAllowed(folder,source,YES) || ![[folder valueForKey:@"title"] isEqual:role[@"title"]]) {answer=Failure(@"snapshot_changed",NO);return;}
+                if(!folder || ![Identity(folder) isEqual:identity]) {
+                    NSMutableDictionary *failure=[Failure(moc.persistentStoreCoordinator.persistentStores.count ? @"not_found_in_scope":@"notes_model_store_unavailable",NO,stage) mutableCopy];
+                    failure[@"store_count"]=@(moc.persistentStoreCoordinator.persistentStores.count);
+                    failure[@"has_coordinator"]=@(moc.persistentStoreCoordinator!=nil);
+                    failure[@"has_parent_context"]=@(moc.parentContext!=nil);
+                    failure[@"uri_resolved"]=@(oid!=nil);answer=failure;return;
+                }
+                stage=@"validate_folder_role";
+                if(!FolderAllowed(folder,source,YES)) {answer=Failure(@"unsupported_edit_target",NO,stage);return;}
+                stage=@"compare_persisted_title";
+                if(![[folder valueForKey:@"title"] isEqual:role[@"title"]]) {answer=Failure(@"snapshot_changed",NO,stage);return;}
+                stage=@"validate_ancestors";
                 NSMutableSet *ancestors=[NSMutableSet set];NSManagedObject *ancestor=folder;
                 for(NSUInteger depth=0;ancestor;depth++) {
-                    if(depth>=32 || [ancestors containsObject:ancestor.objectID] || !FolderAllowed(ancestor,source,NO)) {answer=Failure(@"unsupported_edit_target",NO);return;}
+                    if(depth>=32 || [ancestors containsObject:ancestor.objectID] || !FolderAllowed(ancestor,source,NO)) {answer=Failure(@"unsupported_edit_target",NO,stage);return;}
                     [ancestors addObject:ancestor.objectID];ancestor=[ancestor valueForKey:@"parent"];
                 }
+                stage=@"subtree_inventory";
                 NSMutableArray *folders=[NSMutableArray array],*notes=[NSMutableArray array],*siblings=[NSMutableArray array];NSMutableSet *seen=[NSMutableSet set];
-                if(!Inventory(folder,source,0,folders,notes,seen)) {answer=Failure(@"unsupported_edit_target",NO);return;}
+                if(!Inventory(folder,source,0,folders,notes,seen)) {answer=Failure(@"unsupported_edit_target",NO,stage);return;}
                 NSManagedObject *parent=[folder valueForKey:@"parent"],*account=[folder valueForKey:@"account"];
-                if(![expected[@"siblings"] isKindOfClass:NSArray.class] || [expected[@"siblings"] count]>10000) {answer=Failure(@"invalid_request",NO);return;}
+                stage=@"validate_siblings";
+                if(![expected[@"siblings"] isKindOfClass:NSArray.class] || [expected[@"siblings"] count]>10000) {answer=Failure(@"invalid_request",NO,stage);return;}
                 NSMutableSet *peerIDs=[NSMutableSet set];
                 for(NSDictionary *row in expected[@"siblings"]) {
-                    if(![row isKindOfClass:NSDictionary.class] || row.count!=2 || ![row[@"id"] isKindOfClass:NSString.class] || ![row[@"title"] isKindOfClass:NSString.class]) {answer=Failure(@"invalid_request",NO);return;}
+                    if(![row isKindOfClass:NSDictionary.class] || row.count!=2 || ![row[@"id"] isKindOfClass:NSString.class] || ![row[@"title"] isKindOfClass:NSString.class]) {answer=Failure(@"invalid_request",NO,stage);return;}
                     NSURL *peerURL=[NSURL URLWithString:row[@"id"]];NSManagedObjectID *peerID=peerURL?[moc.persistentStoreCoordinator managedObjectIDForURIRepresentation:peerURL]:nil;
                     NSManagedObject *peer=peerID?[moc existingObjectWithID:peerID error:NULL]:nil;
-                    if(!peer || [peerIDs containsObject:peerID] || [peerID isEqual:folder.objectID] || ![peer.entity.name isEqual:@"ICFolder"] || ![[peer valueForKey:@"account"] isEqual:account] || !(([peer valueForKey:@"parent"]==parent)||[[peer valueForKey:@"parent"] isEqual:parent]) || [[peer valueForKey:@"markedForDeletion"] boolValue] || ![[peer valueForKey:@"title"] isEqual:row[@"title"]]) {answer=Failure(@"snapshot_changed",NO);return;}
+                    if(!peer || [peerIDs containsObject:peerID] || [peerID isEqual:folder.objectID] || ![peer.entity.name isEqual:@"ICFolder"] || ![[peer valueForKey:@"account"] isEqual:account] || !(([peer valueForKey:@"parent"]==parent)||[[peer valueForKey:@"parent"] isEqual:parent]) || [[peer valueForKey:@"markedForDeletion"] boolValue] || ![[peer valueForKey:@"title"] isEqual:row[@"title"]]) {answer=Failure(@"snapshot_changed",NO,stage);return;}
                     [peerIDs addObject:peerID];[siblings addObject:row];
                 }
                 // Check collisions without enumerating unrelated hidden folder metadata.
+                stage=@"check_title_collision";
                 NSFetchRequest *fetch=[NSFetchRequest fetchRequestWithEntityName:@"ICFolder"];fetch.fetchLimit=2;
                 fetch.predicate=[NSPredicate predicateWithFormat:@"account == %@ AND parent == %@ AND markedForDeletion == NO AND title == %@",account,parent,title];
                 NSArray *collisions=[moc executeFetchRequest:fetch error:NULL];
-                if(!collisions) {answer=Failure(@"notes_model_unavailable",NO);return;}
-                for(NSManagedObject *peer in collisions)if(![peer.objectID isEqual:folder.objectID]) {answer=Failure(@"duplicate_folder",NO);return;}
+                if(!collisions) {answer=Failure(@"notes_model_unavailable",NO,stage);return;}
+                for(NSManagedObject *peer in collisions)if(![peer.objectID isEqual:folder.objectID]) {answer=Failure(@"duplicate_folder",NO,stage);return;}
+                stage=@"compare_inventory";
                 NSMutableDictionary *wanted=[expected mutableCopy];NSMutableArray *wantedFolders=[NSMutableArray array];
                 for(NSDictionary *row in expected[@"folders"]) {NSMutableDictionary *copy=[row mutableCopy];if([copy[@"id"] isEqual:identity])copy[@"title"]=role[@"title"];[wantedFolders addObject:copy];}
                 wanted[@"folders"]=wantedFolders;
                 NSDictionary *observed=@{@"folders":Sorted(folders),@"notes":Sorted(notes),@"siblings":Sorted(siblings)};
-                if(![observed isEqual:wanted]) {answer=Failure(@"snapshot_changed",NO);return;}
-                if(!enterMutation()) {answer=Failure(@"native_dispatch_cancelled",NO);return;}
+                if(![observed isEqual:wanted]) {answer=Failure(@"snapshot_changed",NO,stage);return;}
+                stage=@"dispatch_gate";
+                if(!enterMutation()) {answer=Failure(@"native_dispatch_cancelled",NO,stage);return;}
                 dispatched=YES;
                 [folder setValue:title forKey:@"title"];
                 NSMutableSet *allowed=[seen mutableCopy];
                 for(NSManagedObject *object in moc.registeredObjects) {
                     if([seen containsObject:object.objectID] && object.entity.relationshipsByName[@"cloudState"]) {NSManagedObject *cloud=[object valueForKey:@"cloudState"];if(cloud)[allowed addObject:cloud.objectID];}
                 }
-                if(moc.insertedObjects.count || moc.deletedObjects.count) { [moc rollback];answer=Failure(@"unexpected_model_effect",YES);return; }
-                for(NSManagedObject *object in moc.updatedObjects)if(![allowed containsObject:object.objectID]) {[moc rollback];answer=Failure(@"unexpected_model_effect",YES);return;}
-                if(!enterMutation()) {[moc rollback];answer=Failure(@"native_dispatch_cancelled",YES);return;}
+                if(moc.insertedObjects.count || moc.deletedObjects.count) { [moc rollback];answer=Failure(@"unexpected_model_effect",YES,stage);return; }
+                for(NSManagedObject *object in moc.updatedObjects)if(![allowed containsObject:object.objectID]) {[moc rollback];answer=Failure(@"unexpected_model_effect",YES,stage);return;}
+                if(!enterMutation()) {[moc rollback];answer=Failure(@"native_dispatch_cancelled",YES,stage);return;}
+                stage=@"save_title";
                 NSError *error=nil;
-                if(![moc save:&error]) {answer=Failure(@"model_save_failed",YES);return;}
+                if(![moc save:&error]) {answer=Failure(@"model_save_failed",YES,stage);return;}
                 answer=@{@"protocol_version":@1,@"result":@{@"id":identity,@"source_id":source,@"saved_locally":@YES,@"method":@"notes-shared-folder-v1"}};
-            } @catch(NSException *exception) {if(moc.hasChanges)[moc rollback];answer=Failure(@"notes_model_exception",dispatched);}
+            } @catch(NSException *exception) {if(moc.hasChanges)[moc rollback];answer=Failure(@"notes_model_exception",dispatched,stage);}
         }];
-        return Encode(answer ?: Failure(@"notes_model_unavailable",dispatched));
-    } @catch(NSException *exception) {return Encode(Failure(@"notes_model_exception",dispatched));}
+        return Encode(answer ?: Failure(@"notes_model_unavailable",dispatched,stage));
+    } @catch(NSException *exception) {return Encode(Failure(@"notes_model_exception",dispatched,stage));}
 }
