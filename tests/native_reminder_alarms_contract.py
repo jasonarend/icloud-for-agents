@@ -12,13 +12,13 @@ let request=try JSONSerialization.jsonObject(with:FileHandle.standardInput.readD
 var due:DateComponents?=nil
 if request["timed"] as? Bool == true {var d=DateComponents();d.year=2027;d.month=1;d.day=4;d.hour=12;d.minute=0;d.timeZone=TimeZone(identifier:"UTC");due=d}
 let alarms=reminderTimeAlarms(request["alarms"]!,due:due)
-precondition(alarms.allSatisfy(ordinaryTimeAlarm))
 let email=EKAlarm(relativeOffset:0);email.emailAddress="synthetic@example.com";precondition(!ordinaryTimeAlarm(email))
 let sound=EKAlarm(relativeOffset:0);sound.soundName="Synthetic";precondition(!ordinaryTimeAlarm(sound))
 let location=EKAlarm(relativeOffset:0);location.structuredLocation=EKStructuredLocation(title:"Synthetic place");precondition(!ordinaryTimeAlarm(location))
 let place=EKStructuredLocation(title:"Synthetic location");place.geoLocation=CLLocation(latitude:12.25,longitude:-34.5);place.radius=250
 let arriving=EKAlarm(relativeOffset:0);arriving.structuredLocation=place;arriving.proximity = .enter
 let leaving=EKAlarm(relativeOffset:0);leaving.structuredLocation=place;leaving.proximity = .leave
+precondition(supportedExistingAlarm(arriving) && supportedExistingAlarm(leaving));precondition(!supportedExistingAlarm(location))
 let a=alarmObject(arriving),b=alarmObject(leaving),p=a["structured_location"] as! [String:Any]
 precondition((p["title"] as? String)=="Synthetic location" && (p["latitude"] as? Double)==12.25 && (p["longitude"] as? Double)==(-34.5) && (p["radius_meters"] as? Double)==250)
 precondition((a["proximity"] as? Int)==EKAlarmProximity.enter.rawValue && (b["proximity"] as? Int)==EKAlarmProximity.leave.rawValue)
@@ -31,6 +31,12 @@ FileHandle.standardOutput.write(try JSONSerialization.data(withJSONObject:alarms
         def call(alarms,timed=True):return subprocess.run([str(binary)],input=json.dumps({'alarms':alarms,'timed':timed}),capture_output=True,text=True,timeout=5)
         result=call([{'absolute_date':1800000000},{'relative_offset_seconds':-900}]);assert result.returncode==0,result.stderr
         values=json.loads(result.stdout);assert values[0]['absolute_date']==1800000000 and values[1]['relative_offset_seconds']==-900
+        geo={'location':{'title':'Synthetic location','latitude':12.25,'longitude':-34.5,'radius_meters':250,'proximity':'enter'}}
+        value=json.loads(call([geo]).stdout)[0];assert value['structured_location']=={'title':'Synthetic location','latitude':12.25,'longitude':-34.5,'radius_meters':250} and value['proximity']==1
+        leave={'location':{**geo['location'],'proximity':'leave'}};assert json.loads(call([leave]).stdout)[0]['proximity']==2
+        for invalid in ({**geo['location'],'latitude':True},{**geo['location'],'longitude':181},{**geo['location'],'radius_meters':-1},{**geo['location'],'proximity':'unknown'}):
+            assert call([{'location':invalid}]).returncode==3
+        assert call([geo,geo]).returncode==3
         assert json.loads(call([]).stdout)==[]
         for alarms in (None,[{'absolute_date':True}],[{'absolute_date':0}],[{'absolute_date':1800000000.5}],
                        [{'relative_offset_seconds':31536001}],[{'absolute_date':1800000000}]*2,

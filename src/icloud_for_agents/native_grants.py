@@ -15,7 +15,7 @@ from .native_once import selected_read_access
 FIELDS={
  'notes':{'create_note':{'title','body','format'},'append_note':{'body','format'},'prepend_note':{'body','format'},'replace_text':{'find','replacement','expected_matches'},
           'update_note':{'title','body','format'},'move_note':{'destination_folder_id'},'create_folder':{'title'},'rename_folder':{'title'}},
- 'reminders':{'create_reminder':{'title','notes','priority','due','start','url','alarms','recurrence'},'update_reminder':{'title','notes','priority','due','start','url','alarms'},
+ 'reminders':{'create_reminder':{'title','notes','priority','due','start','url','alarms','location_alarms','recurrence'},'update_reminder':{'title','notes','priority','due','start','url','alarms','location_alarms'},
               'set_completed':{'completed'},'move_reminder':{'list_id'},'create_list':{'title'},'rename_list':{'title'},'set_list_color':{'color'},'set_recurrence':{'recurrence','recurrence_scope'}}}
 
 
@@ -46,6 +46,7 @@ def validate_scope(name,scope,now):
         if (not isinstance(fields,list) or not fields or any(not isinstance(f,str) for f in fields)
                 or len(set(fields))!=len(fields) or set(fields)-FIELDS[name][op]):
             raise SafetyError('Native grant field scope must explicitly select supported fields')
+        if 'location_alarms' in fields and 'alarms' not in fields:raise SafetyError('Location-alarm authority requires explicit complete alarm-set authority')
         if (not isinstance(dest,list) or len(dest)>20 or any(not exact(d) for d in dest)
                 or len(set(dest))!=len(dest) or bool(dest)!=(op in {'move_note','move_reminder'})):
             raise SafetyError('Moves require exact destinations; other rules cannot grant them')
@@ -227,9 +228,16 @@ class NativeGrants:
                    else item.get('before',{}).get('item',{}).get('list_id'))
         fields=item.get('requested_fields')
         if not isinstance(fields,list) or not fields:raise SafetyError('Native standing plan lacks exact requested field scope')
+        requires_location=False
+        if self.name=='reminders' and op in {'create_reminder','update_reminder'} and 'alarms' in fields:
+            requested=item.get('fields',{}).get('alarms',[])
+            prior=item.get('before',{}).get('item',{}).get('alarms',[])
+            if not isinstance(requested,list) or not isinstance(prior,list):raise SafetyError('Location-alarm scope cannot be verified')
+            requires_location=any(isinstance(x,dict) and 'location' in x for x in requested) or any(isinstance(x,dict) and x.get('structured_location') is not None for x in prior)
         for rule in scope['rules']:
             if (op==rule['operation'] and item['source_id']==rule['source_id'] and container==rule['container_id']
                     and set(fields)<=set(rule['fields'])):
+                if requires_location and 'location_alarms' not in rule['fields']:continue
                 dest=item['fields'].get('destination_folder_id' if self.name=='notes' else 'list_id')
                 if op in {'move_note','move_reminder'} and dest not in rule['destinations']:continue
                 return

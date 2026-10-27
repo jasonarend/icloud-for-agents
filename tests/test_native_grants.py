@@ -250,3 +250,17 @@ class NativeGrantTests(unittest.TestCase):
         identity=self.activate(scope);grant=self.manager.checked(identity)
         item={'operation':'update_reminder','source_id':'selected','before':{'item':{'list_id':'folder'}},'fields':{'alarms':[]},'requested_fields':['alarms']}
         with self.assertRaises(SafetyError):self.manager.match(grant,item)
+
+    def test_location_alarm_scope_cannot_be_inferred_from_old_alarm_grants(self):
+        self.engine.name='reminders';self.engine.kind='reminders_change';self.manager.name='reminders'
+        scope=self.scope();scope['rules'][0].update(operation='update_reminder',fields=['alarms'])
+        identity=self.activate(scope);grant=self.manager.checked(identity)
+        geo={'location':{'title':'Synthetic','latitude':12.25,'longitude':-34.5,'radius_meters':250,'proximity':'enter'}}
+        item={'operation':'update_reminder','source_id':'selected','before':{'item':{'list_id':'folder','alarms':[]}},'fields':{'alarms':[geo]},'requested_fields':['alarms']}
+        with self.assertRaises(SafetyError):self.manager.match(grant,item)
+        item['fields']['alarms']=[];item['before']['item']['alarms']=[{'structured_location':{'title':'Synthetic'}}]
+        with self.assertRaises(SafetyError):self.manager.match(grant,item)
+        wider=self.scope();wider['rules'][0].update(operation='update_reminder',fields=['alarms','location_alarms'])
+        allowed=self.manager.checked(self.activate(wider));self.manager.match(allowed,item)
+        wider['rules'][0]['fields']=['location_alarms']
+        with self.assertRaises(SafetyError):validate_scope('reminders',wider,self.now)

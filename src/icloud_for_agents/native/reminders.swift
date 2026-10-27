@@ -2,6 +2,7 @@
 // The Python approved-plan executor enforces mutation authorization; no implicit permission requests.
 import Foundation
 import EventKit
+import CoreLocation
 import OSAKit
 import ApplicationServices
 import Darwin
@@ -405,11 +406,36 @@ func reminderLink(_ value:Any)->URL? {
 func ordinaryTimeAlarm(_ alarm:EKAlarm)->Bool {
     alarm.type == .display && alarm.proximity == .none && alarm.structuredLocation == nil && alarm.emailAddress == nil && alarm.soundName == nil
 }
+func supportedExistingAlarm(_ alarm:EKAlarm)->Bool {
+    if ordinaryTimeAlarm(alarm) {return true}
+    guard alarm.type == .display,alarm.emailAddress == nil,alarm.soundName == nil,
+          alarm.absoluteDate == nil,alarm.relativeOffset == 0,[EKAlarmProximity.enter,.leave].contains(alarm.proximity),
+          let place=alarm.structuredLocation,let title=place.title,!title.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty,
+          title.count<=200,title.rangeOfCharacter(from:.controlCharacters)==nil,let geo=place.geoLocation,
+          geo.coordinate.latitude.isFinite,(-90...90).contains(geo.coordinate.latitude),geo.coordinate.longitude.isFinite,(-180...180).contains(geo.coordinate.longitude),
+          place.radius.isFinite,(0...100000).contains(place.radius) else {return false}
+    return true
+}
 func reminderTimeAlarms(_ value:Any,due:DateComponents?)->[EKAlarm] {
     guard let entries=value as? [[String:Any]],entries.count<=10 else {fail("invalid_fields")}
     var seen=Set<String>();var result:[EKAlarm]=[]
     for entry in entries {
-        guard entry.count==1,let key=entry.keys.first,["absolute_date","relative_offset_seconds"].contains(key),
+        guard entry.count==1,let key=entry.keys.first else {fail("invalid_fields")}
+        if key=="location" {
+            guard let value=entry[key] as? [String:Any],Set(value.keys)==["title","latitude","longitude","radius_meters","proximity"],
+                  let title=value["title"] as? String,!title.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty,title.count<=200,
+                  title.rangeOfCharacter(from:.controlCharacters)==nil,
+                  let lat=value["latitude"] as? NSNumber,CFGetTypeID(lat) != CFBooleanGetTypeID(),lat.doubleValue.isFinite,(-90...90).contains(lat.doubleValue),
+                  let lon=value["longitude"] as? NSNumber,CFGetTypeID(lon) != CFBooleanGetTypeID(),lon.doubleValue.isFinite,(-180...180).contains(lon.doubleValue),
+                  let radius=value["radius_meters"] as? NSNumber,CFGetTypeID(radius) != CFBooleanGetTypeID(),radius.doubleValue.isFinite,(0...100000).contains(radius.doubleValue),
+                  let direction=value["proximity"] as? String,["enter","leave"].contains(direction) else {fail("invalid_fields")}
+            let identity="location:"+title+":"+lat.stringValue+":"+lon.stringValue+":"+radius.stringValue+":"+direction
+            guard !seen.contains(identity) else {fail("invalid_fields")};seen.insert(identity)
+            let place=EKStructuredLocation(title:title);place.geoLocation=CLLocation(latitude:lat.doubleValue,longitude:lon.doubleValue);place.radius=radius.doubleValue
+            let alarm=EKAlarm(relativeOffset:0);alarm.structuredLocation=place;alarm.proximity=direction=="enter" ? .enter : .leave
+            result.append(alarm);continue
+        }
+        guard ["absolute_date","relative_offset_seconds"].contains(key),
               let number=entry[key] as? NSNumber,CFGetTypeID(number) != CFBooleanGetTypeID(),
               number.doubleValue.isFinite,number.doubleValue.rounded()==number.doubleValue else {fail("invalid_fields")}
         let seconds=number.doubleValue;let identity=key+":"+number.stringValue
@@ -546,7 +572,7 @@ if action == "apply" {
             } else {
                 guard !fields.isEmpty, Set(fields.keys).isSubset(of: ["title", "notes", "priority", "due", "start", "url", "alarms"]) else { fail("invalid_fields") }
                 if fields["alarms"] != nil {
-                    guard (reminder.alarms?.count ?? 0)<=10,(reminder.alarms ?? []).allSatisfy(ordinaryTimeAlarm) else {fail("unsupported_edit_target")}
+                    guard (reminder.alarms?.count ?? 0)<=10,(reminder.alarms ?? []).allSatisfy(supportedExistingAlarm) else {fail("unsupported_edit_target")}
                 }
                 if let title = fields["title"] as? String { reminder.title = title }
                 if let notes = fields["notes"] as? String { reminder.notes = notes }

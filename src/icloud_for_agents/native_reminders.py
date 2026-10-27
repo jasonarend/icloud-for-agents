@@ -1,5 +1,6 @@
 """Public EventKit adapter, used only through exact source-bound native change plans."""
 import hashlib
+import json
 from datetime import date, datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -59,11 +60,26 @@ def validate_link(value):
 
 
 def validate_alarms(values,due=None):
-    if not isinstance(values,list) or len(values)>10:raise SafetyError('Use an explicit complete time-alarm array of at most 10 entries')
+    if not isinstance(values,list) or len(values)>10:raise SafetyError('Use an explicit complete alarm array of at most 10 entries')
     result=[];seen=set()
     for value in values:
-        if not isinstance(value,dict) or len(value)!=1:raise SafetyError('Each time alarm requires one absolute_date or relative_offset_seconds')
+        if not isinstance(value,dict) or len(value)!=1:raise SafetyError('Each alarm requires one explicit time or location trigger')
         key=next(iter(value));number=value[key]
+        if key=='location':
+            import math
+            if not isinstance(number,dict) or set(number)!={'title','latitude','longitude','radius_meters','proximity'}:raise SafetyError('Location alarms require an exact title, coordinate, radius and entry/exit trigger')
+            title=number['title'];lat=number['latitude'];lon=number['longitude'];radius=number['radius_meters'];proximity=number['proximity']
+            try:
+                numeric=all(type(x) in (int,float) and math.isfinite(x) for x in (lat,lon,radius))
+            except OverflowError:numeric=False
+            if (not isinstance(title,str) or not title.strip() or len(title)>200 or any(ord(c)<32 for c in title)
+                    or not numeric
+                    or not -90<=lat<=90 or not -180<=lon<=180 or not 0<=radius<=100000
+                    or proximity not in ('enter','leave')):raise SafetyError('Invalid location alarm; use finite coordinates, radius 0..100000 meters and enter/leave')
+            canonical={'title':title,'latitude':float(lat),'longitude':float(lon),'radius_meters':float(radius),'proximity':proximity}
+            identity=(key,title,float(lat),float(lon),float(radius),proximity)
+            if identity in seen:raise SafetyError('Duplicate alarms are ambiguous')
+            seen.add(identity);result.append({'location':canonical});continue
         if key not in {'absolute_date','relative_offset_seconds'} or type(number) is not int:raise SafetyError('Use integer Unix seconds or relative seconds, never an inferred date or trigger')
         if key=='absolute_date':
             if not 946684800<=number<=4102444799:raise SafetyError('Absolute alarm must be within 2000 through 2099')
@@ -89,25 +105,48 @@ def public_time_alarms(values):
     return result
 
 
+def public_supported_alarms(values):
+    if not isinstance(values,list) or len(values)>10:raise SafetyError('Complete supported alarm metadata required')
+    observed=[]
+    for value in values:
+        if not isinstance(value,dict):raise SafetyError('Invalid alarm metadata')
+        if value.get('structured_location') is None:observed.extend(public_time_alarms([value]));continue
+        if (type(value.get('type')) is not int or value['type']!=0 or type(value.get('proximity')) is not int or value['proximity'] not in (1,2) or value.get('absolute_date') is not None
+                or value.get('relative_offset_seconds')!=0 or value.get('email_address') is not None or value.get('sound_name') is not None):raise SafetyError('Unsupported location alarm metadata')
+        place=value['structured_location']
+        if not isinstance(place,dict) or set(place)!={'title','latitude','longitude','radius_meters'}:raise SafetyError('Incomplete location alarm metadata')
+        observed.extend(validate_alarms([{'location':{**place,'proximity':'enter' if value['proximity']==1 else 'leave'}}]))
+    # Duplicate existing locations are not safely addressable as a set.
+    keys=[json.dumps(x,sort_keys=True) for x in observed]
+    if len(set(keys))!=len(keys):raise SafetyError('Duplicate exposed alarms are ambiguous')
+    return observed
+
+
 def alarms_equal(actual,expected):
     try:
-        observed=public_time_alarms(actual)
-        # Provider ordering does not define notification priority.
-        return sorted((next(iter(x)),next(iter(x.values()))) for x in observed)==sorted((next(iter(x)),next(iter(x.values()))) for x in expected)
+        observed=public_supported_alarms(actual)
+        import json
+        # Provider ordering does not define notification priority. Exact coordinate
+        # and radius readback is required; no silent rounding or location substitution.
+        return sorted(json.dumps(x,sort_keys=True) for x in observed)==sorted(json.dumps(x,sort_keys=True) for x in expected)
     except (SafetyError,TypeError,ValueError,OverflowError):return False
 
 
 def alarm_effects(alarms,due):
     import time
     triggers=[]
+    locations=[]
     for alarm in alarms:
+        if 'location' in alarm:
+            locations.append(dict(alarm['location']));continue
         if 'absolute_date' in alarm:seconds=alarm['absolute_date']
         else:
             moment=datetime(due['year'],due['month'],due['day'],due['hour'],due['minute'],tzinfo=ZoneInfo(due['timezone']))
             seconds=moment.timestamp()+alarm['relative_offset_seconds']
         triggers.append({'unix_seconds':seconds,'utc':datetime.fromtimestamp(seconds,timezone.utc).isoformat()})
-    return {'action':'replace the complete ordinary time-alarm set; an empty array cancels those alarms',
+    return {'action':'replace the complete supported time/location alarm set; an empty array cancels those alarms',
             'triggers':triggers,'past_trigger_may_notify_immediately':any(x['unix_seconds']<=time.time() for x in triggers),
+            'location_triggers':locations,'location_delivery':'Apple controls location permissions and notification delivery; no location service is started by the helper',
             'devices':'Apple may sync scheduling changes across devices; delivery is unverified',
             'provider_limits':'Exact count and values must survive readback; provider truncation is a failure'}
 
@@ -214,7 +253,7 @@ class RemindersCreateAdapter:
             current=self.reader.read('get',id=change['id'])['item']
             if 'alarms' in fields and current.get('has_alarms'):
                 if current.get('public_metadata_complete') is not True:raise SafetyError('Complete existing alarm metadata required before replacement')
-                public_time_alarms(current.get('alarms'))
+                public_supported_alarms(current.get('alarms'))
             merged={key:current[key] for key in ('title','notes','priority')}
             for key in ('due','start'):
                 value=current.get(key)
@@ -230,7 +269,7 @@ class RemindersCreateAdapter:
               'native_metadata':'advanced native-field preservation requires live acceptance',
               'notifications':'Apple controls sync and notification delivery'}}
         if native_config('reminders').get('advanced_backend')=='reminderkit':item['effects']['native_metadata']='Observed flags, native tags and partial hierarchy metadata must be unchanged before dispatch and during independent readback; complete subtree and other native metadata remain unverified.'
-        if 'alarms' in item['fields']:item['effects']['notifications']='Replace the complete exposed ordinary time-alarm set; may schedule, reschedule or cancel notifications on synced devices. Past triggers may notify immediately; delivery remains controlled by Apple.'
+        if 'alarms' in item['fields']:item['effects']['notifications']='Replace the complete supported time/location alarm set; may schedule, reschedule or cancel notifications on synced devices. Past triggers may notify immediately; delivery remains controlled by Apple.'
         item['before']=self.snapshot(item)
         if 'alarms' in item['fields']:
             due=item['fields'].get('due',item['before']['item'].get('due'))

@@ -244,6 +244,22 @@ class NativeRemindersTests(unittest.TestCase):
         self.reader.item.update(alarms=[self.time_alarm()],has_alarms=True,public_metadata_complete=False)
         with self.assertRaises(SafetyError):self.existing(fields={'alarms':[]})
 
+    def test_location_alarm_creation_requires_exact_review_and_readback(self):
+        place={'title':'Synthetic place','latitude':12.25,'longitude':-34.5,'radius_meters':250,'proximity':'enter'}
+        item=self.prepare(fields={'title':'Task','alarms':[{'location':place}]})
+        self.assertEqual(item['effects']['time_alarms']['location_triggers'][0]['proximity'],'enter')
+        location={k:v for k,v in place.items() if k!='proximity'}
+        observed=self.time_alarm(proximity=1,structured_location=location)
+        self.reader.item.update(has_alarms=True,alarms=[observed])
+        self.assertTrue(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
+        observed['structured_location']={**location,'radius_meters':251}
+        self.assertFalse(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
+        self.reader.item.update(has_alarms=True,alarms=[observed],public_metadata_complete=True)
+        clear=self.existing(fields={'alarms':[]});self.reader.item.update(has_alarms=False,alarms=[])
+        self.assertTrue(self.adapter.verify(clear,{'id':'created','source_id':'selected'}))
+        for invalid in ({**place,'latitude':True},{**place,'longitude':181},{**place,'radius_meters':-1},{**place,'proximity':'other'}):
+            with self.subTest(invalid=invalid),self.assertRaises(SafetyError):self.prepare(fields={'title':'Task','alarms':[{'location':invalid}]})
+
     def test_fixed_zero_timezone_aliases_preserve_exact_wall_time_without_other_zone_substitution(self):
         from icloud_for_agents.native_reminders import date_parts_equal
         due={'year':2027,'month':1,'day':4,'hour':12,'minute':0,'timezone':'UTC'}
