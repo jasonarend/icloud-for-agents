@@ -1,4 +1,4 @@
-// Optional fixed ReminderKit reads and gated single-flag save. No SQL, body projection or selectors from JSON.
+// Optional fixed ReminderKit reads and gated single-flag/tag saves. No SQL, body projection or selectors from JSON.
 #import "reminders-model.h"
 #import <objc/runtime.h>
 #import <objc/message.h>
@@ -127,6 +127,59 @@ NSData *ICloudRemindersReadTags(NSData *data){
         [tags sortUsingComparator:^NSComparisonResult(NSDictionary *a,NSDictionary *b){return [a[@"id"] compare:b[@"id"]];}];
         return EncodeFlag(@{@"protocol_version":@1,@"native_metadata":@{@"backend":@"reminderkit-tags-v1",@"id":identity[@"id"],@"source_id":identity[@"source_id"],@"list_id":identity[@"list_id"],@"tags":tags,@"tags_complete":@YES,@"coverage":@[@"tags"],@"native_metadata_complete":@NO,@"observation_consistency":@"separate_provider_reads"}});
     }@catch(NSException *exception){return EncodeFlag(FlagFailure(@"private_read_exception"));}
+}
+
+// Remove one exact native tag relationship; retain every other observed tag ID.
+NSData *ICloudRemindersRemoveTag(NSData *data,BOOL (^enterMutation)(void)){
+    __block BOOL dispatched=NO;
+    @try{
+        id request=[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
+        if(![request isKindOfClass:NSDictionary.class] || [request count]!=5 || !enterMutation)return EncodeFlag(FlagFailure(@"invalid_public_identity"));
+        NSString *tagID=request[@"tag_id"];NSArray *expected=request[@"expected_tags"];
+        if(![tagID isKindOfClass:NSString.class] || ![[NSUUID alloc]initWithUUIDString:tagID] || ![expected isKindOfClass:NSArray.class] || expected.count<1 || expected.count>200)return EncodeFlag(FlagFailure(@"invalid_public_identity"));
+        NSDictionary *identity=@{@"id":request[@"id"] ?: [NSNull null],@"source_id":request[@"source_id"] ?: [NSNull null],@"list_id":request[@"list_id"] ?: [NSNull null]};
+        NSData *identityData=[NSJSONSerialization dataWithJSONObject:identity options:0 error:NULL];NSDictionary *failure=nil;id store=nil;
+        id reminder=SelectedReminderWithStore(identityData,&failure,&store);if(!reminder || !store)return EncodeFlag(failure ?: FlagFailure(@"private_store_unavailable"));
+        id observed=[NSJSONSerialization JSONObjectWithData:ICloudRemindersReadTags(identityData) options:0 error:NULL];
+        if(![observed[@"native_metadata"][@"tags"] isEqual:expected])return EncodeFlag(FlagFailure(@"snapshot_changed"));
+        Class cls=NSClassFromString(@"REMSaveRequest");
+        if(!MethodMatches(cls,@"initWithStore:",@"@@:@",NO) || !MethodMatches(cls,@"updateReminder:",@"@@:@",NO) || !MethodMatches(cls,@"saveSynchronouslyWithError:",@"B@:^@",NO))return EncodeFlag(FlagFailure(@"unsupported_tag_write"));
+        id save=((id(*)(id,SEL,id))objc_msgSend)([cls alloc],NSSelectorFromString(@"initWithStore:"),store);
+        id change=((id(*)(id,SEL,id))objc_msgSend)(save,NSSelectorFromString(@"updateReminder:"),reminder),context=ObjectValue(change,@"hashtagContext"),collection=ObjectValue(context,@"hashtags");
+        if(!context || !MethodMatches([context class],@"removeHashtag:",@"v@:@",NO))return EncodeFlag(FlagFailure(@"unsupported_tag_write"));
+        NSArray *(^array)(id)=^NSArray *(id value){if([value isKindOfClass:NSArray.class])return value;if([value isKindOfClass:NSSet.class])return [value allObjects];if([value isKindOfClass:NSOrderedSet.class])return [value array];return nil;};
+        NSArray *values=array(collection);if(!values || values.count!=expected.count)return EncodeFlag(FlagFailure(@"snapshot_changed"));
+        NSMutableSet *seen=[NSMutableSet set];id target=nil;
+        for(id tag in values){
+            NSString *identifier=ObjectUUID(tag,@"REMCDHashtag");id name=ObjectValue(tag,@"name"),accountID=ObjectValue(tag,@"accountID"),reminderID=ObjectValue(tag,@"reminderID");
+            id accountUUID=ObjectValue(accountID,@"uuid"),reminderUUID=ObjectValue(reminderID,@"uuid");
+            if(!identifier || [seen containsObject:identifier] || ![name isKindOfClass:NSString.class] || ![accountUUID isKindOfClass:NSUUID.class] || ![reminderUUID isKindOfClass:NSUUID.class]
+                    || ![ObjectValue(accountID,@"entityName") isEqual:@"REMCDAccount"] || ![ObjectValue(reminderID,@"entityName") isEqual:@"REMCDReminder"]
+                    || !UUIDEqual([accountUUID UUIDString],identity[@"source_id"]) || !UUIDEqual([reminderUUID UUIDString],identity[@"id"]) || !MethodMatches([tag class],@"type",@"q@:",NO))return EncodeFlag(FlagFailure(@"snapshot_changed"));
+            NSInteger kind=((NSInteger(*)(id,SEL))objc_msgSend)(tag,NSSelectorFromString(@"type"));
+            if(![expected containsObject:@{@"id":identifier,@"name":name,@"native_type":@(kind)}])return EncodeFlag(FlagFailure(@"snapshot_changed"));
+            [seen addObject:identifier];if(UUIDEqual(identifier,tagID)){if(target)return EncodeFlag(FlagFailure(@"snapshot_changed"));target=tag;}
+        }
+        if(!target)return EncodeFlag(FlagFailure(@"not_found_in_scope"));
+        NSString *targetIdentity=ObjectUUID(target,@"REMCDHashtag");
+        ((void(*)(id,SEL,id))objc_msgSend)(context,NSSelectorFromString(@"removeHashtag:"),target);
+        NSArray *staged=array(ObjectValue(context,@"hashtags"));if(!staged || staged.count+1!=expected.count)return EncodeFlag(FlagFailure(@"snapshot_changed"));
+        NSMutableSet *remaining=[NSMutableSet set];for(id tag in staged){
+            NSString *identifier=ObjectUUID(tag,@"REMCDHashtag");id name=ObjectValue(tag,@"name"),accountID=ObjectValue(tag,@"accountID"),reminderID=ObjectValue(tag,@"reminderID");
+            id accountUUID=ObjectValue(accountID,@"uuid"),reminderUUID=ObjectValue(reminderID,@"uuid");
+            if(!identifier || [remaining containsObject:identifier] || ![name isKindOfClass:NSString.class] || ![accountUUID isKindOfClass:NSUUID.class] || ![reminderUUID isKindOfClass:NSUUID.class]
+                    || ![ObjectValue(accountID,@"entityName") isEqual:@"REMCDAccount"] || ![ObjectValue(reminderID,@"entityName") isEqual:@"REMCDReminder"]
+                    || !UUIDEqual([accountUUID UUIDString],identity[@"source_id"]) || !UUIDEqual([reminderUUID UUIDString],identity[@"id"]) || !MethodMatches([tag class],@"type",@"q@:",NO))return EncodeFlag(FlagFailure(@"snapshot_changed"));
+            NSInteger kind=((NSInteger(*)(id,SEL))objc_msgSend)(tag,NSSelectorFromString(@"type"));
+            if(![expected containsObject:@{@"id":identifier,@"name":name,@"native_type":@(kind)}])return EncodeFlag(FlagFailure(@"snapshot_changed"));
+            [remaining addObject:identifier];
+        }
+        [seen removeObject:targetIdentity];if(![seen isEqual:remaining])return EncodeFlag(FlagFailure(@"snapshot_changed"));
+        if(!enterMutation())return EncodeFlag(FlagFailure(@"native_dispatch_cancelled"));
+        dispatched=YES;NSError *error=nil;BOOL saved=((BOOL(*)(id,SEL,NSError **))objc_msgSend)(save,NSSelectorFromString(@"saveSynchronouslyWithError:"),&error);
+        if(!saved || error)return EncodeFlag(@{@"protocol_version":@1,@"error":@"mutation_failed_or_uncertain",@"mutation_dispatched":@YES});
+        return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":identity[@"id"],@"source_id":identity[@"source_id"],@"list_id":identity[@"list_id"],@"saved_locally":@YES}});
+    }@catch(NSException *exception){return EncodeFlag(@{@"protocol_version":@1,@"error":dispatched?@"mutation_failed_or_uncertain":@"private_metadata_unavailable",@"mutation_dispatched":@(dispatched)});}
 }
 
 // The provider's parent and child-presence hints are not a complete subtree inventory.
