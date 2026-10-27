@@ -56,6 +56,22 @@ class NativeCorrectionTests(unittest.TestCase):
         self.assertTrue(self.store._reconciliation_completed(self.original))
         with self.assertRaises(SafetyError):self.engine.execute(identifier)
         self.assertEqual(self.adapter.calls,2)
+    def test_public_correction_refuses_changed_optional_native_flags(self):
+        os.environ['ICLOUD_NATIVE_CONFIG']=json.dumps({'reminders':{'access_mode':'write-enabled','source_ids':['selected'],'advanced_backend':'reminderkit','helper_path':'/synthetic/helper'}})
+        adapter=Adapter();flag=False;read=adapter.reader.read
+        def enriched(action,**fields):
+            result=read(action,**fields)
+            if action=='get' and fields.get('include_native_metadata'):
+                result['item']['native_metadata']={**{k:result['item'][k] for k in ('id','source_id','list_id')},'coverage':['flagged','tags'],'flagged':flag,'flag_state':int(flag),'tags':[],'tags_complete':True}
+            return result
+        adapter.reader.read=enriched
+        engine=NativeChanges('reminders','synthetic@example.com',adapter,PlanStore(Path(self.temp.name)/'native-runtime'))
+        original=engine.prepare([{'operation':'update_reminder','source_id':'selected','id':'task','fields':{'due':{'year':2026,'month':10,'day':28}}}])['plan_id']
+        self.assertEqual(engine.execute(original)['status'],'failed_or_uncertain')
+        flag=True
+        with self.assertRaises(SafetyError):engine.prepare_update_correction(original)
+        self.assertEqual(adapter.calls,1)
+
     def test_strict_correction_still_requires_independent_receipt(self):
         os.environ['ICLOUD_APPROVAL_POLICY']='local-receipt';correction=self.correction()
         self.assertTrue(correction['local_receipt_required'])

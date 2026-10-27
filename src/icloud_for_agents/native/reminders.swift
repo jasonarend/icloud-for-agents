@@ -492,6 +492,10 @@ if action == "apply" {
             guard NSDictionary(dictionary: object(reminder)).isEqual(to: previous), (operation=="set_recurrence" || !reminder.hasRecurrenceRules) else {
                 fail("snapshot_changed_or_recurrence_unsupported")
             }
+            if let selectedNative=before["native_metadata"] {
+                guard let expectedNative=selectedNative as? [String:Any] else {fail("invalid_mutation")}
+                guard nativeSnapshotMatches(reminder,expectedNative) else {fail("snapshot_changed")}
+            }
             if operation == "set_completed" {
                 guard Set(fields.keys) == ["completed"], let completed = fields["completed"] as? Bool else { fail("invalid_fields") }
                 reminder.isCompleted = completed
@@ -650,18 +654,10 @@ func object(_ reminder: EKReminder) -> [String: Any] {
      "public_metadata_complete":(reminder.recurrenceRules?.count ?? 0)<=100 && (reminder.alarms?.count ?? 0)<=100 && (reminder.recurrenceRules ?? []).allSatisfy { recurrenceObject($0)["fields_complete"] as? Bool == true },
      "content_complete": false, "omitted_features": ["native_tags", "hierarchy", "attachments", "advanced_metadata"]]
 }
-if action == "get" {
-    guard let id = req["id"] as? String else { fail("invalid_request") }
-    guard !lists.isEmpty else { fail("not_found_in_scope") }
-    let predicate = store.predicateForReminders(in: lists)
-    store.fetchReminders(matching: predicate) { reminders in
-        guard let reminders = reminders else { fail("read_failed") }
-        guard reminders.count <= 100000 else { fail("query_limit") }
-        guard let reminder = reminders.first(where: { $0.calendarItemIdentifier == id }) else { fail("not_found_in_scope") }
-        var result=object(reminder)
-        var combined:[String:Any]=[:];var coverage:[String]=[]
+func selectedNativeMetadata(_ reminder:EKReminder,_ selections:[String:Any])->[String:Any]? {
+    var combined:[String:Any]=[:];var coverage:[String]=[]
         for key in ["include_native_metadata","include_native_tags"] {
-            guard let requested=req[key] else {continue}
+            guard let requested=selections[key] else {continue}
             guard let number=requested as? NSNumber,CFGetTypeID(number)==CFBooleanGetTypeID() else {fail("invalid_request")}
             if !number.boolValue {continue}
             let identity=["id":reminder.calendarItemIdentifier,"source_id":reminder.calendar.source.sourceIdentifier,"list_id":reminder.calendar.calendarIdentifier]
@@ -675,8 +671,24 @@ if action == "get" {
         if !coverage.isEmpty {
             combined["coverage"]=coverage
             if coverage.count>1 {combined["backend"]="reminderkit-flags-and-tags-v1"}
-            result["native_metadata"]=combined
+            return combined
         }
+    return nil
+}
+func nativeSnapshotMatches(_ reminder:EKReminder,_ expected:[String:Any])->Bool {
+    guard let observed=selectedNativeMetadata(reminder,["include_native_metadata":true,"include_native_tags":true]) else {return false}
+    return NSDictionary(dictionary:observed).isEqual(to:expected)
+}
+if action == "get" {
+    guard let id = req["id"] as? String else { fail("invalid_request") }
+    guard !lists.isEmpty else { fail("not_found_in_scope") }
+    let predicate = store.predicateForReminders(in: lists)
+    store.fetchReminders(matching: predicate) { reminders in
+        guard let reminders = reminders else { fail("read_failed") }
+        guard reminders.count <= 100000 else { fail("query_limit") }
+        guard let reminder = reminders.first(where: { $0.calendarItemIdentifier == id }) else { fail("not_found_in_scope") }
+        var result=object(reminder)
+        if let native=selectedNativeMetadata(reminder,req){result["native_metadata"]=native}
         respond(["protocol_version": 1, "item": result])
     }
     RunLoop.current.run(until: Date(timeIntervalSinceNow: 30))

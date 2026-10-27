@@ -142,6 +142,7 @@ class NativeChanges:
                 expected=dict(item['before']['item']);expected.update(item['fields'])
                 if 'alarms' in item['fields']:expected['has_alarms']=bool(item['fields']['alarms'])
                 current=self.adapter.reader.read('get',id=item['id'])['item']
+                if self.adapter.native_snapshot(current)!=item['before'].get('native_metadata'):raise SafetyError('Native flags/tags changed; public-field correction cannot overwrite or accept that effect')
                 if item['operation']=='set_recurrence':
                     from .native_recurrence import observed_rule
                     baseline=item['before']['item']

@@ -122,7 +122,7 @@ class RemindersCreateAdapter:
         path=Path(helper)
         if not path.is_file() or path.stat().st_size>50_000_000:raise SafetyError('Invalid native helper')
         identity='eventkit-creation-v1:'+hashlib.sha256(path.read_bytes()).hexdigest()
-        if native_config('reminders').get('advanced_backend')=='reminderkit':identity+=':reminderkit-flags-v1'
+        if native_config('reminders').get('advanced_backend')=='reminderkit':identity+=':reminderkit-flags-tags-preservation-v1'
         return identity
     def lists(self):
         result=[];offset=0
@@ -229,6 +229,7 @@ class RemindersCreateAdapter:
               'fidelity_verified':True,'effects':{'existing_content':'only explicitly listed public EventKit fields change',
               'native_metadata':'advanced native-field preservation requires live acceptance',
               'notifications':'Apple controls sync and notification delivery'}}
+        if native_config('reminders').get('advanced_backend')=='reminderkit':item['effects']['native_metadata']='The exact observed flags and native tags must be unchanged before dispatch and during independent readback; other native metadata remains incomplete.'
         if 'alarms' in item['fields']:item['effects']['notifications']='Replace the complete exposed ordinary time-alarm set; may schedule, reschedule or cancel notifications on synced devices. Past triggers may notify immediately; delivery remains controlled by Apple.'
         item['before']=self.snapshot(item)
         if 'alarms' in item['fields']:
@@ -287,6 +288,17 @@ class RemindersCreateAdapter:
             item['effects']['recurrence']=rule_effects(fields['recurrence'])
         if operation=='create_list' and item['before']['matching_titles']>0:raise SafetyError('List title already exists')
         return item
+    def native_snapshot(self,public_item):
+        if native_config('reminders').get('advanced_backend')!='reminderkit':return None
+        observed=dict(self.reader.read('get',id=public_item['id'],include_native_metadata=True,include_native_tags=True)['item'])
+        metadata=observed.pop('native_metadata',None)
+        if (observed!=public_item or not isinstance(metadata,dict) or metadata.get('coverage')!=['flagged','tags']
+                or type(metadata.get('flagged')) is not bool or metadata.get('tags_complete') is not True
+                or not isinstance(metadata.get('tags'),list)
+                or any(metadata.get(key)!=public_item.get(key) for key in ('id','source_id','list_id'))):
+            raise SafetyError('Exact optional native flag/tag snapshot is unavailable or changed')
+        return metadata
+
     def snapshot(self,item):
         if item['operation'] in {'rename_list','set_list_color'}:return self.list_rename_snapshot(item)
         lists=[c for c in self.lists() if c['source_id']==item['source_id']]
@@ -296,6 +308,8 @@ class RemindersCreateAdapter:
             current=next((c for c in lists if c['id']==reminder['list_id']),None)
             if not current or not current.get('writable'):raise SafetyError('Reminder list is not writable')
             result={'list':current,'item':reminder}
+            native=self.native_snapshot(reminder)
+            if native is not None:result['native_metadata']=native
             if item['operation']=='move_reminder':
                 destination=next((c for c in lists if c['id']==item['fields']['list_id']),None)
                 if not destination or not destination.get('writable'):raise SafetyError('Destination is absent, out of source scope or read-only')
@@ -335,6 +349,10 @@ class RemindersCreateAdapter:
                 if not recurrence_equal(note.get('recurrence_rules'),item['fields']['recurrence']) or note.get('has_recurrence')!=bool(item['fields']['recurrence']):return False
                 if note.get('created')!=expected.get('created') or note.get('public_metadata_complete') is not True:return False
                 expected['recurrence_rules']=note['recurrence_rules'];expected['has_recurrence']=note['has_recurrence']
+            native=self.native_snapshot(note);expected_native=item['before'].get('native_metadata')
+            if expected_native is not None:
+                expected_native=dict(expected_native,list_id=expected['list_id'])
+            if native!=expected_native:return False
             for key in ('title','notes','priority','due','start','list_id','completed','url','location','has_recurrence','has_alarms','recurrence_rules','alarms'):
                 if key not in expected:continue
                 actual=note.get(key);wanted=expected.get(key)

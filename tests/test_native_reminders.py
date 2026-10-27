@@ -68,6 +68,36 @@ class NativeRemindersTests(unittest.TestCase):
     def existing(self,operation='update_reminder',fields=None):
         return self.adapter.prepare({'operation':operation,'source_id':'selected','id':'created',
                                      'fields':fields or {'notes':'Edited body'}})
+    def native_reader(self):
+        import copy
+        os.environ['ICLOUD_NATIVE_CONFIG']=json.dumps({'reminders':{'access_mode':'write-enabled','source_ids':['selected'],'advanced_backend':'reminderkit','helper_path':'/synthetic/helper'}})
+        metadata={'flagged':False,'flag_state':0,'tags':[],'tags_complete':True,'coverage':['flagged','tags'],'native_metadata_complete':False}
+        read=self.reader.read
+        def enriched(action,**fields):
+            result=read(action,**fields)
+            if action=='get' and fields.get('include_native_metadata'):
+                result['item']['native_metadata']={**copy.deepcopy(metadata),**{k:result['item'][k] for k in ('id','source_id','list_id')}}
+            return result
+        self.reader.read=enriched
+        return metadata
+    def test_selected_native_backend_binds_and_verifies_preserved_flags_and_tags(self):
+        metadata=self.native_reader();item=self.existing();self.assertIs(item['before']['native_metadata']['flagged'],False)
+        self.reader.item['notes']='Edited body';outcome={'id':'created','source_id':'selected'}
+        self.assertTrue(self.adapter.verify(item,outcome))
+        metadata['flagged']=True;metadata['flag_state']=1
+        self.assertFalse(self.adapter.verify(item,outcome));metadata.update(flagged=False,flag_state=0)
+        metadata['tags']=[{'id':'tag','name':'Project','native_type':0}]
+        self.assertFalse(self.adapter.verify(item,outcome))
+    def test_selected_native_backend_refuses_missing_or_incomplete_native_snapshot(self):
+        metadata=self.native_reader();metadata['tags_complete']=False
+        with self.assertRaises(SafetyError):self.existing()
+        metadata['tags_complete']=True;metadata['coverage']=['flagged']
+        with self.assertRaises(SafetyError):self.existing()
+    def test_move_readback_changes_only_native_list_binding(self):
+        self.native_reader();item=self.existing();item.update(operation='move_reminder',fields={'list_id':'destination'})
+        self.reader.item['list_id']='destination'
+        self.assertTrue(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
+
     def test_partial_update_preserves_unrequested_values(self):
         item=self.existing();self.assertEqual(item['fields'],{'notes':'Edited body'})
         self.assertEqual(item['before']['item'],self.reader.item)
