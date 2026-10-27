@@ -3,12 +3,12 @@ import json,subprocess,tempfile
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 HARNESS=r'''
-static BOOL special=NO,shared=NO;
+static BOOL special=NO,shared=NO,smart=NO;
 @interface SyntheticFolder:NSManagedObject
 @end
 @implementation SyntheticFolder
 -(BOOL)isSystemFolder{return special;}
--(BOOL)isSmartFolder{return NO;}
+-(BOOL)isSmartFolder{return smart;}
 -(BOOL)isSharedViaICloud{return shared;}
 @end
 static NSManagedObjectContext *fixture;
@@ -32,6 +32,13 @@ int main(){@autoreleasepool{
  NSManagedObjectModel *model=[NSManagedObjectModel new];model.entities=@[account,folder,note];NSPersistentStoreCoordinator *psc=[[NSPersistentStoreCoordinator alloc]initWithManagedObjectModel:model];NSCAssert([psc addPersistentStoreWithType:NSInMemoryStoreType configuration:nil URL:nil options:nil error:NULL],@"store");fixture=[[NSManagedObjectContext alloc]initWithConcurrencyType:NSPrivateQueueConcurrencyType];fixture.persistentStoreCoordinator=psc;
  __block NSMutableDictionary *req;__block NSManagedObject *root;
  [fixture performBlockAndWait:^{NSManagedObject *a=[NSEntityDescription insertNewObjectForEntityForName:@"ICAccount" inManagedObjectContext:fixture];root=[NSEntityDescription insertNewObjectForEntityForName:@"ICFolder" inManagedObjectContext:fixture];[root setValue:@"Original" forKey:@"title"];[root setValue:@0 forKey:@"folderType"];[root setValue:@NO forKey:@"markedForDeletion"];[root setValue:a forKey:@"account"];NSCAssert([fixture save:NULL],@"seed");NSString *source=ID(a),*identity=ID(root);req=[@{@"protocol_version":@1,@"service":@"notes",@"action":@"apply",@"source_ids":@[source],@"change":@{@"operation":@"rename_folder",@"writer_backend":@"notes-shared",@"id":identity,@"folder_id":identity,@"source_id":source,@"fields":@{@"title":@"Renamed"},@"before":@{@"role":@{@"folder_id":identity,@"source_id":source,@"storage_kind":@"regular",@"title":@"Original"},@"inventory":@{@"folders":@[@{@"id":identity,@"title":@"Original",@"source_id":source,@"parent_id":source,@"shared":@NO,@"is_default":@NO}],@"notes":@[],@"siblings":@[]}}}} mutableCopy];}];
+ NSData *roleData=[NSJSONSerialization dataWithJSONObject:@{@"folder_id":req[@"change"][@"folder_id"],@"source_ids":req[@"source_ids"]} options:0 error:NULL];
+ NSDictionary *role=[NSJSONSerialization JSONObjectWithData:ICloudNotesModelFolderRole(roleData) options:0 error:NULL];
+ NSCAssert([role[@"role"] isEqual:@"ordinary_non_system"] && ![role[@"data_mutated"] boolValue],@"ordinary role read");
+ special=YES;role=[NSJSONSerialization JSONObjectWithData:ICloudNotesModelFolderRole(roleData) options:0 error:NULL];NSCAssert([role[@"category"] isEqual:@"unsupported_edit_target"],@"system folder refused");special=NO;
+ shared=YES;role=[NSJSONSerialization JSONObjectWithData:ICloudNotesModelFolderRole(roleData) options:0 error:NULL];NSCAssert([role[@"category"] isEqual:@"unsupported_edit_target"],@"shared folder refused");shared=NO;
+ smart=YES;role=[NSJSONSerialization JSONObjectWithData:ICloudNotesModelFolderRole(roleData) options:0 error:NULL];NSCAssert([role[@"category"] isEqual:@"unsupported_edit_target"],@"smart folder refused");smart=NO;
+ [fixture performBlockAndWait:^{[root setValue:@"pending" forKey:@"title"];}];role=[NSJSONSerialization JSONObjectWithData:ICloudNotesModelFolderRole(roleData) options:0 error:NULL];NSCAssert([role[@"category"] isEqual:@"notes_model_has_unrelated_changes"],@"dirty role refused");[fixture performBlockAndWait:^{[fixture rollback];}];
  NSData *data=[NSJSONSerialization dataWithJSONObject:req options:0 error:NULL];__block int entries=0;
  NSDictionary *denied=[NSJSONSerialization JSONObjectWithData:ICloudNotesModelRename(data,^BOOL{entries++;return NO;}) options:0 error:NULL];NSCAssert([denied[@"category"] isEqual:@"native_dispatch_cancelled"] && ![denied[@"mutation_dispatched"] boolValue],@"closed gate");
  [fixture performBlockAndWait:^{NSCAssert([[root valueForKey:@"title"] isEqual:@"Original"] && !fixture.hasChanges,@"no effect");}];

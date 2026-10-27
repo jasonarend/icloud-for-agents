@@ -170,11 +170,21 @@ requestAction=action
 guard let service=req["service"] as? String, ["notes","reminders"].contains(service) else { fail("unsupported_service") }
 requestService=service
 if service == "notes" {
-    guard ["status", "store_status", "request_access", "sources", "folders", "folder_get", "folder_inventory", "query", "get", "search", "attachments", "diagnose_note", "contains", "apply", "diagnose_read_access"].contains(action) else { fail("unsupported_action") }
+    guard ["status", "store_status", "request_access", "sources", "folders", "folder_get", "folder_inventory", "model_folder_role", "query", "get", "search", "attachments", "diagnose_note", "contains", "apply", "diagnose_read_access"].contains(action) else { fail("unsupported_action") }
     if action == "store_status" {
         let output=ICloudNotesStoreStatus()
         guard let value=(try? JSONSerialization.jsonObject(with:output)) as? [String:Any] else {fail("notes_store_status_unavailable")}
         respond(value)
+    }
+    if action == "model_folder_role" {
+        _ = NSApplication.shared
+        DispatchQueue.global(qos:.userInitiated).async {
+            let output=ICloudNotesModelFolderRole(data)
+            guard let value=(try? JSONSerialization.jsonObject(with:output)) as? [String:Any] else {fail("notes_model_invalid_response")}
+            respond(value)
+        }
+        RunLoop.current.run(until:Date(timeIntervalSinceNow:30))
+        fail("read_timeout")
     }
     // Reuse the running fixed target without a redundant reopen Apple event.
     // Only the normal helper application launches Notes; permission enforcement

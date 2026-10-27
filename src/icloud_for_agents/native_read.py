@@ -13,7 +13,7 @@ from .core import SafetyError, NativeOperationRefused, digest
 from .services import enabled
 
 
-READ_ACTIONS = {'notes': {'status', 'sources', 'folders', 'folder_get', 'folder_inventory', 'folder_role', 'query', 'get', 'search', 'attachments', 'diagnose_note', 'contains'},
+READ_ACTIONS = {'notes': {'status', 'sources', 'folders', 'folder_get', 'folder_inventory', 'folder_role', 'model_folder_role', 'query', 'get', 'search', 'attachments', 'diagnose_note', 'contains'},
                 'reminders': {'status', 'sources', 'lists', 'query', 'get','list_membership','recovery_lookup'}}
 MAX_OUTPUT = 2_000_000
 
@@ -104,7 +104,12 @@ class NativeReader:
                 if self.name!='reminders' or action!='query' or not isinstance(tag,str) or not tag or len(tag.encode('utf-8'))>512 or any(ord(c)<32 for c in tag):raise ValueError()
             except (ValueError,UnicodeEncodeError):raise SafetyError('Tag filtering requires one exact bounded native tag name') from None
             if config.get('advanced_backend')!='reminderkit' or not config.get('helper_path'):raise SafetyError('Tag filtering requires the explicitly selected ReminderKit backend and signed helper')
-        if 'source_id' in fields and action!='recovery_lookup':raise SafetyError('Source selector is only supported for recovery lookup')
+        if 'source_id' in fields and action not in {'recovery_lookup','model_folder_role'}:raise SafetyError('Source selector is only supported for exact role or recovery lookup')
+        if action=='model_folder_role':
+            if self.name!='notes' or set(fields)!={'folder_id','source_id'} or fields.get('source_id') not in sources:
+                raise SafetyError('Model role lookup requires an exact selected source and folder')
+            if config.get('folder_write_backend')!='notes-shared' or not config.get('helper_path'):
+                raise SafetyError('Model role lookup requires the explicitly selected native Notes backend and signed helper')
         if action=='recovery_lookup':
             if self.name!='reminders' or set(fields)!={'id','source_id'} or fields.get('source_id') not in sources:
                 raise SafetyError('Recovery lookup requires one exact selected source and reminder ID')
@@ -145,6 +150,7 @@ class NativeReader:
             raise SafetyError('Invalid overdue filter')
         request = {'protocol_version': 1, 'action': action, 'source_ids': sources,
                    **{k: v for k, v in fields.items() if v is not None}}
+        if action=='model_folder_role':request['source_ids']=[fields['source_id']]
         request.update(native_selections)
         if action in {'folders','query','search','attachments','lists'}:
             request.setdefault('limit',limit);request.setdefault('offset',offset)
@@ -154,6 +160,12 @@ class NativeReader:
             from .native_note_store import folder_role
             return folder_role(fields['folder_id'],sources)
         result = self._dispatch(request, config)
+        if action=='model_folder_role':
+            if (native_config('notes')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode
+                    or not isinstance(result,dict) or result.get('folder_id')!=fields['folder_id'] or result.get('source_id')!=fields['source_id']
+                    or result.get('role')!='ordinary_non_system' or result.get('backend')!='notes-shared-folder-role-v1'
+                    or result.get('data_mutated') is not False or type(result.get('ancestor_count')) is not int or not 0<=result['ancestor_count']<32):
+                raise SafetyError('Configured helper did not verify the exact Notes folder role')
         if action=='recovery_lookup':
             if native_config('reminders')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode:
                 raise SafetyError('Reminder access changed during recovery lookup')
@@ -284,6 +296,8 @@ class NativeReader:
                     response=application_request(path,request,timeout=40)
                     response=dict(response,read_retry_count=1)
                 if 'error' in response:
+                    if action=='model_folder_role' and response.get('category')=='notes_model_store_unavailable':
+                        raise SafetyError('Optional Notes native model store is unavailable to the configured helper; no access request or fallback was made')
                     if action=='apply' and response.get('mutation_dispatched') is False:
                         raise _confirmed_refusal(self.name,request,response)
                     if response['error']=='permission_check_timed_out':

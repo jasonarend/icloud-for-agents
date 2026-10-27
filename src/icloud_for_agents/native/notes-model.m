@@ -51,6 +51,11 @@ NSData *ICloudNotesStoreStatus(void) {
     if(database)sqlite3_close(database);
     return Encode(result);
 }
+static BOOL BoolInterface(id object,NSString *name) {
+    Method method=object?class_getInstanceMethod([object class],NSSelectorFromString(name)):NULL;
+    if(!method || method_getNumberOfArguments(method)!=2)return NO;
+    char *type=method_copyReturnType(method);BOOL valid=type && strcmp(type,"B")==0;free(type);return valid;
+}
 static BOOL Flag(id object,NSString *name) {
     SEL selector=NSSelectorFromString(name);
     return ((BOOL(*)(id,SEL))objc_msgSend)(object,selector);
@@ -58,6 +63,7 @@ static BOOL Flag(id object,NSString *name) {
 static NSString *Identity(NSManagedObject *object) {return object.objectID.URIRepresentation.absoluteString;}
 static BOOL FolderAllowed(NSManagedObject *object,NSString *source,BOOL root) {
     if(![object.entity.name isEqual:@"ICFolder"] || ![object.entity.relationshipsByName[@"account"].destinationEntity.name isEqual:@"ICAccount"] || !object.entity.attributesByName[@"title"] || !object.entity.attributesByName[@"folderType"])return NO;
+    if(!BoolInterface(object,@"isSystemFolder") || !BoolInterface(object,@"isSmartFolder") || !BoolInterface(object,@"isSharedViaICloud"))return NO;
     NSManagedObject *account=[object valueForKey:@"account"];
     if(![Identity(account) isEqual:source] || [[object valueForKey:@"markedForDeletion"] boolValue] || [[object valueForKey:@"folderType"] integerValue]!=0 || Flag(object,@"isSmartFolder") || Flag(object,@"isSharedViaICloud") || (root && Flag(object,@"isSystemFolder")))return NO;
     return YES;
@@ -179,4 +185,42 @@ NSData *ICloudNotesModelRename(NSData *data,BOOL (^enterMutation)(void)) {
         }];
         return Encode(answer ?: Failure(@"notes_model_unavailable",dispatched,stage));
     } @catch(NSException *exception) {return Encode(Failure(@"notes_model_exception",dispatched,stage));}
+}
+
+// Fixed read-only role check for one exact folder and its ancestors.
+NSData *ICloudNotesModelFolderRole(NSData *data) {
+    __block NSManagedObjectContext *moc=nil;__block NSDictionary *answer=nil;
+    @try {
+        id request=[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
+        NSString *identity=[request isKindOfClass:NSDictionary.class]?request[@"folder_id"]:nil;
+        NSArray *sources=[request isKindOfClass:NSDictionary.class]?request[@"source_ids"]:nil;
+        if(![identity isKindOfClass:NSString.class] || !identity.length || identity.length>1000 || ![sources isKindOfClass:NSArray.class] || sources.count!=1 || ![sources[0] isKindOfClass:NSString.class] || ![sources[0] length] || [sources[0] length]>1000)
+            return Encode(Failure(@"invalid_request",NO,@"request_validation"));
+        if(!ModelAvailable())return Encode(Failure(@"unsupported_edit_target",NO,@"interface_check"));
+        void (^initializeContext)(void)=^{@try{
+            Class cls=NSClassFromString(@"ICNoteContext");
+            ((void(*)(id,SEL,unsigned long long))objc_msgSend)((id)cls,NSSelectorFromString(@"startSharedContextWithOptions:"),0);
+            id context=((id(*)(id,SEL))objc_msgSend)((id)cls,NSSelectorFromString(@"sharedContext"));
+            id candidate=[context valueForKey:@"managedObjectContext"];
+            if([candidate isKindOfClass:NSManagedObjectContext.class])moc=candidate;
+        }@catch(NSException *exception){answer=Failure(@"notes_model_exception",NO,@"context_initialization");}};
+        if(NSThread.isMainThread)initializeContext();else dispatch_sync(dispatch_get_main_queue(),initializeContext);
+        if(answer)return Encode(answer);
+        if(!moc)return Encode(Failure(@"notes_model_unavailable",NO,@"context_initialization"));
+        [moc performBlockAndWait:^{@try{
+            if(moc.hasChanges){answer=Failure(@"notes_model_has_unrelated_changes",NO,@"resolve_exact_folder");return;}
+            NSURL *url=[NSURL URLWithString:identity];NSManagedObjectID *oid=url?[moc.persistentStoreCoordinator managedObjectIDForURIRepresentation:url]:nil;
+            NSManagedObject *folder=oid?[moc existingObjectWithID:oid error:NULL]:nil;
+            if(!folder || ![Identity(folder) isEqual:identity]){answer=Failure(moc.persistentStoreCoordinator.persistentStores.count?@"not_found_in_scope":@"notes_model_store_unavailable",NO,@"resolve_exact_folder");return;}
+            NSMutableSet *seen=[NSMutableSet set];NSManagedObject *current=folder;NSUInteger depth=0;
+            while(current){
+                if(depth++>=32 || [seen containsObject:current.objectID] || !FolderAllowed(current,sources[0],YES)){
+                    answer=Failure(@"unsupported_edit_target",NO,@"validate_folder_role");return;
+                }
+                [seen addObject:current.objectID];current=[current valueForKey:@"parent"];
+            }
+            answer=@{@"protocol_version":@1,@"folder_id":identity,@"source_id":sources[0],@"role":@"ordinary_non_system",@"ancestor_count":@(depth-1),@"data_mutated":@NO,@"backend":@"notes-shared-folder-role-v1"};
+        }@catch(NSException *exception){answer=Failure(@"notes_model_exception",NO,@"validate_folder_role");}}];
+        return Encode(answer ?: Failure(@"notes_model_unavailable",NO,@"resolve_exact_folder"));
+    }@catch(NSException *exception){return Encode(Failure(@"notes_model_exception",NO,@"request_validation"));}
 }

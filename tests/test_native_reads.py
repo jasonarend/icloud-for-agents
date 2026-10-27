@@ -144,6 +144,19 @@ class NativeReadTests(unittest.TestCase):
             with self.subTest(value=value),self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=value),self.assertRaises(SafetyError):
                 NativeReader('reminders').read('recovery_lookup',id='task',source_id='selected')
 
+    def test_model_folder_role_requires_explicit_backend_and_exact_scope(self):
+        config={'notes':{'source_ids':['selected','other'],'helper_path':'/synthetic/helper','metadata_backend':'notes-store-readonly','folder_write_backend':'notes-shared'}}
+        result={'folder_id':'folder','source_id':'selected','role':'ordinary_non_system','backend':'notes-shared-folder-role-v1','data_mutated':False,'ancestor_count':0}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=result) as dispatch:
+            NativeReader('notes').read('model_folder_role',folder_id='folder',source_id='selected')
+            self.assertEqual(dispatch.call_args.args[0]['source_ids'],['selected'])
+            with self.assertRaises(SafetyError):NativeReader('notes').read('model_folder_role',folder_id='folder',source_id='foreign')
+        for invalid in ({**result,'role':'special'},{**result,'data_mutated':True},{**result,'source_id':'other'},{**result,'ancestor_count':True}):
+            with self.subTest(invalid=invalid),self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=invalid),self.assertRaises(SafetyError):
+                NativeReader('notes').read('model_folder_role',folder_id='folder',source_id='selected')
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps({'notes':{'source_ids':['selected']}})),patch('platform.system',return_value='Darwin'),self.assertRaises(SafetyError):
+            NativeReader('notes').read('model_folder_role',folder_id='folder',source_id='selected')
+
     def test_unknown_advanced_backends_are_not_configuration_authority(self):
         for config in ({'notes':{'advanced_backend':'reminderkit'}},{'reminders':{'advanced_backend':'unknown'}},{'reminders':{'advanced_backend':True}}):
             with self.subTest(config=config),self.assertRaises(ValueError):validate_config(config)
