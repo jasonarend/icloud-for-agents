@@ -1,4 +1,4 @@
-// Optional fixed ReminderKit read. No save request, SQL, body projection or selectors from JSON.
+// Optional fixed ReminderKit reads and gated single-flag save. No SQL, body projection or selectors from JSON.
 #import "reminders-model.h"
 #import <objc/runtime.h>
 #import <objc/message.h>
