@@ -245,9 +245,13 @@ class RemindersCreateAdapter:
             if set(fields)!={'completed'} or type(fields['completed']) is not bool:
                 raise SafetyError('Use an explicit completion boolean')
         elif operation=='add_tag':
-            import re
-            if set(fields)!={'tag_name'} or not isinstance(fields['tag_name'],str) or re.fullmatch(r'[A-Za-z0-9_]{1,100}',fields['tag_name']) is None:
-                raise SafetyError('Use one exact native tag name of 1 to 100 ASCII letters, digits or underscores without #')
+            import unicodedata
+            name=fields.get('tag_name')
+            if (set(fields)!={'tag_name'} or not isinstance(name,str) or not 1<=len(name)<=100
+                    or len(name.encode('utf-8','surrogatepass'))>512
+                    or any(not (c=='_' or c.isalnum() or unicodedata.category(c).startswith('M')) for c in name)
+                    or unicodedata.category(name[0]).startswith('M')):
+                raise SafetyError('Use one native tag name of 1 to 100 letters, digits or underscores without #')
             if native_config('reminders').get('advanced_backend')!='reminderkit':raise SafetyError('Native tag changes require the explicitly selected ReminderKit backend')
         elif operation=='remove_tag':
             import uuid

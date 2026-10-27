@@ -130,6 +130,8 @@ class NativeRemindersTests(unittest.TestCase):
         metadata['flagged']=False
         with self.assertRaises(SafetyError):self.adapter.prepare(change)
         with self.assertRaises(SafetyError):self.adapter.prepare({**change,'fields':{'tag_name':'bad tag'}})
+        with self.assertRaises(SafetyError):self.adapter.prepare({**change,'fields':{'tag_name':'\u0301bad'}})
+        self.assertEqual(self.adapter.prepare({**change,'fields':{'tag_name':'café_東京'}})['fields']['tag_name'],'café_東京')
     def test_selected_native_backend_refuses_missing_or_incomplete_native_snapshot(self):
         metadata=self.native_reader();metadata['tags_complete']=False
         with self.assertRaises(SafetyError):self.existing()

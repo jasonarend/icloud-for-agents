@@ -146,7 +146,7 @@ int main(){@autoreleasepool{
  NSDictionary *tagResult=Tags(request);NSCAssert([tagResult[@"native_metadata"][@"tags"][0][@"name"] isEqual:@"Project"],@"native tag exposed");
  FixtureTag *secondTag=[FixtureTag new];secondTag.remObjectID=Identity(@"REMCDHashtag",@"55555555-5555-4555-8555-555555555555");secondTag.accountID=fixture.account.remObjectID;secondTag.reminderID=fixture.remObjectID;secondTag.name=@"Other";secondTag.type=0;context.hashtags=@[tag,secondTag];
  NSArray *expected=Tags(request)[@"native_metadata"][@"tags"];NSDictionary *remove=@{@"id":task,@"source_id":source,@"list_id":list,@"tag_id":other,@"expected_tags":expected};int savesBefore=flagSaves;
- NSDictionary *add=@{@"id":task,@"source_id":source,@"list_id":list,@"tag_name":@"NewSynthetic",@"expected_tags":expected};
+ NSDictionary *add=@{@"id":task,@"source_id":source,@"list_id":list,@"tag_name":@"Café東京",@"expected_tags":expected};
  NSCAssert(AddTag(add,NO)[@"error"] && flagSaves==savesBefore && [context.hashtags count]==2,@"closed gate leaves native tags untouched");
  NSCAssert(AddTag(add,YES)[@"result"] && [context.hashtags count]==3,@"exact native tag added");
  NSCAssert(AddTag(add,YES)[@"error"] && [context.hashtags count]==3,@"stale snapshot refused");context.hashtags=@[tag,secondTag];savesBefore=flagSaves;
