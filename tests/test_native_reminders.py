@@ -126,3 +126,28 @@ class NativeRemindersTests(unittest.TestCase):
         with self.assertRaises(SafetyError):self.rename()
         self.reader.read=original;self.reader.membership['sha256']='invalid'
         with self.assertRaises(SafetyError):self.rename()
+
+    def test_passive_links_are_exact_and_clearable(self):
+        for link in ('https://example.com/spec?revision=2#decision','applenotes:note/SYNTHETIC','x-apple-reminderkit://SYNTHETIC'):
+            item=self.prepare(fields={'title':'Task','url':link})
+            self.reader.item.update(url=link,location=None)
+            self.assertTrue(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
+        item=self.existing(fields={'url':None});self.reader.item.update(url=None,location=None)
+        self.assertTrue(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
+    def test_links_cannot_include_credentials_active_schemes_or_silent_repairs(self):
+        for url in ('https://user:password@example.com/','file:///tmp/example','javascript:alert(1)',
+                    'data:text/plain,example','https://example.com/contains space','https://example.com/é',
+                    'https://example.com/%broken','https://example.com:0/','https://example.com:65536/',
+                    'https://example.com/\\path','https://example.com/<html>','applenotes:','HTTPS://example.com/'):
+            with self.subTest(url=url),self.assertRaises(SafetyError):self.prepare(fields={'title':'Task','url':url})
+        for location in ('', 'x'*1001,'line\nbreak',True):
+            with self.subTest(location=location),self.assertRaises(SafetyError):self.prepare(fields={'title':'Task','location':location})
+    def test_unrequested_link_and_location_survive_other_updates(self):
+        self.reader.item.update(url='https://example.com/context',location='Room one')
+        item=self.existing(fields={'notes':'Edited'});self.reader.item['notes']='Edited'
+        self.assertTrue(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
+        self.reader.item['location']='Room two'
+        self.assertFalse(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
+    def test_link_creation_readback_does_not_ignore_loss(self):
+        item=self.prepare(fields={'title':'Task','url':'https://example.com/'})
+        self.assertFalse(self.adapter.verify(item,{'id':'created','source_id':'selected'}))

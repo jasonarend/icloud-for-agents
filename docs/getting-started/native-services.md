@@ -102,3 +102,10 @@ Both operations require the supported basic-format edit route. They refuse nativ
 
 
 `notes_reconcile_known_changes` independently rechecks complete returned-ID append, prepend, literal replacement, full-body replacement or move batches after a verification failure. It requires the original source scope and helper fingerprint, consumed plan, exact durable attempt records, matching returned identities and successful current adapter verification of every intended result. It records a separate readback proof, preserves the failed result and cannot replay a write. Missing returned identities, incomplete batches, mutation-phase uncertainty or changed content remain unresolved. Unlike reviewed observational recovery, this path verifies the original intended effects. It works from read-only application access and does not reactivate a revoked scenario grant.
+
+
+**Reminder reference links**
+
+`create_reminder` and `update_reminder` accept the passive `url` field. Supply an exact bounded ASCII HTTP(S), `applenotes` or `x-apple-reminderkit` URL; percent-encode non-ASCII text. Credentials, active/file schemes, whitespace, malformed escapes and values requiring silent URL repair are refused. JSON `null` clears the field. Saving this metadata never opens the URL, fetches a preview or proves that a native deep-link target exists. Rich link-preview attachments remain separate work.
+
+One-time and scenario permissions select `url` explicitly. Readback verifies the exact stored value and retains unrequested fields. A live synthetic round trip passed web/native link storage and restoration of the original value while application settings stayed read-only. Location text writes remain unavailable through this EventKit route: the live test returned a saved reminder ID but discarded `location`, and verification rejected the partial result. Location alarms and native place semantics require their own proven implementation.

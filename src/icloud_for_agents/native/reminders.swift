@@ -285,6 +285,19 @@ if action == "list_membership" {
     }
     RunLoop.current.run(until:Date(timeIntervalSinceNow:30));fail("read_timeout")
 }
+// Passive metadata only: storing a link never opens it or executes a handler.
+func reminderLink(_ value:Any)->URL? {
+    if value is NSNull {return nil}
+    guard let text=value as? String,!text.isEmpty,text.count<=4000,
+          text.unicodeScalars.allSatisfy({$0.value>=33 && $0.value<127}),!text.contains("\\"),
+          let parts=URLComponents(string:text),let scheme=parts.scheme,
+          ["http","https","applenotes","x-apple-reminderkit"].contains(scheme),
+          parts.user==nil,parts.password==nil,
+          let result=parts.url,result.absoluteString==text else {fail("invalid_fields")}
+    if scheme=="http" || scheme=="https" {guard let host=parts.host,!host.isEmpty,(parts.port == nil || (1...65535).contains(parts.port!)) else {fail("invalid_fields")}}
+    else if (parts.host ?? "").isEmpty && parts.path.isEmpty {fail("invalid_fields")}
+    return result
+}
 if action == "apply" {
     if let item=req["change"] as? [String:Any],item["operation"] as? String=="rename_list" {
         guard let source=item["source_id"] as? String,sourceIDs.contains(source),let id=item["list_id"] as? String,
@@ -326,10 +339,11 @@ if action == "apply" {
                       destination.allowsContentModifications else { fail("not_found_in_scope") }
                 reminder.calendar = destination
             } else {
-                guard !fields.isEmpty, Set(fields.keys).isSubset(of: ["title", "notes", "priority", "due", "start"]) else { fail("invalid_fields") }
+                guard !fields.isEmpty, Set(fields.keys).isSubset(of: ["title", "notes", "priority", "due", "start", "url"]) else { fail("invalid_fields") }
                 if let title = fields["title"] as? String { reminder.title = title }
                 if let notes = fields["notes"] as? String { reminder.notes = notes }
                 if let priority = fields["priority"] as? Int { reminder.priority = priority }
+                if let value=fields["url"] {reminder.url=reminderLink(value)}
                 func patchDate(_ value: Any) -> DateComponents? {
                     guard let data = value as? [String: Any] else { return nil }
                     var result = DateComponents(); result.calendar = Calendar(identifier: .gregorian)
@@ -358,6 +372,7 @@ if action == "apply" {
           let fields = item["fields"] as? [String: Any], let title = fields["title"] as? String,
           !title.isEmpty, title.count <= 1000 else { fail("invalid_mutation") }
     if operation == "create_list" {
+        guard Set(fields.keys)==["title"] else {fail("invalid_fields")}
         guard let source = store.sources.first(where: { $0.sourceIdentifier == sourceID }) else { fail("not_found_in_scope") }
         guard !lists.contains(where: { $0.source.sourceIdentifier == sourceID && $0.title == title }) else { fail("duplicate_list") }
         let list = EKCalendar(for: .reminder, eventStore: store)
@@ -378,10 +393,12 @@ if action == "apply" {
         if let timezone = fields["timezone"] as? String { result.timeZone = TimeZone(identifier: timezone) }
         return result
     }
+    guard Set(fields.keys).isSubset(of:["title","notes","priority","due","start","url"]) else {fail("invalid_fields")}
     let reminder = EKReminder(eventStore: store)
     reminder.calendar = list; reminder.title = title
     reminder.notes = fields["notes"] as? String ?? ""
     reminder.priority = fields["priority"] as? Int ?? 0
+    if let value=fields["url"] {reminder.url=reminderLink(value)}
     reminder.dueDateComponents = components(fields["due"])
     reminder.startDateComponents = components(fields["start"])
     mutationDispatched=true
@@ -447,6 +464,7 @@ func object(_ reminder: EKReminder) -> [String: Any] {
      "modified": reminder.lastModifiedDate?.timeIntervalSince1970 ?? NSNull() as Any,
      "completion_date": reminder.completionDate?.timeIntervalSince1970 ?? NSNull() as Any,
      "url": reminder.url?.absoluteString ?? NSNull() as Any,
+     "location": reminder.location ?? NSNull() as Any,
      "has_recurrence": reminder.hasRecurrenceRules, "has_alarms": reminder.hasAlarms,
      "recurrence_rules":(reminder.recurrenceRules ?? []).prefix(100).map(recurrenceObject),
      "alarms":(reminder.alarms ?? []).prefix(100).map(alarmObject),

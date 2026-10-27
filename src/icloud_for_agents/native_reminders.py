@@ -33,6 +33,24 @@ def validate_date(value):
     return dict(value)
 
 
+def validate_link(value):
+    if value is None:return None
+    from urllib.parse import urlsplit
+    if (not isinstance(value,str) or not 1<=len(value)<=4000 or not value.isascii()
+            or any(ord(c)<33 or ord(c)==127 for c in value) or '\\' in value):
+        raise SafetyError('Use a bounded ASCII URL with percent-encoded text and no whitespace')
+    try:
+        parsed=urlsplit(value)
+        if parsed.scheme not in {'http','https','applenotes','x-apple-reminderkit'} or not value.startswith(parsed.scheme+':') or parsed.username or parsed.password:raise ValueError()
+        if parsed.scheme in {'http','https'} and (not parsed.hostname or parsed.port==0):raise ValueError()
+        if parsed.scheme not in {'http','https'} and not (parsed.path or parsed.netloc):raise ValueError()
+        # Foundation must retain this exact representation rather than repair it.
+        import re
+        if re.search(r'%(?![0-9a-fA-F]{2})',value) or re.search(r"[^A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%]",value):raise ValueError()
+    except ValueError:raise SafetyError('Use a valid HTTP(S) or supported native Notes/Reminders link without credentials') from None
+    return value
+
+
 class RemindersCreateAdapter:
     operations={'create_list','create_reminder','update_reminder','set_completed','move_reminder','rename_list'}
     def __init__(self):self.reader=NativeReader('reminders')
@@ -93,7 +111,7 @@ class RemindersCreateAdapter:
             if set(fields)!={'list_id'} or not isinstance(fields['list_id'],str) or not fields['list_id']:
                 raise SafetyError('Select an exact destination list in the same source')
         else:
-            if set(fields)-{'title','notes','priority','due','start'}:
+            if set(fields)-{'title','notes','priority','due','start','url'}:
                 raise SafetyError('Unsupported reminder update fields')
             # Reuse creation validation without injecting defaults into the patch.
             current=self.reader.read('get',id=change['id'])['item']
@@ -102,6 +120,8 @@ class RemindersCreateAdapter:
                 value=current.get(key)
                 merged[key]=({k:v for k,v in value.items() if k in {'year','month','day','hour','minute','timezone'} and v is not None}
                              if isinstance(value,dict) else None)
+            for key in ('url',):
+                if key in current:merged[key]=current[key]
             validated=self.prepare({'operation':'create_reminder','source_id':source,
                 'list_id':current['list_id'],'fields':{**merged,**fields}})['fields']
             fields={key:validated[key] for key in fields}
@@ -123,7 +143,7 @@ class RemindersCreateAdapter:
         source=change.get('source_id');operation=change.get('operation');fields=change.get('fields')
         if operation not in self.operations or source not in planning_access('reminders')['source_ids']:
             raise SafetyError('Unselected Reminders source or operation')
-        allowed={'title'} if operation=='create_list' else {'title','notes','priority','due','start'}
+        allowed={'title'} if operation=='create_list' else {'title','notes','priority','due','start','url'}
         if not isinstance(fields,dict) or set(fields)-allowed:raise SafetyError('Unsupported reminder fields')
         title=fields.get('title')
         if not isinstance(title,str) or not title.strip() or len(title)>1000 or any(ord(c)<32 for c in title):
@@ -134,6 +154,7 @@ class RemindersCreateAdapter:
             if not isinstance(notes,str) or len(notes.encode())>20000 or '\x00' in notes:raise SafetyError('Invalid reminder notes')
             if type(priority) is not int or priority not in {0,1,5,9}:raise SafetyError('Use none/high/medium/low priority values 0/1/5/9')
             fields.update(notes=notes,priority=priority)
+            if 'url' in fields:fields['url']=validate_link(fields['url'])
             for key in ('due','start'):
                 if key in fields:fields[key]=validate_date(fields[key])
         if fields.get('start') and fields.get('due'):
@@ -186,7 +207,7 @@ class RemindersCreateAdapter:
         if item['operation'] in {'update_reminder','set_completed','move_reminder'}:
             if outcome['id']!=item['id'] or note.get('source_id')!=item['source_id']:return False
             expected=dict(item['before']['item']);expected.update(item['fields'])
-            for key in ('title','notes','priority','due','start','list_id','completed','url','has_recurrence','has_alarms','recurrence_rules','alarms'):
+            for key in ('title','notes','priority','due','start','list_id','completed','url','location','has_recurrence','has_alarms','recurrence_rules','alarms'):
                 if key not in expected:continue
                 actual=note.get(key);wanted=expected.get(key)
                 if key in {'due','start'} and isinstance(wanted,dict):
@@ -195,6 +216,8 @@ class RemindersCreateAdapter:
             return True
         if note.get('source_id')!=item['source_id'] or note.get('list_id')!=item['list_id'] or note.get('completed') is not False:return False
         if any(note.get(k)!=item['fields'][k] for k in ('title','notes','priority')):return False
+        for key in ('url','location'):
+            if note.get(key)!=item['fields'].get(key):return False
         for key in ('due','start'):
             expected=item['fields'].get(key);actual=note.get(key)
             if expected is None:
