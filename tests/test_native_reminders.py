@@ -106,6 +106,34 @@ class NativeRemindersTests(unittest.TestCase):
 
     def rename(self,**changes):
         value={'operation':'rename_list','source_id':'selected','list_id':'list','fields':{'title':'Renamed synthetic'}};value.update(changes);return self.adapter.prepare(value)
+    def test_ongoing_list_rename_permission_survives_its_own_changes_and_refuses_lost_writability(self):
+        import tempfile
+        from pathlib import Path
+        from icloud_for_agents.approvals import PlanStore
+        from icloud_for_agents.native_changes import NativeChanges
+        from icloud_for_agents.native_grants import NativeGrants
+        from icloud_for_agents.native_access import require_write
+        adapter=type('SyntheticListAdapter',(RemindersCreateAdapter,),{'backend_id':'synthetic-list-rename'})();adapter.reader=self.reader
+        calls=[]
+        def apply(item):
+            require_write('reminders',item);calls.append(item['id']);self.reader.list['title']=item['fields']['title']
+            return {'id':item['id'],'source_id':'selected'}
+        adapter.apply=apply
+        config={'reminders':{'access_mode':'read-only','source_ids':['selected']}}
+        with tempfile.TemporaryDirectory() as directory,patch.dict(os.environ,{'ICLOUD_MAIL_ACCESS':'read-only','ICLOUD_MAIL_ACCOUNT':'synthetic@example.com','ICLOUD_APPROVAL_POLICY':'trusted-client','ICLOUD_NATIVE_CONFIG':json.dumps(config)}):
+            engine=NativeChanges('reminders','synthetic@example.com',adapter,PlanStore(Path(directory)/'runtime'));manager=NativeGrants(engine)
+            scope={'scenario':'Synthetic list naming','rules':[{'operation':'rename_list','source_id':'selected','container_id':'list','fields':['title'],'destinations':[]}],'max_batch':1,'max_24h':3,'expires':None}
+            grant=manager.prepare(scope);manager.activate(grant['plan_id'])
+            for title in ('Renamed synthetic','Synthetic'):
+                plan=engine.prepare_with_grant(grant['plan_id'],[{'operation':'rename_list','source_id':'selected','list_id':'list','fields':{'title':title}}])
+                self.assertEqual(engine.execute(plan['plan_id'])['status'],'applied');self.assertEqual(manager.status(grant['plan_id'])['status'],'active')
+            pending=engine.prepare_with_grant(grant['plan_id'],[{'operation':'rename_list','source_id':'selected','list_id':'list','fields':{'title':'Pending'}}])
+            self.reader.list['writable']=False
+            with self.assertRaises(SafetyError):engine.execute(pending['plan_id'])
+            self.assertFalse(engine.store.path(pending['plan_id'],'.started').exists());self.assertEqual(calls,['list','list'])
+            manager.revoke(grant['plan_id']);self.assertEqual(manager.status(grant['plan_id'])['status'],'revoked')
+            self.assertEqual(os.environ['ICLOUD_MAIL_ACCESS'],'read-only')
+
     def test_list_rename_binds_membership_and_preserves_list_identity(self):
         item=self.rename();self.assertEqual(item['before']['membership'],self.reader.membership);self.assertEqual(item['id'],'list')
         self.reader.list['title']='Renamed synthetic'
