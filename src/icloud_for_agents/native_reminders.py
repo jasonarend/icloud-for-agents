@@ -113,7 +113,7 @@ def alarm_effects(alarms,due):
 
 
 class RemindersCreateAdapter:
-    operations={'create_list','create_reminder','update_reminder','set_completed','move_reminder','rename_list'}
+    operations={'create_list','create_reminder','update_reminder','set_completed','move_reminder','rename_list','set_recurrence'}
     def __init__(self):self.reader=NativeReader('reminders')
     @property
     def backend_id(self):
@@ -156,6 +156,25 @@ class RemindersCreateAdapter:
                          'sharing':'Title may sync to devices or existing participants; EventKit does not expose participant state.'}}
         item['before']=self.list_rename_snapshot(item)
         if item['before']['list']['title']==title:raise SafetyError('List already has the requested title')
+        return item
+
+    def prepare_recurrence(self,change):
+        from .native_recurrence import validate_recurrence,observed_rule,rule_effects,validate_seed
+        if set(change)!={'operation','source_id','id','fields'} or not isinstance(change.get('id'),str) or not 1<=len(change['id'])<=1000:
+            raise SafetyError('Select one exact reminder for its native recurrence rule')
+        if change['source_id'] not in planning_access('reminders')['source_ids']:raise SafetyError('Select an exact source')
+        fields=change['fields']
+        if not isinstance(fields,dict) or set(fields)!={'recurrence','recurrence_scope'} or fields['recurrence_scope']!='exact_native_rule':
+            raise SafetyError('Rule changes require recurrence and recurrence_scope exact_native_rule; no occurrence or implicit series edits')
+        rule=validate_recurrence(fields['recurrence'])
+        item={'operation':'set_recurrence','source_id':change['source_id'],'id':change['id'],'fields':{'recurrence':rule,'recurrence_scope':'exact_native_rule'},'fidelity_verified':True,'effects':rule_effects(rule)}
+        item['before']=self.snapshot(item);current=item['before']['item']
+        if current.get('completed') is not False or current.get('public_metadata_complete') is not True:
+            raise SafetyError('Recurrence requires an uncompleted reminder with complete public metadata')
+        rules=current.get('recurrence_rules')
+        if not isinstance(rules,list) or len(rules)>1 or bool(rules)!=current.get('has_recurrence'):raise SafetyError('Unsupported or incomplete native recurrence set')
+        if rules:observed_rule(rules[0])
+        validate_seed(rule,current.get('due'))
         return item
 
     def prepare_existing(self,change):
@@ -203,15 +222,16 @@ class RemindersCreateAdapter:
         return item
 
     def prepare(self,change):
+        if isinstance(change,dict) and change.get('operation')=='set_recurrence':return self.prepare_recurrence(change)
         if isinstance(change,dict) and change.get('operation')=='rename_list':return self.prepare_list_rename(change)
-        if isinstance(change,dict) and change.get('operation') in {'update_reminder','set_completed','move_reminder'}:
+        if isinstance(change,dict) and change.get('operation') in {'update_reminder','set_completed','move_reminder','set_recurrence'}:
             return self.prepare_existing(change)
         if not isinstance(change,dict) or set(change)-{'operation','source_id','list_id','fields'}:
             raise SafetyError('Unknown Reminders change fields')
         source=change.get('source_id');operation=change.get('operation');fields=change.get('fields')
         if operation not in self.operations or source not in planning_access('reminders')['source_ids']:
             raise SafetyError('Unselected Reminders source or operation')
-        allowed={'title'} if operation=='create_list' else {'title','notes','priority','due','start','url','alarms'}
+        allowed={'title'} if operation=='create_list' else {'title','notes','priority','due','start','url','alarms','recurrence'}
         if not isinstance(fields,dict) or set(fields)-allowed:raise SafetyError('Unsupported reminder fields')
         title=fields.get('title')
         if not isinstance(title,str) or not title.strip() or len(title)>1000 or any(ord(c)<32 for c in title):
@@ -226,6 +246,10 @@ class RemindersCreateAdapter:
             if 'alarms' in fields:fields['alarms']=validate_alarms(fields['alarms'],fields.get('due'))
             for key in ('due','start'):
                 if key in fields:fields[key]=validate_date(fields[key])
+        if operation=='create_reminder' and 'recurrence' in fields:
+            from .native_recurrence import validate_recurrence,validate_seed
+            fields['recurrence']=validate_recurrence(fields['recurrence'])
+            validate_seed(fields['recurrence'],fields.get('due'))
         if fields.get('start') and fields.get('due'):
             start,due=fields['start'],fields['due']
             if ('hour' in start)!=('hour' in due):raise SafetyError('Mixed date-only/timed start and due require an explicit policy')
@@ -240,12 +264,15 @@ class RemindersCreateAdapter:
             item['list_id']=change['list_id']
         item['before']=self.snapshot(item)
         if operation=='create_reminder' and 'alarms' in fields:item['effects']['time_alarms']=alarm_effects(fields['alarms'],fields.get('due'))
+        if operation=='create_reminder' and 'recurrence' in fields:
+            from .native_recurrence import rule_effects
+            item['effects']['recurrence']=rule_effects(fields['recurrence'])
         if operation=='create_list' and item['before']['matching_titles']>0:raise SafetyError('List title already exists')
         return item
     def snapshot(self,item):
         if item['operation']=='rename_list':return self.list_rename_snapshot(item)
         lists=[c for c in self.lists() if c['source_id']==item['source_id']]
-        if item['operation'] in {'update_reminder','set_completed','move_reminder'}:
+        if item['operation'] in {'update_reminder','set_completed','move_reminder','set_recurrence'}:
             reminder=self.reader.read('get',id=item['id'])['item']
             if reminder.get('source_id')!=item['source_id']:raise SafetyError('Reminder belongs to another source')
             current=next((c for c in lists if c['id']==reminder['list_id']),None)
@@ -274,10 +301,15 @@ class RemindersCreateAdapter:
             return actual==expected
         if item['operation']=='create_list':return any(c['id']==outcome['id'] and c['title']==item['fields']['title'] and c['source_id']==item['source_id'] for c in self.lists())
         note=self.reader.read('get',id=outcome['id'])['item']
-        if item['operation'] in {'update_reminder','set_completed','move_reminder'}:
+        if item['operation'] in {'update_reminder','set_completed','move_reminder','set_recurrence'}:
             if outcome['id']!=item['id'] or note.get('source_id')!=item['source_id']:return False
             expected=dict(item['before']['item']);expected.update(item['fields'])
             if 'alarms' in item['fields']:expected['has_alarms']=bool(item['fields']['alarms'])
+            if item['operation']=='set_recurrence':
+                from .native_recurrence import recurrence_equal
+                if not recurrence_equal(note.get('recurrence_rules'),item['fields']['recurrence']) or note.get('has_recurrence')!=bool(item['fields']['recurrence']):return False
+                if note.get('created')!=expected.get('created') or note.get('public_metadata_complete') is not True:return False
+                expected['recurrence_rules']=note['recurrence_rules'];expected['has_recurrence']=note['has_recurrence']
             for key in ('title','notes','priority','due','start','list_id','completed','url','location','has_recurrence','has_alarms','recurrence_rules','alarms'):
                 if key not in expected:continue
                 actual=note.get(key);wanted=expected.get(key)
@@ -289,6 +321,10 @@ class RemindersCreateAdapter:
             return True
         if note.get('source_id')!=item['source_id'] or note.get('list_id')!=item['list_id'] or note.get('completed') is not False:return False
         if any(note.get(k)!=item['fields'][k] for k in ('title','notes','priority')):return False
+        if 'recurrence' not in item['fields'] and (note.get('has_recurrence',False) or note.get('recurrence_rules',[])):return False
+        if 'recurrence' in item['fields']:
+            from .native_recurrence import recurrence_equal
+            if not recurrence_equal(note.get('recurrence_rules'),item['fields']['recurrence']) or note.get('has_recurrence')!=bool(item['fields']['recurrence']):return False
         if 'alarms' in item['fields'] and (not alarms_equal(note.get('alarms'),item['fields']['alarms']) or note.get('has_alarms')!=bool(item['fields']['alarms'])):return False
         for key in ('url','location'):
             if note.get(key)!=item['fields'].get(key):return False

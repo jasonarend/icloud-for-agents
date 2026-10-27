@@ -206,12 +206,19 @@ def register_change_tools(mcp):
             exact source_id and id. rename_list uses source_id/list_id/title.
             Supplied fields for create/update: title, notes, priority (0/1/5/9),
             due/start (explicit date components, optional hour/minute/timezone),
-            passive url (or null to clear), alarms (complete ordinary time-alarm
+            passive url (or null to clear), recurrence (explicit rule or null at creation),
+            alarms (complete ordinary time-alarm
             array; [] clears). Each alarm is exactly {absolute_date: integer Unix
             seconds} or {relative_offset_seconds: integer seconds}; relative
             alarms require a timed due date and timezone. Review includes exact
             trigger times and notification effects. Location-text writes and
-            advanced alarms are unsupported. Existing recurring edits are refused.
+            advanced alarms are unsupported. Ordinary recurring edits are refused. set_recurrence requires exact id
+            and fields.recurrence_scope="exact_native_rule" plus fields.recurrence
+            (rule or null). Rules require frequency, interval, and end (null, count
+            or Unix date); optional native weekday/month/year filters are bounded.
+            This changes only the exact uncompleted object's rule configuration;
+            occurrence edits, completion generation and historical changes are not
+            provided by this operation.
             set_completed uses fields.completed boolean; move_reminder uses
             fields.list_id. Use prepare_once or an approved scenario grant for
             read-only application access. No operation opens a reference URL.

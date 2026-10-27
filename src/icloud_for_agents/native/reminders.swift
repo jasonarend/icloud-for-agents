@@ -320,6 +320,62 @@ func reminderTimeAlarms(_ value:Any,due:DateComponents?)->[EKAlarm] {
     }
     return result
 }
+// Gregorian recurrence configuration; never an occurrence expansion or completion.
+func recurrenceInteger(_ value:Any?,_ low:Int,_ high:Int,nonzero:Bool=false)->Int {
+    guard let number=value as? NSNumber,CFGetTypeID(number) != CFBooleanGetTypeID(),number.doubleValue.isFinite,
+          number.doubleValue>=Double(low),number.doubleValue<=Double(high),number.doubleValue.rounded()==number.doubleValue else {fail("invalid_fields")}
+    let result=number.intValue;if nonzero && result==0 {fail("invalid_fields")};return result
+}
+func reminderRecurrence(_ value:Any,due:DateComponents?)->EKRecurrenceRule? {
+    if value is NSNull {return nil}
+    let arrays=["days_of_month":31,"months_of_year":12,"weeks_of_year":53,"days_of_year":366,"set_positions":366]
+    guard let fields=value as? [String:Any],Set(fields.keys)==Set(["frequency","interval","end","days_of_week"]+Array(arrays.keys)),
+          let name=fields["frequency"] as? String,let frequency=["daily":EKRecurrenceFrequency.daily,"weekly":.weekly,"monthly":.monthly,"yearly":.yearly][name],
+          due?.year != nil,due?.month != nil,due?.day != nil else {fail("invalid_fields")}
+    let interval=recurrenceInteger(fields["interval"],1,999)
+    var filters:[String:[NSNumber]]=[:]
+    for (key,maximum) in arrays {
+        guard let values=fields[key] as? [Any],values.count<=366 else {fail("invalid_fields")}
+        let ints=values.map {recurrenceInteger($0,key=="months_of_year" ? 1 : -maximum,maximum,nonzero:true)}
+        guard Set(ints).count==ints.count,ints==ints.sorted() else {fail("invalid_fields")}
+        if !ints.isEmpty && ((key=="days_of_month" && name != "monthly") || (["months_of_year","weeks_of_year","days_of_year"].contains(key) && name != "yearly")) {fail("invalid_fields")}
+        filters[key]=ints.map {NSNumber(value:$0)}
+    }
+    guard let days=fields["days_of_week"] as? [[String:Any]],days.count<=53 else {fail("invalid_fields")}
+    var weekdays:[EKRecurrenceDayOfWeek]=[];var seen=Set<String>()
+    for day in days {
+        guard Set(day.keys)==["weekday","week_number"],name != "daily" else {fail("invalid_fields")}
+        let weekday=recurrenceInteger(day["weekday"],1,7),maximum=name=="yearly" ? 53 : 5
+        let ordinal=recurrenceInteger(day["week_number"],-maximum,maximum)
+        let identity=String(weekday)+":"+String(ordinal)
+        guard !seen.contains(identity),name != "weekly" || ordinal==0,let nativeDay=EKWeekday(rawValue:weekday) else {fail("invalid_fields")}
+        seen.insert(identity);weekdays.append(EKRecurrenceDayOfWeek(nativeDay,weekNumber:ordinal))
+    }
+    if !(filters["set_positions"] ?? []).isEmpty && weekdays.isEmpty && !["days_of_month","months_of_year","weeks_of_year","days_of_year"].contains(where:{!(filters[$0] ?? []).isEmpty}) {fail("invalid_fields")}
+    var end:EKRecurrenceEnd?=nil
+    if !(fields["end"] is NSNull) {
+        guard let limit=fields["end"] as? [String:Any],limit.count==1 else {fail("invalid_fields")}
+        if limit["count"] != nil {end=EKRecurrenceEnd(occurrenceCount:recurrenceInteger(limit["count"],1,10000))}
+        else if limit["date"] != nil {
+            let date=Date(timeIntervalSince1970:Double(recurrenceInteger(limit["date"],946684800,4102444799)))
+            guard let due=due,let zone=due.timeZone,due.hour != nil else {fail("invalid_fields")}
+            var calendar=Calendar(identifier:.gregorian);calendar.timeZone=zone
+            guard let first=calendar.date(from:due),date>=first else {fail("invalid_fields")}
+            end=EKRecurrenceEnd(end:date)
+        }
+        else {fail("invalid_fields")}
+    }
+    func numbers(_ key:String)->[NSNumber]? {let values=filters[key] ?? [];return values.isEmpty ? nil : values}
+    let rule=EKRecurrenceRule(recurrenceWith:frequency,interval:interval,daysOfTheWeek:weekdays.isEmpty ? nil : weekdays,
+        daysOfTheMonth:numbers("days_of_month"),monthsOfTheYear:numbers("months_of_year"),weeksOfTheYear:numbers("weeks_of_year"),
+        daysOfTheYear:numbers("days_of_year"),setPositions:numbers("set_positions"),end:end)
+    // Refuse combinations Foundation ignores before saving a native object.
+    var expected=fields;expected["fields_complete"]=true;expected["calendar_identifier"]="gregorian";expected["first_weekday"]=rule.firstDayOfTheWeek
+    guard [0,2].contains(rule.firstDayOfTheWeek) else {fail("unsupported_edit_target")}
+    expected["end"]=end.map { ["count":$0.occurrenceCount,"date":$0.endDate?.timeIntervalSince1970 ?? NSNull() as Any] as [String:Any] } ?? NSNull() as Any
+    guard NSDictionary(dictionary:recurrenceObject(rule)).isEqual(to:expected) else {fail("unsupported_edit_target")}
+    return rule
+}
 if action == "apply" {
     if let item=req["change"] as? [String:Any],item["operation"] as? String=="rename_list" {
         guard let source=item["source_id"] as? String,sourceIDs.contains(source),let id=item["list_id"] as? String,
@@ -339,7 +395,7 @@ if action == "apply" {
         RunLoop.current.run(until:Date(timeIntervalSinceNow:30));fail("mutation_failed_or_uncertain")
     }
     if let item = req["change"] as? [String: Any], let operation = item["operation"] as? String,
-       ["update_reminder", "set_completed", "move_reminder"].contains(operation) {
+       ["update_reminder", "set_completed", "move_reminder", "set_recurrence"].contains(operation) {
         guard let sourceID = item["source_id"] as? String, sourceIDs.contains(sourceID),
               let identifier = item["id"] as? String, let fields = item["fields"] as? [String: Any],
               let before = item["before"] as? [String: Any], let previous = before["item"] as? [String: Any],
@@ -349,12 +405,26 @@ if action == "apply" {
                   let reminder = reminders.first(where: { $0.calendarItemIdentifier == identifier }),
                   reminder.calendar.source.sourceIdentifier == sourceID,
                   reminder.calendar.allowsContentModifications else { fail("not_found_in_scope") }
-            guard NSDictionary(dictionary: object(reminder)).isEqual(to: previous), !reminder.hasRecurrenceRules else {
+            guard NSDictionary(dictionary: object(reminder)).isEqual(to: previous), (operation=="set_recurrence" || !reminder.hasRecurrenceRules) else {
                 fail("snapshot_changed_or_recurrence_unsupported")
             }
             if operation == "set_completed" {
                 guard Set(fields.keys) == ["completed"], let completed = fields["completed"] as? Bool else { fail("invalid_fields") }
                 reminder.isCompleted = completed
+            } else if operation == "set_recurrence" {
+                guard Set(fields.keys)==["recurrence","recurrence_scope"],fields["recurrence_scope"] as? String=="exact_native_rule",!reminder.isCompleted,
+                      object(reminder)["public_metadata_complete"] as? Bool==true,(reminder.recurrenceRules?.count ?? 0)<=1 else {fail("unsupported_edit_target")}
+                if let rule=reminder.recurrenceRules?.first {
+                    var metadata=recurrenceObject(rule)
+                    guard metadata["calendar_identifier"] as? String=="gregorian" else {fail("unsupported_edit_target")}
+                    var fields=metadata;fields.removeValue(forKey:"fields_complete");fields.removeValue(forKey:"calendar_identifier");fields.removeValue(forKey:"first_weekday")
+                    if let end=fields["end"] as? [String:Any] {fields["end"]=(end["date"] is NSNull) ? ["count":end["count"]!] : ["date":end["date"]!]}
+                    guard let first=metadata["first_weekday"] as? Int,[0,2].contains(first),let represented=reminderRecurrence(fields,due:reminder.dueDateComponents) else {fail("unsupported_edit_target")}
+                    metadata["first_weekday"]=represented.firstDayOfTheWeek
+                    guard NSDictionary(dictionary:recurrenceObject(represented)).isEqual(to:metadata) else {fail("unsupported_edit_target")}
+                }
+                let rule=reminderRecurrence(fields["recurrence"]!,due:reminder.dueDateComponents)
+                reminder.recurrenceRules=rule.map {[$0]} ?? []
             } else if operation == "move_reminder" {
                 guard Set(fields.keys) == ["list_id"], let listID = fields["list_id"] as? String,
                       let destination = lists.first(where: { $0.calendarIdentifier == listID && $0.source.sourceIdentifier == sourceID }),
@@ -419,7 +489,7 @@ if action == "apply" {
         if let timezone = fields["timezone"] as? String { result.timeZone = TimeZone(identifier: timezone) }
         return result
     }
-    guard Set(fields.keys).isSubset(of:["title","notes","priority","due","start","url","alarms"]) else {fail("invalid_fields")}
+    guard Set(fields.keys).isSubset(of:["title","notes","priority","due","start","url","alarms","recurrence"]) else {fail("invalid_fields")}
     let reminder = EKReminder(eventStore: store)
     reminder.calendar = list; reminder.title = title
     reminder.notes = fields["notes"] as? String ?? ""
@@ -428,6 +498,7 @@ if action == "apply" {
     reminder.dueDateComponents = components(fields["due"])
     reminder.startDateComponents = components(fields["start"])
     if let alarms=fields["alarms"] {reminder.alarms=reminderTimeAlarms(alarms,due:reminder.dueDateComponents)}
+    if let value=fields["recurrence"] {reminder.recurrenceRules=reminderRecurrence(value,due:reminder.dueDateComponents).map {[$0]} ?? []}
     mutationDispatched=true
     do { try store.save(reminder, commit: true) } catch { fail("mutation_failed_or_uncertain") }
     respond(["protocol_version": 1, "result": ["id": reminder.calendarItemIdentifier, "list_id": listID,

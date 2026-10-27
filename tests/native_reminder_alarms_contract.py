@@ -5,7 +5,7 @@ ROOT=Path(__file__).resolve().parents[1]
 
 def run():
     source=(ROOT/'src/icloud_for_agents/native/reminders.swift').read_text()
-    start=source.index('func ordinaryTimeAlarm(');functions=source[start:source.index('if action == "apply" {',start)]
+    start=source.index('func ordinaryTimeAlarm(');functions=source[start:source.index('// Gregorian recurrence configuration',start)]
     start=source.index('func alarmObject(');serializer=source[start:source.index('func object(_ reminder:',start)]
     fixture='''
 let request=try JSONSerialization.jsonObject(with:FileHandle.standardInput.readDataToEndOfFile()) as! [String:Any]
