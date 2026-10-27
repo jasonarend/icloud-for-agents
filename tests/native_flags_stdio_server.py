@@ -24,12 +24,13 @@ def dispatch(self,request,config):
         child=request['id']=='synthetic-child';root='synthetic-parent' if child else request['id'];children=['synthetic-child'] if request['id']=='synthetic-parent' else None
         return {'protocol_version':1,'id':request['id'],'source_id':'selected','found_as_root':not child,'found_in_view':True,'parent_id':root if child else None,'recovery_root_id':root,'view':'provider_recently_deleted','reported_child_ids':children,'children_status':'provider_reported' if children is not None else 'unavailable','children_complete':False,'data_mutated':False,'observation_consistency':'separate_provider_reads'}
     if request['action']=='query':
-        assert (type(request.get('flagged')) is bool or isinstance(request.get('tag'),str)) and request['limit']==1
+        assert (type(request.get('flagged')) is bool or type(request.get('urgent')) is bool or isinstance(request.get('tag'),str)) and request['limit']==1
         if 'due_date' in request:assert request['due_date']=='2026-10-27' and request['timezone']=='UTC' and request['completed'] is False and request['list_id']=='list'
         result={'protocol_version':1,'items':[],'done':False,'next_offset':1,'pagination_consistency':'live_offset_may_shift'}
         evidence={'scanned':1,'matched':0,'observation_consistency':'separate_provider_reads'}
         if 'flagged' in request:result['native_flag_filter']=evidence
         if 'tag' in request:result['native_tag_filter']=evidence
+        if 'urgent' in request:result['native_urgent_filter']=evidence
         return result
     item={'id':request.get('id','synthetic-task'),'list_id':'list','source_id':'selected','content_complete':False}
     if request.get('include_native_metadata'):

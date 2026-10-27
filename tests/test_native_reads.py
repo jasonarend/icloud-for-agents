@@ -104,6 +104,17 @@ class NativeReadTests(unittest.TestCase):
                 with self.subTest(name=name,action=action,value=value),self.assertRaises(SafetyError):NativeReader(name).read(action,include_native_tags=value)
                 with self.subTest(name=name,action=action,value=value),self.assertRaises(SafetyError):NativeReader(name).read(action,include_native_hierarchy=value)
                 with self.subTest(name=name,action=action,value=value),self.assertRaises(SafetyError):NativeReader(name).read(action,include_native_children=value)
+    def test_urgent_filter_requires_opt_in_and_verified_matching_evidence(self):
+        config={'reminders':{'source_ids':['selected'],'helper_path':'/synthetic/helper','advanced_backend':'reminderkit'}}
+        evidence={'scanned':1,'matched':0,'observation_consistency':'separate_provider_reads'}
+        result={'protocol_version':1,'items':[],'done':False,'next_offset':1,'pagination_consistency':'live_offset_may_shift','native_urgent_filter':evidence}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=result):
+            self.assertEqual(NativeReader('reminders').read('query',urgent=True,limit=1)['items'],[])
+            with self.assertRaises(SafetyError):NativeReader('reminders').read('query',urgent=1,limit=1)
+            result.pop('native_urgent_filter')
+            with self.assertRaises(SafetyError):NativeReader('reminders').read('query',urgent=True,limit=1)
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps({'reminders':{'source_ids':['selected']}})),patch('platform.system',return_value='Darwin'),self.assertRaises(SafetyError):NativeReader('reminders').read('query',urgent=True)
+
     def test_flag_filter_requires_opt_in_boolean_and_selected_scope(self):
         config={'reminders':{'source_ids':['selected'],'helper_path':'/synthetic/helper','advanced_backend':'reminderkit'}};calls=[]
         def dispatch(request,config):calls.append(request);return {'protocol_version':1,'items':[],'done':False,'next_offset':1,'pagination_consistency':'live_offset_may_shift','native_flag_filter':{'scanned':1,'matched':0,'observation_consistency':'separate_provider_reads'}}

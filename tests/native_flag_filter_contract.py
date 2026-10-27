@@ -14,18 +14,20 @@ var req:[String:Any]=["flagged":scenario=="false" ? false : true]
 if scenario=="invalid" {req["flagged"]=1}
 if scenario=="tag" || scenario=="both" || scenario=="case" {req["tag"]=scenario=="case" ? "project" : "Project"}
 if scenario=="tag" || scenario=="case" {req.removeValue(forKey:"flagged")}
+if scenario=="urgent" || scenario=="urgent_false" {req.removeValue(forKey:"flagged");req["urgent"]=scenario=="urgent"}
 let nativeFlag=req["flagged"]
+let nativeUrgent=req["urgent"]
 let nativeTag=req["tag"]
 func object(_ reminder:EKReminder)->[String:Any] {return ["id":reminder.calendarItemIdentifier]}
 func selectedNativeMetadata(_ reminder:EKReminder,_ options:[String:Any])->[String:Any]? {
  if scenario=="unavailable" {return nil}
- return ["id":reminder.calendarItemIdentifier,"flagged":reminder.flagged,"tags":reminder.tags.map { ["name":$0] },"tags_complete":true]
+ return ["id":reminder.calendarItemIdentifier,"flagged":reminder.flagged,"urgent":reminder.flagged,"tags":reminder.tags.map { ["name":$0] },"tags_complete":true]
 }
 func fail(_ code:String)->Never {print("error:"+code);exit(0)}
 func respond(_ value:[String:Any])->Never {let data=try! JSONSerialization.data(withJSONObject:value,options:[.sortedKeys]);print(String(data:data,encoding:.utf8)!);exit(0)}
 '''
 def run():
-    source=(ROOT/'src/icloud_for_agents/native/reminders.swift').read_text();start=source.index('    if nativeFlag != nil || nativeTag != nil {',source.index('    let filtered = reminders.filter'))
+    source=(ROOT/'src/icloud_for_agents/native/reminders.swift').read_text();start=source.index('    if nativeFlag != nil || nativeTag != nil || nativeUrgent != nil {',source.index('    let filtered = reminders.filter'))
     code=source[start:source.index('    let page = Array(filtered.dropFirst(offset)',start)]
     with tempfile.TemporaryDirectory(prefix='reminder-flag-filter-') as directory:
         p=Path(directory);(p/'main.swift').write_text(FIXTURE+code+'\nprint("missing filter")\n')
@@ -35,10 +37,12 @@ def run():
         second=json.loads(call('true',1));assert second['items'][0]['id']=='b' and second['items'][0]['native_metadata']['flagged'] is True and second['next_offset']==2 and second['done'] is False
         last=json.loads(call('false',2));assert last['items'][0]['id']=='c' and last['done'] is True and last['next_offset']==3
         assert call('unavailable',0)=='error:private_metadata_unavailable'
+        urgent=json.loads(call('urgent',1));assert urgent['items'][0]['id']=='b' and urgent['native_urgent_filter']['matched']==1
+        assert json.loads(call('urgent_false',2))['items'][0]['id']=='c'
         tagged=json.loads(call('tag',1));assert tagged['items'][0]['id']=='b' and tagged['native_tag_filter']['matched']==1
         both=json.loads(call('both',1));assert both['items'][0]['id']=='b' and both['native_flag_filter']==both['native_tag_filter']
         assert json.loads(call('both',2))['items']==[] and json.loads(call('case',1))['items']==[]
-        empty_start=source.index('if let flag=nativeFlag {')
+        empty_start=source.index('if let urgent=nativeUrgent {')
         empty=source[empty_start:source.index('let dueFilter = req["due_date"]',empty_start)]
         (p/'empty.swift').write_text(FIXTURE+'\nlet selected:[Int]=[]\nlet requestedList:String?=nil\n'+empty+'\nprint("missing empty result")\n')
         built=subprocess.run(['/usr/bin/swiftc',str(p/'empty.swift'),'-o',str(p/'empty')],capture_output=True,text=True,timeout=60);assert built.returncode==0,built.stderr

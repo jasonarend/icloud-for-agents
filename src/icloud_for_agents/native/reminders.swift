@@ -813,17 +813,20 @@ guard let limit = req["limit"] as? Int, (1...100).contains(limit),
 let requestedList = req["list_id"] as? String
 let selected = lists.filter { requestedList == nil || $0.calendarIdentifier == requestedList }
 let nativeFlag=req["flagged"]
+let nativeUrgent=req["urgent"]
 let nativeTag=req["tag"]
+if let urgent=nativeUrgent {guard let value=urgent as? NSNumber,CFGetTypeID(value)==CFBooleanGetTypeID() else {fail("invalid_request")}}
 if let flag=nativeFlag {guard let value=flag as? NSNumber,CFGetTypeID(value)==CFBooleanGetTypeID() else {fail("invalid_request")}}
 if let raw=nativeTag {
     guard let tag=raw as? String,!tag.isEmpty,tag.lengthOfBytes(using:.utf8)<=512,!tag.unicodeScalars.contains(where:{$0.value<32}) else {fail("invalid_request")}
 }
 guard !selected.isEmpty else {
     if requestedList != nil { fail("not_found_in_scope") }
-    if nativeFlag != nil || nativeTag != nil {
+    if nativeFlag != nil || nativeTag != nil || nativeUrgent != nil {
         let evidence:[String:Any]=["scanned":0,"matched":0,"observation_consistency":"separate_provider_reads"]
         var response:[String:Any]=["protocol_version":1,"items":[],"done":true,"next_offset":offset,"pagination_consistency":"live_offset_may_shift"]
         if nativeFlag != nil {response["native_flag_filter"]=evidence}
+        if nativeUrgent != nil {response["native_urgent_filter"]=evidence}
         if nativeTag != nil {response["native_tag_filter"]=evidence}
         respond(response)
     }
@@ -871,14 +874,18 @@ store.fetchReminders(matching: predicate) { reminders in
         return dueMatches && rangeMatches && (priorities == nil || priorities!.contains(r.priority)) && (completed == nil || r.isCompleted == completed) &&
         (text == nil || ((r.title ?? "") + "\n" + (r.notes ?? "")).localizedCaseInsensitiveContains(text!))
     }.sorted { $0.calendarItemIdentifier < $1.calendarItemIdentifier }
-    if nativeFlag != nil || nativeTag != nil {
+    if nativeFlag != nil || nativeTag != nil || nativeUrgent != nil {
         let scanned=Array(filtered.dropFirst(offset).prefix(limit))
         var matches:[[String:Any]]=[]
         for reminder in scanned {
-            let selections:[String:Any]=["include_native_metadata":nativeFlag != nil,"include_native_tags":nativeTag != nil]
+            let selections:[String:Any]=["include_native_metadata":nativeFlag != nil,"include_native_tags":nativeTag != nil,"include_native_urgent":nativeUrgent != nil]
             guard let native=selectedNativeMetadata(reminder,selections) else {fail("private_metadata_unavailable")}
             if let expected=nativeFlag as? NSNumber {
                 guard let value=native["flagged"] as? NSNumber,CFGetTypeID(value)==CFBooleanGetTypeID() else {fail("private_metadata_unavailable")}
+                if value.boolValue != expected.boolValue {continue}
+            }
+            if let expected=nativeUrgent as? NSNumber {
+                guard let value=native["urgent"] as? NSNumber,CFGetTypeID(value)==CFBooleanGetTypeID() else {fail("private_metadata_unavailable")}
                 if value.boolValue != expected.boolValue {continue}
             }
             if let expected=nativeTag as? String {
@@ -891,6 +898,7 @@ store.fetchReminders(matching: predicate) { reminders in
         let evidence:[String:Any]=["scanned":scanned.count,"matched":matches.count,"observation_consistency":"separate_provider_reads"]
         var response:[String:Any]=["protocol_version":1,"items":matches,"done":next>=filtered.count,"next_offset":next,"pagination_consistency":"live_offset_may_shift"]
         if nativeFlag != nil {response["native_flag_filter"]=evidence}
+        if nativeUrgent != nil {response["native_urgent_filter"]=evidence}
         if nativeTag != nil {response["native_tag_filter"]=evidence}
         respond(response)
     }

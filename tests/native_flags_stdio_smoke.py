@@ -58,6 +58,8 @@ def run():
                 tree=data(rpc('tools/call',{'name':'reminders_inspect_hierarchy','arguments':{'id':'synthetic-parent'}})['result']);assert len(tree['nodes'])==2 and tree['nodes'][1]['parent_id']=='synthetic-parent' and tree['hierarchy_complete'] is False
                 assert rpc('tools/call',{'name':'reminders_inspect_hierarchy','arguments':{'id':'synthetic-parent','max_nodes':21}})['result'].get('isError')
                 query=next(t for t in tools if t['name']=='reminders_query');assert query['annotations']['readOnlyHint'] is True
+                urgent_page=data(rpc('tools/call',{'name':'reminders_query','arguments':{'urgent':True,'limit':1}})['result']);assert urgent_page['native_urgent_filter']['scanned']==1 and urgent_page['done'] is False
+                urgent_daily=data(rpc('tools/call',{'name':'reminders_daily','arguments':{'date':'2026-10-27','timezone':'UTC','urgent':False,'limit':1,'list_id':'list'}})['result']);assert urgent_daily['native_urgent_filter']['scanned']==1
                 flag_query=data(rpc('tools/call',{'name':'reminders_query','arguments':{'flagged':True,'limit':1}})['result']);assert flag_query['items']==[] and flag_query['done'] is False and flag_query['next_offset']==1
                 assert rpc('tools/call',{'name':'reminders_query','arguments':{'flagged':'invalid'}})['result'].get('isError')
                 assert 'tag' in query['inputSchema']['properties']

@@ -98,6 +98,10 @@ class NativeReader:
         if flagged is not None:
             if self.name!='reminders' or action!='query' or type(flagged) is not bool:raise SafetyError('Flag filtering requires a Boolean on a Reminders query')
             if config.get('advanced_backend')!='reminderkit' or not config.get('helper_path'):raise SafetyError('Flag filtering requires the explicitly selected ReminderKit backend and signed helper')
+        urgent=fields.get('urgent')
+        if urgent is not None:
+            if self.name!='reminders' or action!='query' or type(urgent) is not bool:raise SafetyError('Urgent filtering requires a Boolean on a Reminders query')
+            if config.get('advanced_backend')!='reminderkit' or not config.get('helper_path'):raise SafetyError('Urgent filtering requires the explicitly selected ReminderKit backend and signed helper')
         tag=fields.get('tag')
         if tag is not None:
             try:
@@ -131,7 +135,7 @@ class NativeReader:
         match_scope=fields.pop('match_scope','all')
         if not isinstance(match_scope,str) or match_scope not in {'all','title'} or (match_scope!='all' and (self.name!='notes' or action!='search')):
             raise SafetyError('Title-only search is supported only for Notes search')
-        if set(fields) - {'id', 'folder_id', 'list_id', 'limit', 'offset', 'completed', 'text', 'due_date', 'timezone', 'include_overdue', 'due_from', 'due_through', 'priorities', 'flagged', 'tag', 'source_id', 'modified_from', 'modified_before'}:
+        if set(fields) - {'id', 'folder_id', 'list_id', 'limit', 'offset', 'completed', 'text', 'due_date', 'timezone', 'include_overdue', 'due_from', 'due_through', 'priorities', 'flagged', 'tag', 'urgent', 'source_id', 'modified_from', 'modified_before'}:
             raise SafetyError('Unknown native read fields')
         modified={k:fields[k] for k in ('modified_from','modified_before') if fields.get(k) is not None}
         if modified:
@@ -232,11 +236,11 @@ class NativeReader:
                     or ('hierarchy' in expected and (type(metadata.get('is_subtask')) is not bool or 'parent_id' not in metadata or 'has_subtasks' not in metadata or metadata.get('hierarchy_complete') is not False or (metadata.get('has_subtasks') is not None and type(metadata.get('has_subtasks')) is not bool) or not isinstance(metadata.get('children_status'),str) or metadata.get('children_status') not in {'unavailable','provider_reported'} or (metadata.get('children_status')=='unavailable')!=(metadata.get('has_subtasks') is None) or (metadata.get('is_subtask') and not isinstance(metadata.get('parent_id'),str)) or (not metadata.get('is_subtask') and metadata.get('parent_id') is not None)))
                     or ('children' in expected and (metadata.get('children_complete') is not False or 'child_ids' not in metadata or not isinstance(metadata.get('children_fetch_status'),str) or metadata.get('children_fetch_status') not in {'unavailable','provider_reported'} or (metadata.get('children_fetch_status')=='unavailable')!=(metadata.get('child_ids') is None) or (metadata.get('child_ids') is not None and (not isinstance(metadata.get('child_ids'),list) or len(metadata['child_ids'])>100 or any(not isinstance(x,str) or not x for x in metadata['child_ids']) or len(set(metadata['child_ids']))!=len(metadata['child_ids'])))))):
                 raise SafetyError('Configured helper did not provide the requested scoped native metadata; update or review its compatibility')
-        if flagged is not None or tag is not None:
+        if flagged is not None or tag is not None or urgent is not None:
             items=result.get('items') if isinstance(result,dict) else None
-            keys=(['native_flag_filter'] if flagged is not None else [])+(['native_tag_filter'] if tag is not None else [])
+            keys=(['native_flag_filter'] if flagged is not None else [])+(['native_tag_filter'] if tag is not None else [])+(['native_urgent_filter'] if urgent is not None else [])
             evidence=result.get(keys[0]) if isinstance(result,dict) else None
-            expected=(['flagged'] if flagged is not None else [])+(['tags'] if tag is not None else [])
+            expected=(['flagged'] if flagged is not None else [])+(['tags'] if tag is not None else [])+(['urgent'] if urgent is not None else [])
             if (not isinstance(items,list) or not isinstance(evidence,dict)
                     or any(result.get(key)!=evidence for key in keys)
                     or type(evidence.get('scanned')) is not int or not 0<=evidence['scanned']<=limit
@@ -250,6 +254,7 @@ class NativeReader:
                         or any(x['native_metadata'].get(k)!=x.get(k) for k in ('id','source_id','list_id'))
                         or x['native_metadata'].get('coverage')!=expected
                         or (flagged is not None and x['native_metadata'].get('flagged') is not flagged)
+                        or (urgent is not None and x['native_metadata'].get('urgent') is not urgent)
                         or (tag is not None and (x['native_metadata'].get('tags_complete') is not True
                             or not isinstance(x['native_metadata'].get('tags'),list) or len(x['native_metadata']['tags'])>200
                             or any(not isinstance(t,dict) or not isinstance(t.get('id'),str) or not isinstance(t.get('name'),str) or type(t.get('native_type')) is not int for t in x['native_metadata']['tags'])
@@ -641,18 +646,18 @@ def register_read_tools(mcp):
         def reminders_query(limit: int = 50, offset: int = 0, list_id: str | None = None,
                             completed: bool | None = None, text: str | None = None,
                             due_from: str | None = None, due_through: str | None = None,
-                            timezone: str | None = None, priorities: list[int] | None = None, flagged: bool | None = None, tag: str | None = None) -> dict:
-            """Bounded tasks with optional date, priority, native flag and exact tag filters. Follow next_offset even on empty filtered pages."""
+                            timezone: str | None = None, priorities: list[int] | None = None, flagged: bool | None = None, tag: str | None = None, urgent: bool | None = None) -> dict:
+            """Bounded tasks with optional date, priority, native flag, urgent state and exact tag filters. Follow next_offset even on empty filtered pages."""
             return NativeReader('reminders').read('query',limit=limit,offset=offset,list_id=list_id,
-                completed=completed,text=text,due_from=due_from,due_through=due_through,timezone=timezone,priorities=priorities,flagged=flagged,tag=tag)
+                completed=completed,text=text,due_from=due_from,due_through=due_through,timezone=timezone,priorities=priorities,flagged=flagged,tag=tag,urgent=urgent)
 
         @mcp.tool(annotations=annotations)
         @guard
         def reminders_daily(date: str, timezone: str, include_overdue: bool = True,
-                            limit: int = 50, offset: int = 0, flagged: bool | None = None, list_id: str | None = None, tag: str | None = None) -> dict:
-            """Read incomplete reminders due on a date, optionally overdue, flagged, tagged, or in one list. Follow next_offset until done; no scheduling or delivery."""
+                            limit: int = 50, offset: int = 0, flagged: bool | None = None, list_id: str | None = None, tag: str | None = None, urgent: bool | None = None) -> dict:
+            """Read incomplete reminders due on a date, optionally overdue, flagged, urgent, tagged, or in one list. Follow next_offset until done; no scheduling or delivery."""
             return NativeReader('reminders').read('query', due_date=date, timezone=timezone,
-                include_overdue=include_overdue, completed=False, limit=limit, offset=offset, flagged=flagged, list_id=list_id, tag=tag)
+                include_overdue=include_overdue, completed=False, limit=limit, offset=offset, flagged=flagged, list_id=list_id, tag=tag, urgent=urgent)
 
         @mcp.tool(annotations=annotations)
         @guard
