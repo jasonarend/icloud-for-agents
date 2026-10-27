@@ -12,6 +12,9 @@ credentials.credentials=lambda:(_ for _ in ()).throw(AssertionError('No credenti
 from icloud_for_agents.native_read import NativeReader
 def dispatch(self,request,config):
     assert self.name=='reminders' and request['source_ids']==['selected']
+    if request['action']=='query':
+        assert type(request.get('flagged')) is bool and request['limit']==1
+        return {'protocol_version':1,'items':[],'done':False,'next_offset':1,'native_flag_filter':{'scanned':1,'matched':0}}
     item={'id':'synthetic-task','list_id':'list','source_id':'selected','content_complete':False}
     if request.get('include_native_metadata'):
         item['native_metadata']={'flagged':True,'flag_state':1,'coverage':['flagged'],'native_metadata_complete':False,'observation_consistency':'separate_provider_reads'}

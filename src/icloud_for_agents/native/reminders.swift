@@ -753,6 +753,19 @@ store.fetchReminders(matching: predicate) { reminders in
         return dueMatches && rangeMatches && (priorities == nil || priorities!.contains(r.priority)) && (completed == nil || r.isCompleted == completed) &&
         (text == nil || ((r.title ?? "") + "\n" + (r.notes ?? "")).localizedCaseInsensitiveContains(text!))
     }.sorted { $0.calendarItemIdentifier < $1.calendarItemIdentifier }
+    if let flag=req["flagged"] {
+        guard let expected=flag as? NSNumber,CFGetTypeID(expected)==CFBooleanGetTypeID() else {fail("invalid_request")}
+        let scanned=Array(filtered.dropFirst(offset).prefix(limit))
+        var matches:[[String:Any]]=[]
+        for reminder in scanned {
+            guard let native=selectedNativeMetadata(reminder,["include_native_metadata":true]),let value=native["flagged"] as? NSNumber,
+                  CFGetTypeID(value)==CFBooleanGetTypeID() else {fail("private_metadata_unavailable")}
+            if value.boolValue==expected.boolValue {var result=object(reminder);result["native_metadata"]=native;matches.append(result)}
+        }
+        let next=offset+scanned.count
+        respond(["protocol_version":1,"items":matches,"done":next>=filtered.count,"next_offset":next,
+                 "pagination_consistency":"live_offset_may_shift","native_flag_filter":["scanned":scanned.count,"matched":matches.count,"observation_consistency":"separate_provider_reads"]])
+    }
     let page = Array(filtered.dropFirst(offset).prefix(limit)).map(object)
     let next = offset + page.count
     respond(["protocol_version": 1, "items": page, "done": next >= filtered.count,

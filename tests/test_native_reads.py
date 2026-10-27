@@ -85,6 +85,16 @@ class NativeReadTests(unittest.TestCase):
             for name,action,value in [('reminders','get',True),('reminders','get',1),('notes','get',True),('reminders','query',True)]:
                 with self.subTest(name=name,action=action,value=value),self.assertRaises(SafetyError):NativeReader(name).read(action,include_native_metadata=value)
                 with self.subTest(name=name,action=action,value=value),self.assertRaises(SafetyError):NativeReader(name).read(action,include_native_tags=value)
+    def test_flag_filter_requires_opt_in_boolean_and_selected_scope(self):
+        config={'reminders':{'source_ids':['selected'],'helper_path':'/synthetic/helper','advanced_backend':'reminderkit'}};calls=[]
+        def dispatch(request,config):calls.append(request);return {'protocol_version':1,'items':[],'done':False,'next_offset':1}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',side_effect=dispatch):
+            NativeReader('reminders').read('query',flagged=False,limit=1)
+            self.assertIs(calls[0]['flagged'],False);self.assertEqual(calls[0]['source_ids'],['selected'])
+            for name,action,value in [('reminders','query',1),('reminders','get',True),('notes','query',True)]:
+                with self.subTest(name=name,action=action,value=value),self.assertRaises(SafetyError):NativeReader(name).read(action,flagged=value)
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps({'reminders':{'source_ids':['selected']}})),patch('platform.system',return_value='Darwin'),self.assertRaises(SafetyError):NativeReader('reminders').read('query',flagged=True)
+
     def test_unknown_advanced_backends_are_not_configuration_authority(self):
         for config in ({'notes':{'advanced_backend':'reminderkit'}},{'reminders':{'advanced_backend':'unknown'}},{'reminders':{'advanced_backend':True}}):
             with self.subTest(config=config),self.assertRaises(ValueError):validate_config(config)

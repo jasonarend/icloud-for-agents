@@ -51,6 +51,7 @@ jobs:
           .venv/bin/python tests/native_dispatch_gate_contract.py
           .venv/bin/python tests/native_reminderkit_flags_contract.py
           .venv/bin/python tests/native_reminder_preservation_contract.py
+          .venv/bin/python tests/native_flag_filter_contract.py
           .venv/bin/python tests/native_reminder_metadata_contract.py
           .venv/bin/python tests/native_reminder_links_contract.py
           .venv/bin/python tests/native_reminder_alarms_contract.py

@@ -209,6 +209,12 @@ The response adds `item.native_metadata` with Boolean `flagged`, integer `flag_s
 
 Synthetic native tests cover true/false states, exact entity/source/list relationships and missing, unknown or denied metadata. A live read of a dedicated unflagged fixture passes with matching native/public identities, unchanged public metadata, existing Reminders permission and unchanged production settings. A live flagged fixture and other OS versions remain unverified. Apple can change this private interface; keep the backend off unless evaluating it with approved test data.
 
+**Flagged Reminder queries**
+
+When the optional ReminderKit backend is selected, `reminders_query` accepts `flagged: true` or `false` in addition to its existing list, completion, date and priority filters. Each returned item includes the observed native flag metadata. Without that backend, flag filtering is refused; it does not silently fall back to guessing from text.
+
+The query reads at most `limit` public candidates per page and checks each candidate's exact native identity and flag. `next_offset` advances over candidates scanned, including those that do not match; an empty page can therefore have `done: false`. Continue until `done` is true. Metadata includes the scanned and matched counts, and external edits can shift live offset pages or occur between the public and native reads. A missing or unsupported native flag refuses the page rather than treating the reminder as unflagged. This is a read-only filter, not flag creation or modification. Synthetic checks cover flagged/unflagged matches, empty intermediate pages and unavailable metadata; a live read of a dedicated unflagged fixture list passes both filter values. A live flagged fixture remains to be tested.
+
 **Optional native Reminder tag reads (development)**
 
 The same explicitly selected ReminderKit backend accepts `reminders_get` with `include_native_tags: true`. This adds bounded native tags from that exact task, including each native ID, name and uninterpreted `native_type` integer. The helper verifies each tag's account and reminder relationships as well as its native entity type. It accepts at most 200 tags with names up to 512 UTF-8 bytes; duplicates, missing contexts, unknown collection types, unexpected identities and excess data are refused instead of returned as a complete empty result. A verified empty native collection returns `tags: []` and `tags_complete: true`.

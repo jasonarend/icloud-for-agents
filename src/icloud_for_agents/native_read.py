@@ -94,11 +94,15 @@ class NativeReader:
             if type(value) is not bool:raise SafetyError('Native metadata selection must be Boolean')
             if value and (config.get('advanced_backend')!='reminderkit' or not config.get('helper_path')):raise SafetyError('Native metadata reads require the explicitly selected ReminderKit backend and signed helper')
             if value:native_selections[key]=True
+        flagged=fields.get('flagged')
+        if flagged is not None:
+            if self.name!='reminders' or action!='query' or type(flagged) is not bool:raise SafetyError('Flag filtering requires a Boolean on a Reminders query')
+            if config.get('advanced_backend')!='reminderkit' or not config.get('helper_path'):raise SafetyError('Flag filtering requires the explicitly selected ReminderKit backend and signed helper')
         if 'representation' in fields and (self.name!='notes' or action!='get'):raise SafetyError('Representation selection is supported only for Notes get')
         representation=fields.pop('representation','native')
         if (not isinstance(representation,str) or representation not in {'native','markdown'} or
                 (representation!='native' and (self.name!='notes' or action!='get'))):raise SafetyError('Markdown is a read-only Notes get representation')
-        if set(fields) - {'id', 'folder_id', 'list_id', 'limit', 'offset', 'completed', 'text', 'due_date', 'timezone', 'include_overdue', 'due_from', 'due_through', 'priorities'}:
+        if set(fields) - {'id', 'folder_id', 'list_id', 'limit', 'offset', 'completed', 'text', 'due_date', 'timezone', 'include_overdue', 'due_from', 'due_through', 'priorities', 'flagged'}:
             raise SafetyError('Unknown native read fields')
         limit, offset = fields.get('limit', 50), fields.get('offset', 0)
         if type(limit) is not int or not 1 <= limit <= 100 or type(offset) is not int or not 0 <= offset <= 100000:
@@ -319,10 +323,10 @@ def register_read_tools(mcp):
         def reminders_query(limit: int = 50, offset: int = 0, list_id: str | None = None,
                             completed: bool | None = None, text: str | None = None,
                             due_from: str | None = None, due_through: str | None = None,
-                            timezone: str | None = None, priorities: list[int] | None = None) -> dict:
-            """Bounded tasks, with optional inclusive due-date range, timezone and priorities. No data changes."""
+                            timezone: str | None = None, priorities: list[int] | None = None, flagged: bool | None = None) -> dict:
+            """Bounded tasks with optional date, priority and native flag filters. Follow next_offset even on empty filtered pages."""
             return NativeReader('reminders').read('query',limit=limit,offset=offset,list_id=list_id,
-                completed=completed,text=text,due_from=due_from,due_through=due_through,timezone=timezone,priorities=priorities)
+                completed=completed,text=text,due_from=due_from,due_through=due_through,timezone=timezone,priorities=priorities,flagged=flagged)
 
         @mcp.tool(annotations=annotations)
         @guard
