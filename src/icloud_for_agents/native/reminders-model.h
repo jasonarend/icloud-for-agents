@@ -2,6 +2,7 @@
 NS_ASSUME_NONNULL_BEGIN
 // Called only after the public EventKit lookup has proved exact source/list/ID scope.
 FOUNDATION_EXPORT NSData *ICloudRemindersReadFlag(NSData *publicIdentity);
+FOUNDATION_EXPORT NSData *ICloudRemindersReadUrgent(NSData *publicIdentity);
 FOUNDATION_EXPORT NSData *ICloudRemindersSetFlag(NSData *request,BOOL (^enterMutation)(void));
 FOUNDATION_EXPORT NSData *ICloudRemindersRemoveTag(NSData *request,BOOL (^enterMutation)(void));
 FOUNDATION_EXPORT NSData *ICloudRemindersAddTag(NSData *request,BOOL (^enterMutation)(void));

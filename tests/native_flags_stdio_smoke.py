@@ -40,6 +40,9 @@ def run():
                 children=data(call(dict(args,include_native_children=True)))['item']['native_metadata'];assert children['child_ids']==['synthetic-child'] and children['children_complete'] is False and children['coverage']==['children']
                 unknown=data(call({'id':'synthetic-child','include_native_children':True}))['item']['native_metadata'];assert unknown['child_ids'] is None and unknown['children_fetch_status']=='unavailable'
                 assert call(dict(args,include_native_children='invalid')).get('isError')
+                urgent=data(rpc('tools/call',{'name':'reminders_get','arguments':{'id':'synthetic-task','include_native_urgent':True}})['result']);assert urgent['item']['native_metadata']['urgent'] is False
+                assert rpc('tools/call',{'name':'reminders_get','arguments':{'id':'synthetic-task','include_native_urgent':1}})['result'].get('isError')
+                combined=data(rpc('tools/call',{'name':'reminders_get','arguments':{'id':'synthetic-task','include_native_tags':True,'include_native_urgent':True}})['result']);assert combined['item']['native_metadata']['coverage']==['tags','urgent']
                 recovery=next(t for t in tools if t['name']=='reminders_recovery_lookup');assert recovery['annotations']['readOnlyHint'] is True
                 lookup=data(rpc('tools/call',{'name':'reminders_recovery_lookup','arguments':{'id':'synthetic-task','source_id':'selected'}})['result']);assert lookup['found_as_root'] is True and lookup['data_mutated'] is False
                 assert rpc('tools/call',{'name':'reminders_recovery_lookup','arguments':{'id':'synthetic-task','source_id':'foreign'}})['result'].get('isError')

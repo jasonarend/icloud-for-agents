@@ -47,6 +47,9 @@ def dispatch(self,request,config):
         metadata=item.setdefault('native_metadata',{'id':item['id'],'source_id':item['source_id'],'list_id':item['list_id'],'coverage':[],'native_metadata_complete':False})
         metadata.update(child_ids=None if item['id']=='synthetic-child' else ['synthetic-child'],children_complete=False,children_fetch_status='unavailable' if item['id']=='synthetic-child' else 'provider_reported')
         metadata['coverage'].append('children')
+    if request.get('include_native_urgent'):
+        metadata=item.setdefault('native_metadata',{'id':item['id'],'source_id':item['source_id'],'list_id':item['list_id'],'coverage':[],'native_metadata_complete':False})
+        metadata['urgent']=False;metadata['coverage'].append('urgent')
     return {'protocol_version':1,'item':item}
 NativeReader._dispatch=dispatch
 from icloud_for_agents.server import main

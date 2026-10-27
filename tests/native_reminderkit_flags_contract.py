@@ -27,6 +27,13 @@ FIXTURE=r'''
 @end
 @implementation FixtureFlag
 @end
+@interface FixtureUrgent:NSObject
+@property BOOL enabled;
+-(BOOL)isUrgentStateEnabledForCurrentUser;
+@end
+@implementation FixtureUrgent
+-(BOOL)isUrgentStateEnabledForCurrentUser{return self.enabled;}
+@end
 @interface FixtureTags:NSObject
 @property id hashtags;
 @end
@@ -57,6 +64,7 @@ FIXTURE=r'''
 @property FixtureAccount *account;
 @property FixtureList *list;
 @property id flaggedContext;
+@property id urgentAlarmContext;
 @property id hashtagContext;
 @property BOOL isSubtask;
 @property FixtureReminder *parentReminder;
@@ -109,6 +117,7 @@ static int flagSaves=0;static BOOL saveFails=NO;
 -(BOOL)saveSynchronouslyWithError:(NSError **)error{flagSaves++;if(saveFails){*error=[NSError errorWithDomain:@"synthetic" code:1 userInfo:nil];return NO;}((FixtureFlag *)fixture.flaggedContext).flagged=self.change.flaggedContext.flagged;if(fixture.hashtagContext)((FixtureTags *)fixture.hashtagContext).hashtags=self.change.hashtagContext.hashtags;return YES;}
 @end
 static FixtureID *Identity(NSString *entity,NSString *value){FixtureID *v=[FixtureID new];v.entityName=entity;v.uuid=[[NSUUID alloc]initWithUUIDString:value];return v;}
+static NSDictionary *Urgent(NSDictionary *request){NSData *data=[NSJSONSerialization dataWithJSONObject:request options:0 error:NULL];return [NSJSONSerialization JSONObjectWithData:ICloudRemindersReadUrgent(data) options:0 error:NULL];}
 static NSDictionary *Children(NSDictionary *request){NSData *data=[NSJSONSerialization dataWithJSONObject:request options:0 error:NULL];return [NSJSONSerialization JSONObjectWithData:ICloudRemindersReadChildren(data) options:0 error:NULL];}
 static NSDictionary *Hierarchy(NSDictionary *request){NSData *data=[NSJSONSerialization dataWithJSONObject:request options:0 error:NULL];return [NSJSONSerialization JSONObjectWithData:ICloudRemindersReadHierarchy(data) options:0 error:NULL];}
 static NSDictionary *Tags(NSDictionary *request){NSData *data=[NSJSONSerialization dataWithJSONObject:request options:0 error:NULL];return [NSJSONSerialization JSONObjectWithData:ICloudRemindersReadTags(data) options:0 error:NULL];}
@@ -141,6 +150,9 @@ int main(){@autoreleasepool{
  denied=YES;NSDictionary *failure=Call(request);NSCAssert([failure[@"category"] isEqual:@"private_read_denied_or_unavailable"] && [failure[@"native_error_domain"] isEqual:@"other"] && ![[failure description] containsString:@"private-content"],@"denial not empty and private diagnostics redacted");denied=NO;
  NSCAssert(Call(@{@"id":@YES,@"source_id":source,@"list_id":list})[@"error"],@"bad types");
  NSCAssert(Call(@{@"id":task,@"source_id":source,@"list_id":list,@"selector":@"anything"})[@"error"],@"no arbitrary selectors");
+ FixtureUrgent *urgent=[FixtureUrgent new];fixture.urgentAlarmContext=urgent;
+ NSDictionary *urgentRead=Urgent(request);NSCAssert(urgentRead[@"native_metadata"] && CFGetTypeID((__bridge CFTypeRef)urgentRead[@"native_metadata"][@"urgent"])==CFBooleanGetTypeID() && ![urgentRead[@"native_metadata"][@"urgent"] boolValue],@"false urgent is a JSON boolean");
+ urgent.enabled=YES;NSCAssert([Urgent(request)[@"native_metadata"][@"urgent"] boolValue],@"true urgent observed");fixture.urgentAlarmContext=nil;NSCAssert(Urgent(request)[@"error"],@"unavailable urgent not false");
  FixtureTags *context=[FixtureTags new];context.hashtags=@[];fixture.hashtagContext=context;
  NSCAssert([Tags(request)[@"native_metadata"][@"tags_complete"] boolValue] && [Tags(request)[@"native_metadata"][@"tags"] count]==0,@"verified empty collection");
  FixtureTag *tag=[FixtureTag new];tag.remObjectID=Identity(@"REMCDHashtag",other);tag.accountID=fixture.account.remObjectID;tag.reminderID=fixture.remObjectID;tag.name=@"Project";tag.type=0;context.hashtags=@[tag];

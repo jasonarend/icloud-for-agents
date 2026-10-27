@@ -86,6 +86,16 @@ class NativeReadTests(unittest.TestCase):
             NativeReader('reminders').read('get',id='synthetic',include_native_hierarchy=True)
             NativeReader('reminders').read('get',id='synthetic',include_native_children=True)
         self.assertNotIn('include_native_metadata',calls[0]);self.assertIs(calls[1]['include_native_metadata'],True);self.assertEqual(calls[1]['source_ids'],['selected']);self.assertEqual(calls[1]['id'],'synthetic');self.assertNotIn('include_native_metadata',calls[2]);self.assertIs(calls[2]['include_native_tags'],True);self.assertIs(calls[3]['include_native_hierarchy'],True);self.assertIs(calls[4]['include_native_children'],True)
+    def test_urgent_read_requires_opt_in_and_boolean_metadata(self):
+        config={'reminders':{'source_ids':['selected'],'helper_path':'/synthetic/helper','advanced_backend':'reminderkit'}}
+        result={'protocol_version':1,'item':{'id':'synthetic','source_id':'selected','list_id':'list','native_metadata':{'id':'synthetic','source_id':'selected','list_id':'list','coverage':['urgent'],'urgent':False}}}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=result):
+            self.assertIs(NativeReader('reminders').read('get',id='synthetic',include_native_urgent=True)['item']['native_metadata']['urgent'],False)
+            result['item']['native_metadata']['urgent']=1
+            with self.assertRaises(SafetyError):NativeReader('reminders').read('get',id='synthetic',include_native_urgent=True)
+            with self.assertRaises(SafetyError):NativeReader('reminders').read('get',id='synthetic',include_native_urgent=1)
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps({'reminders':{'source_ids':['selected']}})),patch('platform.system',return_value='Darwin'),self.assertRaises(SafetyError):NativeReader('reminders').read('get',id='synthetic',include_native_urgent=True)
+
     def test_private_metadata_defaults_and_other_service_or_action_refuse(self):
         config={name:{'source_ids':['selected']} for name in ('notes','reminders')}
         with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',side_effect=AssertionError('No helper')):

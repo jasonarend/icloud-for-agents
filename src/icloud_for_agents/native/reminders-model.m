@@ -67,6 +67,18 @@ NSData *ICloudRemindersReadFlag(NSData *data){
     }@catch(NSException *exception){return EncodeFlag(FlagFailure(@"private_read_exception"));}
 }
 
+// Read the current user's native urgent state; never infer it from priority or flag.
+NSData *ICloudRemindersReadUrgent(NSData *data){
+    @try{
+        NSDictionary *failure=nil;id reminder=SelectedReminder(data,&failure);if(!reminder)return EncodeFlag(failure);
+        NSDictionary *identity=[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
+        id context=ObjectValue(reminder,@"urgentAlarmContext");
+        if(!context || !MethodMatches([context class],@"isUrgentStateEnabledForCurrentUser",@"B@:",NO))return EncodeFlag(FlagFailure(@"unsupported_urgent_metadata"));
+        BOOL urgent=((BOOL(*)(id,SEL))objc_msgSend)(context,NSSelectorFromString(@"isUrgentStateEnabledForCurrentUser"));
+        return EncodeFlag(@{@"protocol_version":@1,@"native_metadata":@{@"backend":@"reminderkit-urgent-v1",@"id":identity[@"id"],@"source_id":identity[@"source_id"],@"list_id":identity[@"list_id"],@"urgent":@((BOOL)urgent),@"coverage":@[@"urgent"],@"native_metadata_complete":@NO,@"observation_consistency":@"separate_provider_reads"}});
+    }@catch(NSException *exception){return EncodeFlag(FlagFailure(@"private_read_exception"));}
+}
+
 // Fixed single-field native flag write; no caller-supplied selector or bulk mutation.
 NSData *ICloudRemindersSetFlag(NSData *data,BOOL (^enterMutation)(void)){
     __block BOOL dispatched=NO;
