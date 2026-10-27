@@ -12,6 +12,9 @@ credentials.credentials=lambda:(_ for _ in ()).throw(AssertionError('No credenti
 from icloud_for_agents.native_read import NativeReader
 def dispatch(self,request,config):
     assert self.name=='reminders' and request['source_ids']==['selected']
+    if request['action']=='recovery_list':
+        assert request['source_id']=='selected' and request['limit']==20 and request['offset']==0
+        return {'protocol_version':1,'source_id':'selected','view':'provider_recently_deleted_roots','pagination_consistency':'live_offset_may_shift','data_mutated':False,'done':True,'next_offset':1,'items':[{'id':'11111111-1111-4111-8111-111111111111','source_id':'selected','title':'Synthetic recovery title'}]}
     if request['action']=='recovery_tree':
         root='11111111-1111-4111-8111-111111111111';child='22222222-2222-4222-8222-222222222222'
         assert request['id']==child and request['source_id']=='selected'

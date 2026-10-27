@@ -133,6 +133,23 @@ class NativeReadTests(unittest.TestCase):
             with self.subTest(response=response),self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=response),self.assertRaises(SafetyError):
                 NativeReader('reminders').read('query',flagged=True)
 
+    def test_recovery_list_validates_title_only_pages_and_scope(self):
+        from copy import deepcopy
+        root='11111111-1111-4111-8111-111111111111';config={'reminders':{'source_ids':['selected'],'helper_path':'/synthetic/helper','advanced_backend':'reminderkit'}}
+        result={'protocol_version':1,'source_id':'selected','view':'provider_recently_deleted_roots','pagination_consistency':'live_offset_may_shift','data_mutated':False,'done':True,'next_offset':1,'items':[{'id':root,'source_id':'selected','title':'Synthetic'}]}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=result):
+            self.assertEqual(NativeReader('reminders').read('recovery_list',source_id='selected'),result)
+            for fields in ({'source_id':'foreign'},{'source_id':'selected','limit':21},{'source_id':'selected','offset':-1}):
+                with self.assertRaises(SafetyError):NativeReader('reminders').read('recovery_list',**fields)
+        for mutate in ('extra','wrong_source','duplicate','bad_offset','not_boolean'):
+            bad=deepcopy(result)
+            if mutate=='extra':bad['items'][0]['notes']='private body'
+            if mutate=='wrong_source':bad['items'][0]['source_id']='foreign'
+            if mutate=='duplicate':bad['items'].append(deepcopy(bad['items'][0]));bad['next_offset']=2
+            if mutate=='bad_offset':bad['next_offset']=2
+            if mutate=='not_boolean':bad['done']=1
+            with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=bad),self.subTest(mutate=mutate),self.assertRaises(SafetyError):NativeReader('reminders').read('recovery_list',source_id='selected')
+
     def test_recovery_tree_validates_single_view_graph_and_scope(self):
         from copy import deepcopy
         root='11111111-1111-4111-8111-111111111111';child='22222222-2222-4222-8222-222222222222'
@@ -258,7 +275,7 @@ class NativeReadTests(unittest.TestCase):
                     importlib.reload(server)
                     tools = {t.name:t for t in asyncio.run(server.mcp.list_tools())}
                     self.assertEqual(sum(n.startswith('notes_') for n in tools),42 if notes else 0)
-                    self.assertEqual(sum(n.startswith('reminders_') for n in tools),30 if reminders else 0)
+                    self.assertEqual(sum(n.startswith('reminders_') for n in tools),31 if reminders else 0)
                     if notes:
                         with patch.dict(os.environ, {'ICLOUD_ENABLE_NOTES':'0'}), patch('subprocess.run',side_effect=AssertionError('No helper')):
                             with self.assertRaises(ToolError): tools['notes_sources'].fn()

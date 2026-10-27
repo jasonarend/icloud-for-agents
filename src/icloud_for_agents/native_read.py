@@ -14,7 +14,7 @@ from .services import enabled
 
 
 READ_ACTIONS = {'notes': {'status', 'sources', 'folders', 'folder_get', 'folder_inventory', 'folder_role', 'model_folder_role', 'query', 'get', 'search', 'attachments', 'diagnose_note', 'contains'},
-                'reminders': {'status', 'sources', 'lists', 'query', 'get','list_membership','recovery_lookup','recovery_tree'}}
+                'reminders': {'status', 'sources', 'lists', 'query', 'get','list_membership','recovery_lookup','recovery_tree','recovery_list'}}
 MAX_OUTPUT = 2_000_000
 
 
@@ -104,13 +104,21 @@ class NativeReader:
                 if self.name!='reminders' or action!='query' or not isinstance(tag,str) or not tag or len(tag.encode('utf-8'))>512 or any(ord(c)<32 for c in tag):raise ValueError()
             except (ValueError,UnicodeEncodeError):raise SafetyError('Tag filtering requires one exact bounded native tag name') from None
             if config.get('advanced_backend')!='reminderkit' or not config.get('helper_path'):raise SafetyError('Tag filtering requires the explicitly selected ReminderKit backend and signed helper')
-        if 'source_id' in fields and action not in {'recovery_lookup','recovery_tree','model_folder_role'}:raise SafetyError('Source selector is only supported for exact role or recovery lookup')
+        if 'source_id' in fields and action not in {'recovery_lookup','recovery_tree','recovery_list','model_folder_role'}:raise SafetyError('Source selector is only supported for exact role or recovery lookup')
         if action=='model_folder_role':
             if self.name!='notes' or set(fields)!={'folder_id','source_id'} or fields.get('source_id') not in sources:
                 raise SafetyError('Model role lookup requires an exact selected source and folder')
             if (config.get('folder_write_backend')!='notes-shared' or config.get('metadata_backend')!='notes-store-readonly'
                     or not config.get('helper_path')):
                 raise SafetyError('Model role lookup requires explicitly selected native Notes and read-only store backends and a signed helper')
+        if action=='recovery_list':
+            if self.name!='reminders' or set(fields)-{'source_id','limit','offset'} or fields.get('source_id') not in sources:
+                raise SafetyError('Recovery discovery requires one exact selected source and bounded page')
+            if config.get('advanced_backend')!='reminderkit' or not config.get('helper_path'):
+                raise SafetyError('Recovery discovery requires the explicitly selected ReminderKit backend and signed helper')
+            if type(fields.get('limit',20)) is not int or not 1<=fields.get('limit',20)<=20 or type(fields.get('offset',0)) is not int or not 0<=fields.get('offset',0)<=5000:
+                raise SafetyError('Recovery discovery requires limit 1..20 and offset 0..5000')
+            fields.setdefault('limit',20);fields.setdefault('offset',0)
         if action in {'recovery_lookup','recovery_tree'}:
             if self.name!='reminders' or set(fields)!={'id','source_id'} or fields.get('source_id') not in sources:
                 raise SafetyError('Recovery lookup requires one exact selected source and reminder ID')
@@ -182,6 +190,9 @@ class NativeReader:
                     or result.get('role') not in {'ordinary_non_system','system_trash'} or result.get('backend')!='notes-shared-folder-role-v1'
                     or result.get('data_mutated') is not False or type(result.get('ancestor_count')) is not int or not 0<=result['ancestor_count']<32):
                 raise SafetyError('Configured helper did not verify the exact Notes folder role')
+        if action=='recovery_list':
+            if native_config('reminders')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode:raise SafetyError('Reminder access changed during recovery discovery')
+            validate_recovery_list(result,fields['source_id'],fields['limit'],fields['offset'])
         if action=='recovery_tree':
             if native_config('reminders')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode:raise SafetyError('Reminder access changed during recovery inspection')
             validate_recovery_tree(result,fields['id'],fields['source_id'])
@@ -459,6 +470,24 @@ def inspect_reminder_hierarchy(reader, identity, max_nodes=10, max_depth=3):
             'scope_note':'Provider-reported edges only; concealed descendants and concurrent changes remain unverified.'}
 
 
+def validate_recovery_list(result,source_id,limit,offset):
+    import uuid
+    if (not isinstance(result,dict) or result.get('source_id')!=source_id or result.get('view')!='provider_recently_deleted_roots'
+            or result.get('pagination_consistency')!='live_offset_may_shift' or result.get('data_mutated') is not False
+            or type(result.get('done')) is not bool or type(result.get('next_offset')) is not int):
+        raise SafetyError('Helper did not provide scoped recovery discovery')
+    items=result.get('items')
+    if not isinstance(items,list) or len(items)>limit or result['next_offset']!=offset+len(items) or (not result['done'] and len(items)!=limit):raise SafetyError('Invalid recovery discovery page')
+    seen=set()
+    for item in items:
+        if not isinstance(item,dict) or set(item)!={'id','source_id','title'} or item['source_id']!=source_id or not isinstance(item['title'],str) or len(item['title'])>1000:raise SafetyError('Invalid recovery discovery item')
+        try:identity=str(uuid.UUID(item['id'])).upper()
+        except (ValueError,TypeError,AttributeError):raise SafetyError('Invalid recovery identity') from None
+        if identity in seen:raise SafetyError('Duplicate recovery identity')
+        seen.add(identity)
+    return result
+
+
 def validate_recovery_tree(result,identity,source_id):
     """Reject malformed or unscoped single-view evidence; no completeness inference."""
     import uuid
@@ -634,6 +663,12 @@ def register_read_tools(mcp):
         def reminders_inspect_recovery_hierarchy(id: str, source_id: str, max_nodes: int=10, max_depth: int=3) -> dict:
             """Inspect one recoverable root and provider-reported descendants; this is not a restoration or a complete subtree."""
             return inspect_reminder_recovery_hierarchy(NativeReader('reminders'),id,source_id,max_nodes,max_depth)
+
+        @mcp.tool(annotations=annotations)
+        @guard
+        def reminders_recovery_list(source_id: str, limit: int=20, offset: int=0) -> dict:
+            """List bounded title-only roots in one selected account's recovery view. Pagination is live; restoration is not provided."""
+            return NativeReader('reminders').read('recovery_list',source_id=source_id,limit=limit,offset=offset)
 
         @mcp.tool(annotations=annotations)
         @guard

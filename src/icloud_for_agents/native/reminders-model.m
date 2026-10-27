@@ -450,3 +450,54 @@ NSData *ICloudRemindersRecoveryTree(NSData *data){
         return EncodeFlag(@{@"protocol_version":@1,@"source_id":source,@"requested_id":identifier,@"root_id":selectedRecoveryRoot,@"nodes":nodes,@"view":@"provider_recently_deleted",@"hierarchy_complete":@NO,@"observation_consistency":@"single_provider_view",@"data_mutated":@NO});
     }@catch(NSException *exception){return EncodeFlag(FlagFailure(@"private_read_exception"));}
 }
+
+// Bounded recovery-root discovery; title-only projection from selected account.
+NSData *ICloudRemindersRecoveryList(NSData *data){
+    @try{
+        id request=[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
+        if(![request isKindOfClass:NSDictionary.class] || [request count]!=3)return EncodeFlag(FlagFailure(@"invalid_public_identity"));
+        NSString *source=request[@"source_id"];id limit=request[@"limit"],offset=request[@"offset"];
+        if(![source isKindOfClass:NSString.class] || ![[NSUUID alloc]initWithUUIDString:source] || ![limit isKindOfClass:NSNumber.class] || ![offset isKindOfClass:NSNumber.class] || CFGetTypeID((__bridge CFTypeRef)limit)==CFBooleanGetTypeID() || CFGetTypeID((__bridge CFTypeRef)offset)==CFBooleanGetTypeID() || [limit integerValue]<1 || [limit integerValue]>20 || [offset integerValue]<0 || [offset integerValue]>5000 || [limit doubleValue]!=(double)[limit integerValue] || [offset doubleValue]!=(double)[offset integerValue])return EncodeFlag(FlagFailure(@"unsupported_public_identity"));
+        if(!FlagReadInterface() || !dlopen("/System/Library/PrivateFrameworks/ReminderKitInternal.framework/ReminderKitInternal",RTLD_LAZY|RTLD_LOCAL))return EncodeFlag(FlagFailure(@"unsupported_interface"));
+        Class storeClass=NSClassFromString(@"REMStore"),invocationClass=NSClassFromString(@"REMRemindersListDataView_RecentlyDeletedInvocation");
+        if(!MethodMatches(storeClass,@"fetchAccountsWithError:",@"@@:^@",NO) ||
+           !MethodMatches(storeClass,@"resultFromPerformingSwiftInvocation:parametersData:storages:error:",@"@@:@@@^@",NO) ||
+           !MethodMatches(invocationClass,@"initWithFetchResultTokenToDiffAgainst:",@"@@:@",NO))return EncodeFlag(FlagFailure(@"unsupported_recovery_interface"));
+        id store=[storeClass new];NSError *error=nil;
+        id accounts=((id(*)(id,SEL,NSError **))objc_msgSend)(store,NSSelectorFromString(@"fetchAccountsWithError:"),&error);
+        if(error || ![accounts isKindOfClass:NSArray.class] || [accounts count]>100)return EncodeFlag(FlagFailure(@"recovery_read_unavailable"));
+        id selected=nil;
+        for(id account in accounts)if(UUIDEqual(ObjectUUID(account,@"REMCDAccount"),source)){if(selected)return EncodeFlag(FlagFailure(@"native_identity_mismatch"));selected=account;}
+        if(!selected)return EncodeFlag(FlagFailure(@"native_identity_mismatch"));
+        id capabilities=ObjectValue(selected,@"capabilities");
+        if(!MethodMatches([capabilities class],@"supportsRecentlyDeletedList",@"B@:",NO) || !((BOOL(*)(id,SEL))objc_msgSend)(capabilities,NSSelectorFromString(@"supportsRecentlyDeletedList")))return EncodeFlag(FlagFailure(@"unsupported_recovery_interface"));
+        NSDictionary *parameters=@{@"accountID":@{@"uuid":source,@"entityName":@"REMCDAccount"},@"deletedAfterDate":[NSDate dateWithTimeIntervalSinceNow:-30*24*60*60],@"remindersPrefetch":@{@"base":@"none"},@"countCompleted":@YES};
+        NSData *payload=[NSPropertyListSerialization dataWithPropertyList:parameters format:NSPropertyListBinaryFormat_v1_0 options:0 error:&error];
+        id invocation=((id(*)(id,SEL,id))objc_msgSend)([invocationClass alloc],NSSelectorFromString(@"initWithFetchResultTokenToDiffAgainst:"),nil);
+        if(error || !payload || !invocation)return EncodeFlag(FlagFailure(@"recovery_read_unavailable"));
+        id response=((id(*)(id,SEL,id,id,id,NSError **))objc_msgSend)(store,NSSelectorFromString(@"resultFromPerformingSwiftInvocation:parametersData:storages:error:"),invocation,payload,nil,&error);
+        NSData *bytes=ObjectValue(response,@"resultData");
+        if(error || ![bytes isKindOfClass:NSData.class] || bytes.length>4000000)return EncodeFlag(FlagFailure(@"recovery_read_unavailable"));
+        id decoded=[NSPropertyListSerialization propertyListWithData:bytes options:NSPropertyListImmutable format:NULL error:&error];
+        id model=[decoded isKindOfClass:NSDictionary.class]?decoded[@"model"]:nil;
+        id values=[model isKindOfClass:NSDictionary.class]?model[@"reminders"]:nil;
+        if(error || ![values isKindOfClass:NSArray.class] || [values count]>5000)return EncodeFlag(FlagFailure(@"recovery_read_unavailable"));
+        Class objectClass=NSClassFromString(@"REMObjectID");
+        if(!MethodMatches([store class],@"fetchReminderIncludingMarkedForDeleteWithObjectID:error:",@"@@:@^@",NO))return EncodeFlag(FlagFailure(@"unsupported_recovery_interface"));
+        NSMutableArray *identities=[NSMutableArray array];NSMutableSet *seen=[NSMutableSet set];
+        for(id value in values){id obj=[value isKindOfClass:NSDictionary.class]?value[@"objectID"]:nil;NSString *uuid=[obj isKindOfClass:NSDictionary.class]?obj[@"uuid"]:nil;
+            NSUUID *parsed=[uuid isKindOfClass:NSString.class]?[[NSUUID alloc]initWithUUIDString:uuid]:nil;NSString *canonical=parsed.UUIDString;
+            if(!canonical || ![obj[@"entityName"] isEqual:@"REMCDReminder"] || [seen containsObject:canonical])return EncodeFlag(FlagFailure(@"recovery_read_unavailable"));
+            [seen addObject:canonical];[identities addObject:canonical];}
+        NSUInteger start=MIN((NSUInteger)[offset integerValue],identities.count),end=MIN(start+(NSUInteger)[limit integerValue],identities.count);NSMutableArray *items=[NSMutableArray array];
+        for(NSUInteger index=start;index<end;index++){
+            NSString *identifier=identities[index];NSURL *url=[NSURL URLWithString:[@"x-apple-reminderkit://REMCDReminder/" stringByAppendingString:identifier]];
+            id objectID=((id(*)(id,SEL,id))objc_msgSend)((id)objectClass,NSSelectorFromString(@"objectIDWithURL:"),url);error=nil;
+            id reminder=((id(*)(id,SEL,id,NSError **))objc_msgSend)(store,NSSelectorFromString(@"fetchReminderIncludingMarkedForDeleteWithObjectID:error:"),objectID,&error);
+            NSString *title=ObjectValue(reminder,@"titleAsString");id account=ObjectValue(reminder,@"account");
+            if(error || !UUIDEqual(ObjectUUID(reminder,@"REMCDReminder"),identifier) || !UUIDEqual(ObjectUUID(account,@"REMCDAccount"),source) || ![title isKindOfClass:NSString.class] || title.length>1000 || [title lengthOfBytesUsingEncoding:NSUTF8StringEncoding]>4000)return EncodeFlag(FlagFailure(@"recovery_read_unavailable"));
+            [items addObject:@{@"id":identifier,@"source_id":source,@"title":title}];
+        }
+        return EncodeFlag(@{@"protocol_version":@1,@"source_id":source,@"items":items,@"done":@((BOOL)(end==identities.count)),@"next_offset":@([offset integerValue]+items.count),@"view":@"provider_recently_deleted_roots",@"pagination_consistency":@"live_offset_may_shift",@"data_mutated":@NO});
+    }@catch(NSException *exception){return EncodeFlag(FlagFailure(@"private_read_exception"));}
+}
