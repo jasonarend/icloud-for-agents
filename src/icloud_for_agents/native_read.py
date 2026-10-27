@@ -14,7 +14,7 @@ from .services import enabled
 
 
 READ_ACTIONS = {'notes': {'status', 'sources', 'folders', 'folder_get', 'folder_inventory', 'folder_role', 'model_folder_role', 'query', 'get', 'search', 'attachments', 'diagnose_note', 'contains'},
-                'reminders': {'status', 'sources', 'lists', 'query', 'get','list_membership','recovery_lookup'}}
+                'reminders': {'status', 'sources', 'lists', 'query', 'get','list_membership','recovery_lookup','recovery_tree'}}
 MAX_OUTPUT = 2_000_000
 
 
@@ -104,14 +104,14 @@ class NativeReader:
                 if self.name!='reminders' or action!='query' or not isinstance(tag,str) or not tag or len(tag.encode('utf-8'))>512 or any(ord(c)<32 for c in tag):raise ValueError()
             except (ValueError,UnicodeEncodeError):raise SafetyError('Tag filtering requires one exact bounded native tag name') from None
             if config.get('advanced_backend')!='reminderkit' or not config.get('helper_path'):raise SafetyError('Tag filtering requires the explicitly selected ReminderKit backend and signed helper')
-        if 'source_id' in fields and action not in {'recovery_lookup','model_folder_role'}:raise SafetyError('Source selector is only supported for exact role or recovery lookup')
+        if 'source_id' in fields and action not in {'recovery_lookup','recovery_tree','model_folder_role'}:raise SafetyError('Source selector is only supported for exact role or recovery lookup')
         if action=='model_folder_role':
             if self.name!='notes' or set(fields)!={'folder_id','source_id'} or fields.get('source_id') not in sources:
                 raise SafetyError('Model role lookup requires an exact selected source and folder')
             if (config.get('folder_write_backend')!='notes-shared' or config.get('metadata_backend')!='notes-store-readonly'
                     or not config.get('helper_path')):
                 raise SafetyError('Model role lookup requires explicitly selected native Notes and read-only store backends and a signed helper')
-        if action=='recovery_lookup':
+        if action in {'recovery_lookup','recovery_tree'}:
             if self.name!='reminders' or set(fields)!={'id','source_id'} or fields.get('source_id') not in sources:
                 raise SafetyError('Recovery lookup requires one exact selected source and reminder ID')
             if config.get('advanced_backend')!='reminderkit' or not config.get('helper_path'):
@@ -182,6 +182,9 @@ class NativeReader:
                     or result.get('role') not in {'ordinary_non_system','system_trash'} or result.get('backend')!='notes-shared-folder-role-v1'
                     or result.get('data_mutated') is not False or type(result.get('ancestor_count')) is not int or not 0<=result['ancestor_count']<32):
                 raise SafetyError('Configured helper did not verify the exact Notes folder role')
+        if action=='recovery_tree':
+            if native_config('reminders')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode:raise SafetyError('Reminder access changed during recovery inspection')
+            validate_recovery_tree(result,fields['id'],fields['source_id'])
         if action=='recovery_lookup':
             if native_config('reminders')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode:
                 raise SafetyError('Reminder access changed during recovery lookup')
@@ -456,6 +459,38 @@ def inspect_reminder_hierarchy(reader, identity, max_nodes=10, max_depth=3):
             'scope_note':'Provider-reported edges only; concealed descendants and concurrent changes remain unverified.'}
 
 
+def validate_recovery_tree(result,identity,source_id):
+    """Reject malformed or unscoped single-view evidence; no completeness inference."""
+    import uuid
+    def canonical(value):
+        try:
+            if not isinstance(value,str):raise ValueError()
+            return str(uuid.UUID(value)).upper()
+        except (ValueError,AttributeError):raise SafetyError('Invalid recovery hierarchy identity') from None
+    if (not isinstance(result,dict) or result.get('source_id')!=source_id or result.get('requested_id')!=identity
+            or result.get('view')!='provider_recently_deleted' or result.get('data_mutated') is not False
+            or result.get('hierarchy_complete') is not False or result.get('observation_consistency')!='single_provider_view'):
+        raise SafetyError('Helper did not provide scoped single-view recovery evidence')
+    root=canonical(result.get('root_id'));selected=canonical(identity);nodes=result.get('nodes')
+    if not isinstance(nodes,list) or not 1<=len(nodes)<=100:raise SafetyError('Recovery hierarchy is empty or exceeds the bound')
+    indexed={}
+    for node in nodes:
+        if not isinstance(node,dict) or set(node)!={'id','parent_id','depth','reported_child_ids','children_status'}:raise SafetyError('Invalid recovery hierarchy node')
+        identity_key=canonical(node['id']);parent=canonical(node['parent_id']) if node['parent_id'] is not None else None
+        depth=node['depth'];children=node['reported_child_ids'];status=node['children_status']
+        if identity_key in indexed or type(depth) is not int or not 0<=depth<=10 or status not in {'unavailable','provider_reported'} or (status=='unavailable')!=(children is None):raise SafetyError('Invalid recovery hierarchy node')
+        if children is not None:
+            if not isinstance(children,list) or len(children)>100:raise SafetyError('Invalid recovery hierarchy children')
+            children=[canonical(child) for child in children]
+            if len(set(children))!=len(children):raise SafetyError('Duplicate recovery hierarchy child')
+        indexed[identity_key]=(parent,depth,children)
+    if root not in indexed or selected not in indexed or indexed[root][:2]!=(None,0):raise SafetyError('Recovery root or requested identity is missing')
+    for key,(parent,depth,children) in indexed.items():
+        if key!=root and (parent not in indexed or indexed[parent][1]+1!=depth or indexed[parent][2] is None or key not in indexed[parent][2]):raise SafetyError('Recovery hierarchy parent relationship is inconsistent')
+        if children is not None and any(child not in indexed or indexed[child][0]!=key for child in children):raise SafetyError('Recovery hierarchy child relationship is inconsistent')
+    return result
+
+
 def inspect_reminder_recovery_hierarchy(reader, identity, source_id, max_nodes=10, max_depth=3):
     """Inspect one recovery root and provider-reported descendants, without writing."""
     if not isinstance(identity,str) or not identity or len(identity)>1000 or not isinstance(source_id,str) or not source_id:
@@ -599,6 +634,12 @@ def register_read_tools(mcp):
         def reminders_inspect_recovery_hierarchy(id: str, source_id: str, max_nodes: int=10, max_depth: int=3) -> dict:
             """Inspect one recoverable root and provider-reported descendants; this is not a restoration or a complete subtree."""
             return inspect_reminder_recovery_hierarchy(NativeReader('reminders'),id,source_id,max_nodes,max_depth)
+
+        @mcp.tool(annotations=annotations)
+        @guard
+        def reminders_recovery_tree(id: str, source_id: str) -> dict:
+            """Inspect one exact recovery root and its provider-reported hierarchy in a single bounded view. Completeness is not established."""
+            return NativeReader('reminders').read('recovery_tree',id=id,source_id=source_id)
 
         @mcp.tool(annotations=annotations)
         @guard

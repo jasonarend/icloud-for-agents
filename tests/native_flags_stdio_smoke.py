@@ -43,6 +43,9 @@ def run():
                 recovery=next(t for t in tools if t['name']=='reminders_recovery_lookup');assert recovery['annotations']['readOnlyHint'] is True
                 lookup=data(rpc('tools/call',{'name':'reminders_recovery_lookup','arguments':{'id':'synthetic-task','source_id':'selected'}})['result']);assert lookup['found_as_root'] is True and lookup['data_mutated'] is False
                 assert rpc('tools/call',{'name':'reminders_recovery_lookup','arguments':{'id':'synthetic-task','source_id':'foreign'}})['result'].get('isError')
+                atomic=next(t for t in tools if t['name']=='reminders_recovery_tree');assert atomic['annotations']['readOnlyHint'] is True
+                observed=data(rpc('tools/call',{'name':'reminders_recovery_tree','arguments':{'id':'22222222-2222-4222-8222-222222222222','source_id':'selected'}})['result']);assert len(observed['nodes'])==2 and observed['hierarchy_complete'] is False and observed['observation_consistency']=='single_provider_view'
+                assert rpc('tools/call',{'name':'reminders_recovery_tree','arguments':{'id':'22222222-2222-4222-8222-222222222222','source_id':'foreign'}})['result'].get('isError')
                 recovery_tree=next(t for t in tools if t['name']=='reminders_inspect_recovery_hierarchy');assert recovery_tree['annotations']['readOnlyHint'] is True
                 tree=data(rpc('tools/call',{'name':'reminders_inspect_recovery_hierarchy','arguments':{'id':'synthetic-child','source_id':'selected'}})['result']);assert tree['recovery_root_id']=='synthetic-parent' and len(tree['nodes'])==2 and tree['hierarchy_complete'] is False
                 hierarchy_tool=next(t for t in tools if t['name']=='reminders_inspect_hierarchy');assert hierarchy_tool['annotations']['readOnlyHint'] is True

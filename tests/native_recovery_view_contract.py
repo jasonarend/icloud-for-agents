@@ -53,10 +53,10 @@ static NSString *target=@"22222222-2222-2222-2222-222222222222";
 }
 @end
 int main(int argc,char **argv){@autoreleasepool{
- scenario=[NSString stringWithUTF8String:argv[1]];
+ scenario=[NSString stringWithUTF8String:argv[1]];BOOL tree=[scenario hasPrefix:@"tree_"];if(tree)scenario=[scenario substringFromIndex:5];
  NSString *requested=[scenario isEqual:@"child"]?@"44444444-4444-4444-4444-444444444444":target;
  NSData *input=[NSJSONSerialization dataWithJSONObject:@{@"source_id":source,@"id":requested} options:0 error:NULL];
- NSData *output=ICloudRemindersRecoveryLookup(input);fwrite(output.bytes,1,output.length,stdout);return 0;
+ NSData *output=tree?ICloudRemindersRecoveryTree(input):ICloudRemindersRecoveryLookup(input);fwrite(output.bytes,1,output.length,stdout);return 0;
 }}
 '''
 def run():
@@ -71,7 +71,11 @@ def run():
         def call(s):return json.loads(subprocess.run([str(p/'contract'),s],capture_output=True,text=True,check=True,timeout=5).stdout)
         yes=call('present');assert yes['found_as_root'] is True and yes['data_mutated'] is False and yes['view']=='provider_recently_deleted' and len(yes['reported_child_ids'])==1 and yes['children_complete'] is False
         child=call('child');assert child['found_in_view'] is True and child['found_as_root'] is False and child['parent_id']==child['recovery_root_id'] and child['children_status']=='provider_reported' and child['reported_child_ids']==[]
+        tree=call('tree_child');assert tree['data_mutated'] is False and tree['hierarchy_complete'] is False and tree['observation_consistency']=='single_provider_view' and len(tree['nodes'])==2 and tree['nodes'][1]['parent_id']==tree['root_id']
         missing=call('absent');assert missing['found_in_view'] is False and missing['recovery_root_id'] is None
-        for scenario in ('foreign','duplicate_account','unsupported','error','duplicate','malformed','bad_children','cycle','too_many'):assert call(scenario)['error']=='private_metadata_unavailable',scenario
+        for scenario in ('foreign','duplicate_account','unsupported','error','duplicate','malformed','bad_children','cycle','too_many'):
+            assert call(scenario)['error']=='private_metadata_unavailable',scenario
+            assert call('tree_'+scenario)['error']=='private_metadata_unavailable',scenario
+        assert call('tree_absent')['error']=='private_metadata_unavailable'
     print(json.dumps({'status':'passed','apple_store_opened':False,'checks':['fixed_scoped_provider_view','true_false_boolean','foreign_duplicate_denied_malformed_refused','no_mutation']}))
 if __name__=='__main__':run()

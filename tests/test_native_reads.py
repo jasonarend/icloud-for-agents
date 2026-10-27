@@ -133,6 +133,24 @@ class NativeReadTests(unittest.TestCase):
             with self.subTest(response=response),self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=response),self.assertRaises(SafetyError):
                 NativeReader('reminders').read('query',flagged=True)
 
+    def test_recovery_tree_validates_single_view_graph_and_scope(self):
+        from copy import deepcopy
+        root='11111111-1111-4111-8111-111111111111';child='22222222-2222-4222-8222-222222222222'
+        config={'reminders':{'source_ids':['selected'],'helper_path':'/synthetic/helper','advanced_backend':'reminderkit'}}
+        result={'protocol_version':1,'source_id':'selected','requested_id':child,'root_id':root,'view':'provider_recently_deleted','hierarchy_complete':False,'observation_consistency':'single_provider_view','data_mutated':False,'nodes':[{'id':root,'parent_id':None,'depth':0,'reported_child_ids':[child],'children_status':'provider_reported'},{'id':child,'parent_id':root,'depth':1,'reported_child_ids':[],'children_status':'provider_reported'}]}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=result):
+            self.assertEqual(NativeReader('reminders').read('recovery_tree',id=child,source_id='selected'),result)
+            with self.assertRaises(SafetyError):NativeReader('reminders').read('recovery_tree',id=child,source_id='foreign')
+        for mutate in ('missing','duplicate','foreign_parent','complete','unverified'):
+            bad=deepcopy(result)
+            if mutate=='missing':bad['nodes'].pop()
+            if mutate=='duplicate':bad['nodes'].append(bad['nodes'][1])
+            if mutate=='foreign_parent':bad['nodes'][1]['parent_id']=child
+            if mutate=='complete':bad['hierarchy_complete']=True
+            if mutate=='unverified':bad['observation_consistency']='separate_provider_reads'
+            with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=bad),self.subTest(mutate=mutate),self.assertRaises(SafetyError):
+                NativeReader('reminders').read('recovery_tree',id=child,source_id='selected')
+
     def test_recovery_lookup_rejects_unselected_or_unverified_results(self):
         config={'reminders':{'source_ids':['selected'],'helper_path':'/synthetic/helper','advanced_backend':'reminderkit'}}
         response={'id':'task','source_id':'selected','found_as_root':True,'found_in_view':True,'parent_id':None,'recovery_root_id':'task','view':'provider_recently_deleted','reported_child_ids':None,'children_status':'unavailable','children_complete':False,'observation_consistency':'separate_provider_reads','data_mutated':False}
@@ -240,7 +258,7 @@ class NativeReadTests(unittest.TestCase):
                     importlib.reload(server)
                     tools = {t.name:t for t in asyncio.run(server.mcp.list_tools())}
                     self.assertEqual(sum(n.startswith('notes_') for n in tools),42 if notes else 0)
-                    self.assertEqual(sum(n.startswith('reminders_') for n in tools),29 if reminders else 0)
+                    self.assertEqual(sum(n.startswith('reminders_') for n in tools),30 if reminders else 0)
                     if notes:
                         with patch.dict(os.environ, {'ICLOUD_ENABLE_NOTES':'0'}), patch('subprocess.run',side_effect=AssertionError('No helper')):
                             with self.assertRaises(ToolError): tools['notes_sources'].fn()

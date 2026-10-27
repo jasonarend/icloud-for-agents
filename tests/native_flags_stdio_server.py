@@ -12,6 +12,10 @@ credentials.credentials=lambda:(_ for _ in ()).throw(AssertionError('No credenti
 from icloud_for_agents.native_read import NativeReader
 def dispatch(self,request,config):
     assert self.name=='reminders' and request['source_ids']==['selected']
+    if request['action']=='recovery_tree':
+        root='11111111-1111-4111-8111-111111111111';child='22222222-2222-4222-8222-222222222222'
+        assert request['id']==child and request['source_id']=='selected'
+        return {'protocol_version':1,'requested_id':child,'root_id':root,'source_id':'selected','view':'provider_recently_deleted','hierarchy_complete':False,'observation_consistency':'single_provider_view','data_mutated':False,'nodes':[{'id':root,'parent_id':None,'depth':0,'reported_child_ids':[child],'children_status':'provider_reported'},{'id':child,'parent_id':root,'depth':1,'reported_child_ids':[],'children_status':'provider_reported'}]}
     if request['action']=='recovery_lookup':
         assert request['source_id']=='selected'
         child=request['id']=='synthetic-child';root='synthetic-parent' if child else request['id'];children=['synthetic-child'] if request['id']=='synthetic-parent' else None
