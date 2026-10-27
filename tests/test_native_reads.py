@@ -79,7 +79,8 @@ class NativeReadTests(unittest.TestCase):
             NativeReader('reminders').read('get',id='synthetic',include_native_metadata=True)
             NativeReader('reminders').read('get',id='synthetic',include_native_tags=True)
             NativeReader('reminders').read('get',id='synthetic',include_native_hierarchy=True)
-        self.assertNotIn('include_native_metadata',calls[0]);self.assertIs(calls[1]['include_native_metadata'],True);self.assertEqual(calls[1]['source_ids'],['selected']);self.assertEqual(calls[1]['id'],'synthetic');self.assertNotIn('include_native_metadata',calls[2]);self.assertIs(calls[2]['include_native_tags'],True);self.assertIs(calls[3]['include_native_hierarchy'],True)
+            NativeReader('reminders').read('get',id='synthetic',include_native_children=True)
+        self.assertNotIn('include_native_metadata',calls[0]);self.assertIs(calls[1]['include_native_metadata'],True);self.assertEqual(calls[1]['source_ids'],['selected']);self.assertEqual(calls[1]['id'],'synthetic');self.assertNotIn('include_native_metadata',calls[2]);self.assertIs(calls[2]['include_native_tags'],True);self.assertIs(calls[3]['include_native_hierarchy'],True);self.assertIs(calls[4]['include_native_children'],True)
     def test_private_metadata_defaults_and_other_service_or_action_refuse(self):
         config={name:{'source_ids':['selected']} for name in ('notes','reminders')}
         with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',side_effect=AssertionError('No helper')):
@@ -87,6 +88,7 @@ class NativeReadTests(unittest.TestCase):
                 with self.subTest(name=name,action=action,value=value),self.assertRaises(SafetyError):NativeReader(name).read(action,include_native_metadata=value)
                 with self.subTest(name=name,action=action,value=value),self.assertRaises(SafetyError):NativeReader(name).read(action,include_native_tags=value)
                 with self.subTest(name=name,action=action,value=value),self.assertRaises(SafetyError):NativeReader(name).read(action,include_native_hierarchy=value)
+                with self.subTest(name=name,action=action,value=value),self.assertRaises(SafetyError):NativeReader(name).read(action,include_native_children=value)
     def test_flag_filter_requires_opt_in_boolean_and_selected_scope(self):
         config={'reminders':{'source_ids':['selected'],'helper_path':'/synthetic/helper','advanced_backend':'reminderkit'}};calls=[]
         def dispatch(request,config):calls.append(request);return {'protocol_version':1,'items':[],'done':False,'next_offset':1}

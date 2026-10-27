@@ -199,6 +199,12 @@ This is not a complete subtree inventory. `hierarchy_complete` remains false; ch
 
 Synthetic tests cover parent identity, foreign/self parents, contradictory state and provider errors. Live dedicated parent/child fixtures return the matching parent ID, the parent's child-presence hint and an unavailable child-presence value for the leaf; the public metadata and OS permissions are unchanged. Nested descendants, concealed items and cross-device behavior remain unverified.
 
+**Optional direct Reminder children (development)**
+
+With the owner-selected ReminderKit backend, `reminders_get` accepts `include_native_children: true` for one exact reminder. It returns up to 100 provider-reported direct child IDs, verifying each child's identity, parent, list and account. A foreign, duplicate or inconsistent child, provider error, unknown collection or more than 100 results refuses the read. When the provider supplies no child context, `child_ids` is `null` and `children_fetch_status` is `"unavailable"`; it is never presented as a verified empty list.
+
+`children_complete` remains false. Concealed, unsupported, completed or nested descendants and ordering are not proven by this provider view, so it is not sufficient to authorize deleting or moving a subtree. Fetch each accessible child's details separately within the selected source. Synthetic scope, bounds and error tests pass; a live read of the dedicated parent/child fixtures returned the exact child ID and reported the leaf's unavailable context without changing data or permissions.
+
 **Read-only Markdown views**
 
 Use `notes_get` with `representation: "markdown"` to request a Markdown view of the same exact selected account/folder/note. The default `"native"` response remains compatible with existing clients. The server retains the original HTML/text and structured exported table cells, adds `item.markdown`, and reports `item.markdown_projection` with text completeness, formatting completeness, observed losses and `round_trip_safe: false`. A locked note or unavailable/over-complex HTML produces an unavailable projection rather than an empty successful export.

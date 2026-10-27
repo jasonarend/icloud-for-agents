@@ -28,6 +28,10 @@ def dispatch(self,request,config):
         if item['id']=='synthetic-child':metadata.update(is_subtask=True,parent_id='synthetic-parent',has_subtasks=None,hierarchy_complete=False,children_status='unavailable')
         else:metadata.update(is_subtask=False,parent_id=None,has_subtasks=False,hierarchy_complete=False,children_status='provider_reported')
         metadata['coverage'].append('hierarchy')
+    if request.get('include_native_children'):
+        metadata=item.setdefault('native_metadata',{'coverage':[],'native_metadata_complete':False})
+        metadata.update(child_ids=None if item['id']=='synthetic-child' else ['synthetic-child'],children_complete=False,children_fetch_status='unavailable' if item['id']=='synthetic-child' else 'provider_reported')
+        metadata['coverage'].append('children')
     return {'protocol_version':1,'item':item}
 NativeReader._dispatch=dispatch
 from icloud_for_agents.server import main

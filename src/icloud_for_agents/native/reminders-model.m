@@ -123,3 +123,34 @@ NSData *ICloudRemindersReadHierarchy(NSData *data){
         return EncodeFlag(@{@"protocol_version":@1,@"native_metadata":@{@"backend":@"reminderkit-hierarchy-v1",@"id":identity[@"id"],@"source_id":identity[@"source_id"],@"list_id":identity[@"list_id"],@"is_subtask":@(subtask),@"parent_id":parentID,@"has_subtasks":hasChildren,@"hierarchy_complete":@NO,@"children_status":childrenStatus,@"coverage":@[@"hierarchy"],@"native_metadata_complete":@NO,@"observation_consistency":@"separate_provider_reads"}});
     }@catch(NSException *exception){return EncodeFlag(FlagFailure(@"private_read_exception"));}
 }
+
+// Direct children are a bounded provider view, not a complete descendant inventory.
+NSData *ICloudRemindersReadChildren(NSData *data){
+    @try{
+        NSDictionary *failure=nil;id reminder=SelectedReminder(data,&failure);
+        if(!reminder)return EncodeFlag(failure);
+        NSDictionary *identity=[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
+        if(!MethodMatches([reminder class],@"subtaskContext",@"@@:",NO))return EncodeFlag(FlagFailure(@"unsupported_children_metadata"));
+        id context=ObjectValue(reminder,@"subtaskContext"),children=[NSNull null];NSString *status=@"unavailable";
+        if(context){
+            if(!MethodMatches([context class],@"fetchRemindersWithError:",@"@@:^@",NO))return EncodeFlag(FlagFailure(@"unsupported_children_metadata"));
+            NSError *error=nil;id collection=((id(*)(id,SEL,NSError **))objc_msgSend)(context,NSSelectorFromString(@"fetchRemindersWithError:"),&error);
+            if(error)return EncodeFlag(FlagFailure(@"children_read_unavailable"));
+            NSArray *values=nil;
+            if([collection isKindOfClass:NSArray.class])values=collection;
+            else if([collection isKindOfClass:NSSet.class])values=[collection allObjects];
+            else if([collection isKindOfClass:NSOrderedSet.class])values=[collection array];
+            if(!values || values.count>100)return EncodeFlag(FlagFailure(@"unsupported_children_metadata"));
+            NSMutableArray *ids=[NSMutableArray array];NSMutableSet *seen=[NSMutableSet set];
+            for(id child in values){
+                NSString *identifier=ObjectUUID(child,@"REMCDReminder");id parent=ObjectValue(child,@"parentReminder"),list=ObjectValue(child,@"list"),account=ObjectValue(child,@"account"),listAccount=ObjectValue(list,@"account");
+                if(!identifier || UUIDEqual(identifier,identity[@"id"]) || [seen containsObject:identifier] || !UUIDEqual(ObjectUUID(parent,@"REMCDReminder"),identity[@"id"]) ||
+                   !UUIDEqual(ObjectUUID(list,@"REMCDList"),identity[@"list_id"]) || !UUIDEqual(ObjectUUID(account,@"REMCDAccount"),identity[@"source_id"]) || !UUIDEqual(ObjectUUID(listAccount,@"REMCDAccount"),identity[@"source_id"]) ||
+                   !MethodMatches([child class],@"isSubtask",@"B@:",NO) || !((BOOL(*)(id,SEL))objc_msgSend)(child,NSSelectorFromString(@"isSubtask")))return EncodeFlag(FlagFailure(@"native_identity_mismatch"));
+                [seen addObject:identifier];[ids addObject:identifier];
+            }
+            [ids sortUsingSelector:@selector(compare:)];children=ids;status=@"provider_reported";
+        }
+        return EncodeFlag(@{@"protocol_version":@1,@"native_metadata":@{@"backend":@"reminderkit-children-v1",@"id":identity[@"id"],@"source_id":identity[@"source_id"],@"list_id":identity[@"list_id"],@"child_ids":children,@"children_fetch_status":status,@"children_complete":@NO,@"coverage":@[@"children"],@"native_metadata_complete":@NO,@"observation_consistency":@"separate_provider_reads"}});
+    }@catch(NSException *exception){return EncodeFlag(FlagFailure(@"private_read_exception"));}
+}

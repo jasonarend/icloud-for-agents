@@ -44,10 +44,13 @@ FIXTURE=r'''
 @interface FixtureHierarchy:NSObject
 @property BOOL hasChildren;
 @property BOOL denied;
+@property id children;
 -(BOOL)hasSubtasksWithError:(NSError **)error;
+-(id)fetchRemindersWithError:(NSError **)error;
 @end
 @implementation FixtureHierarchy
 -(BOOL)hasSubtasksWithError:(NSError **)error {if(self.denied){*error=[NSError errorWithDomain:@"synthetic" code:1 userInfo:nil];return NO;}return self.hasChildren;}
+-(id)fetchRemindersWithError:(NSError **)error {if(self.denied){*error=[NSError errorWithDomain:@"synthetic" code:1 userInfo:nil];return nil;}return self.children;}
 @end
 @interface FixtureReminder:NSObject
 @property FixtureID *remObjectID;
@@ -74,6 +77,7 @@ static BOOL denied=NO;
 }
 @end
 static FixtureID *Identity(NSString *entity,NSString *value){FixtureID *v=[FixtureID new];v.entityName=entity;v.uuid=[[NSUUID alloc]initWithUUIDString:value];return v;}
+static NSDictionary *Children(NSDictionary *request){NSData *data=[NSJSONSerialization dataWithJSONObject:request options:0 error:NULL];return [NSJSONSerialization JSONObjectWithData:ICloudRemindersReadChildren(data) options:0 error:NULL];}
 static NSDictionary *Hierarchy(NSDictionary *request){NSData *data=[NSJSONSerialization dataWithJSONObject:request options:0 error:NULL];return [NSJSONSerialization JSONObjectWithData:ICloudRemindersReadHierarchy(data) options:0 error:NULL];}
 static NSDictionary *Tags(NSDictionary *request){NSData *data=[NSJSONSerialization dataWithJSONObject:request options:0 error:NULL];return [NSJSONSerialization JSONObjectWithData:ICloudRemindersReadTags(data) options:0 error:NULL];}
 static NSDictionary *Call(NSDictionary *request){NSData *data=[NSJSONSerialization dataWithJSONObject:request options:0 error:NULL];return [NSJSONSerialization JSONObjectWithData:ICloudRemindersReadFlag(data) options:0 error:NULL];}
@@ -117,6 +121,18 @@ int main(){@autoreleasepool{
  hierarchy.denied=YES;NSCAssert([Hierarchy(request)[@"category"] isEqual:@"hierarchy_read_unavailable"],@"read error not false");hierarchy.denied=NO;
  fixture.isSubtask=NO;NSCAssert(Hierarchy(request)[@"error"],@"contradictory parent refused");fixture.parentReminder=nil;fixture.subtaskContext=nil;NSDictionary *partial=Hierarchy(request)[@"native_metadata"];NSCAssert(partial && partial[@"has_subtasks"]==[NSNull null] && [partial[@"children_status"] isEqual:@"unavailable"] && ![partial[@"hierarchy_complete"] boolValue],@"missing context is unknown, never no children");
  fixture.isSubtask=YES;fixture.parentReminder=parent;partial=Hierarchy(request)[@"native_metadata"];NSCAssert([partial[@"parent_id"] isEqual:other] && partial[@"has_subtasks"]==[NSNull null],@"known scoped parent with unavailable child metadata");
+ fixture.isSubtask=NO;fixture.parentReminder=nil;fixture.subtaskContext=hierarchy;hierarchy.children=@[];
+ NSDictionary *children=Children(request)[@"native_metadata"];NSCAssert(children && [children[@"child_ids"] count]==0 && ![children[@"children_complete"] boolValue],@"bounded provider view");
+ FixtureReminder *child=[FixtureReminder new];child.remObjectID=Identity(@"REMCDReminder",other);child.account=fixture.account;child.list=fixture.list;child.parentReminder=fixture;child.isSubtask=YES;hierarchy.children=@[child];
+ NSCAssert([Children(request)[@"native_metadata"][@"child_ids"][0] isEqual:other],@"exact direct child");
+ child.parentReminder=nil;NSCAssert(Children(request)[@"error"],@"foreign or missing parent refused");child.parentReminder=fixture;
+ child.isSubtask=NO;NSCAssert(Children(request)[@"error"],@"non-subtask refused");child.isSubtask=YES;
+ child.account=[FixtureAccount new];child.account.remObjectID=Identity(@"REMCDAccount",other);NSCAssert(Children(request)[@"error"],@"foreign account refused");child.account=fixture.account;
+ hierarchy.children=@[child,child];NSCAssert(Children(request)[@"error"],@"duplicate child refused");
+ NSMutableArray *over=[NSMutableArray array];for(int i=0;i<101;i++)[over addObject:child];hierarchy.children=over;NSCAssert(Children(request)[@"error"],@"children bound");
+ hierarchy.children=nil;NSCAssert(Children(request)[@"error"],@"nil provider result refused");
+ hierarchy.denied=YES;NSCAssert([Children(request)[@"category"] isEqual:@"children_read_unavailable"],@"provider error refused");hierarchy.denied=NO;
+ fixture.subtaskContext=nil;children=Children(request)[@"native_metadata"];NSCAssert(children[@"child_ids"]==[NSNull null] && [children[@"children_fetch_status"] isEqual:@"unavailable"],@"missing context not empty success");
  puts("fixed native flag read: scope, types, denied/missing/unknown refusal passed");return 0;
 }}
 '''
@@ -127,5 +143,5 @@ def run():
         p=Path(directory);(p/'reminders-model.h').write_text((ROOT/'src/icloud_for_agents/native/reminders-model.h').read_text());(p/'test.m').write_text(source+'\n'+FIXTURE)
         result=subprocess.run(['/usr/bin/clang','-fobjc-arc','-framework','Foundation',str(p/'test.m'),'-o',str(p/'contract')],capture_output=True,text=True,timeout=60);assert result.returncode==0,result.stderr
         result=subprocess.run([str(p/'contract')],capture_output=True,text=True,timeout=5);assert result.returncode==0,result.stderr
-    print(json.dumps({'status':'passed','apple_store_opened':False,'checks':['actual_fixed_read_and_runtime_signatures','true_and_false_integer_flag','exact_task_list_source_and_account_relation','nil_unknown_or_denied_not_empty_success','bounded_tags_and_exact_account_task_identity','hierarchy_parent_scope_and_unknown_refusal','no_arbitrary_selectors_or_save_api']}))
+    print(json.dumps({'status':'passed','apple_store_opened':False,'checks':['actual_fixed_read_and_runtime_signatures','true_and_false_integer_flag','exact_task_list_source_and_account_relation','nil_unknown_or_denied_not_empty_success','bounded_tags_and_exact_account_task_identity','hierarchy_parent_scope_and_unknown_refusal','bounded_direct_children_and_scope_refusals','no_arbitrary_selectors_or_save_api']}))
 if __name__=='__main__':run()

@@ -664,13 +664,13 @@ func object(_ reminder: EKReminder) -> [String: Any] {
 }
 func selectedNativeMetadata(_ reminder:EKReminder,_ selections:[String:Any])->[String:Any]? {
     var combined:[String:Any]=[:];var coverage:[String]=[]
-        for key in ["include_native_metadata","include_native_tags","include_native_hierarchy"] {
+        for key in ["include_native_metadata","include_native_tags","include_native_hierarchy","include_native_children"] {
             guard let requested=selections[key] else {continue}
             guard let number=requested as? NSNumber,CFGetTypeID(number)==CFBooleanGetTypeID() else {fail("invalid_request")}
             if !number.boolValue {continue}
             let identity=["id":reminder.calendarItemIdentifier,"source_id":reminder.calendar.source.sourceIdentifier,"list_id":reminder.calendar.calendarIdentifier]
             guard let encoded=try? JSONSerialization.data(withJSONObject:identity) else {fail("read_failed")}
-            let data=key=="include_native_tags" ? ICloudRemindersReadTags(encoded) : key=="include_native_hierarchy" ? ICloudRemindersReadHierarchy(encoded) : ICloudRemindersReadFlag(encoded)
+            let data=key=="include_native_tags" ? ICloudRemindersReadTags(encoded) : key=="include_native_hierarchy" ? ICloudRemindersReadHierarchy(encoded) : key=="include_native_children" ? ICloudRemindersReadChildren(encoded) : ICloudRemindersReadFlag(encoded)
             guard let metadata=(try? JSONSerialization.jsonObject(with:data)) as? [String:Any] else {fail("read_failed")}
             if metadata["error"] != nil {respond(metadata)}
             guard let fields=metadata["native_metadata"] as? [String:Any],fields["id"] as? String==identity["id"],fields["source_id"] as? String==identity["source_id"],fields["list_id"] as? String==identity["list_id"],let observed=fields["coverage"] as? [String] else {fail("read_failed")}

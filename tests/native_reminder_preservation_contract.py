@@ -23,6 +23,7 @@ func output(_ input:Data,_ tags:Bool)->Data {
 }
 func ICloudRemindersReadFlag(_ input:Data)->Data {output(input,false)}
 func ICloudRemindersReadTags(_ input:Data)->Data {output(input,true)}
+func ICloudRemindersReadChildren(_ input:Data)->Data {fatalError("children not requested") }
 func ICloudRemindersReadHierarchy(_ input:Data)->Data {
     privateReads+=1
     var value=try! JSONSerialization.jsonObject(with:input) as! [String:Any]
