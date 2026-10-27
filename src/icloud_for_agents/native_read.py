@@ -331,10 +331,10 @@ def register_read_tools(mcp):
         @mcp.tool(annotations=annotations)
         @guard
         def reminders_daily(date: str, timezone: str, include_overdue: bool = True,
-                            limit: int = 50, offset: int = 0) -> dict:
-            """Read incomplete reminders due on a date, optionally overdue; no scheduling or delivery."""
+                            limit: int = 50, offset: int = 0, flagged: bool | None = None, list_id: str | None = None) -> dict:
+            """Read incomplete reminders due on a date, optionally overdue, flagged, or in one list. Follow next_offset until done; no scheduling or delivery."""
             return NativeReader('reminders').read('query', due_date=date, timezone=timezone,
-                include_overdue=include_overdue, completed=False, limit=limit, offset=offset)
+                include_overdue=include_overdue, completed=False, limit=limit, offset=offset, flagged=flagged, list_id=list_id)
 
         @mcp.tool(annotations=annotations)
         @guard

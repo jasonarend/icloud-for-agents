@@ -14,6 +14,7 @@ def dispatch(self,request,config):
     assert self.name=='reminders' and request['source_ids']==['selected']
     if request['action']=='query':
         assert type(request.get('flagged')) is bool and request['limit']==1
+        if 'due_date' in request:assert request['due_date']=='2026-10-27' and request['timezone']=='UTC' and request['completed'] is False and request['list_id']=='list'
         return {'protocol_version':1,'items':[],'done':False,'next_offset':1,'native_flag_filter':{'scanned':1,'matched':0}}
     item={'id':'synthetic-task','list_id':'list','source_id':'selected','content_complete':False}
     if request.get('include_native_metadata'):

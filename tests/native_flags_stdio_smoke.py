@@ -35,6 +35,7 @@ def run():
                 query=next(t for t in tools if t['name']=='reminders_query');assert query['annotations']['readOnlyHint'] is True
                 flag_query=data(rpc('tools/call',{'name':'reminders_query','arguments':{'flagged':True,'limit':1}})['result']);assert flag_query['items']==[] and flag_query['done'] is False and flag_query['next_offset']==1
                 assert rpc('tools/call',{'name':'reminders_query','arguments':{'flagged':'invalid'}})['result'].get('isError')
+                daily=data(rpc('tools/call',{'name':'reminders_daily','arguments':{'date':'2026-10-27','timezone':'UTC','flagged':True,'limit':1,'list_id':'list'}})['result']);assert daily['items']==[] and daily['done'] is False and daily['next_offset']==1
 
             finally:
                 process.stdin.close()
