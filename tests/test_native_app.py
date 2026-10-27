@@ -169,3 +169,21 @@ class NativeApplicationTests(unittest.TestCase):
         proof=completed_exchange_evidence(request,plan_id=proposal['plan_id'],store=store)
         binding=store.read(store.path(proposal['plan_id'],'.native-exchange-0'))
         self.assertEqual(proof['request_id'],binding['request_id']);self.assertNotIn('private synthetic',json.dumps(binding))
+
+    def test_optional_metadata_backend_is_bound_to_the_exact_plan_and_helper(self):
+        from icloud_for_agents.native_app import completed_exchange_evidence,bundle_fingerprint
+        from icloud_for_agents.native_execution import capture
+        from icloud_for_agents.approvals import PlanStore
+        from icloud_for_agents.native_protocol import mutation_request
+        from icloud_for_agents.core import digest
+        store=PlanStore(self.root/'ledger');item={'operation':'create_note','source_id':'selected','folder_id':'folder','fields':{'title':'Synthetic','html':'<div>Body</div>'}}
+        backend='notes-creation-v1:'+bundle_fingerprint(self.helper)+':notes-store-role-v1:'+'a'*64
+        proposal=store.prepare('notes_change',{'account':'synthetic@example.com','context':{'backend':backend},'changes':[item]});plan=store.read(store.path(proposal['plan_id'],'.json'));store.write_once(store.path(proposal['plan_id'],'.started'),{'sha256':digest(plan)})
+        def launch(command,**kwargs):
+            if command[:3]==['/usr/bin/open','-g','-a']:return SimpleNamespace(returncode=0)
+            directory=Path(command[-1]);result=directory/'result.json';result.write_text(json.dumps({'protocol_version':1,'request_id':directory.name,'error':'synthetic refusal','mutation_dispatched':False}));result.chmod(0o600);return SimpleNamespace(returncode=0)
+        request=mutation_request('notes',item)
+        with capture(store,'notes',plan,0),patch('subprocess.run',side_effect=launch):application_request(self.helper,request)
+        self.assertFalse(completed_exchange_evidence(request,plan_id=proposal['plan_id'],store=store)['mutation_dispatched'])
+        binding=store.path(proposal['plan_id'],'.native-exchange-0');record=store.read(binding);record['backend_id']='different';binding.write_text(json.dumps(record))
+        with self.assertRaises(SafetyError):completed_exchange_evidence(request,plan_id=proposal['plan_id'],store=store)

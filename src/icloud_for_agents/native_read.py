@@ -12,7 +12,7 @@ from .core import SafetyError, NativeOperationRefused, digest
 from .services import enabled
 
 
-READ_ACTIONS = {'notes': {'status', 'sources', 'folders', 'folder_get', 'folder_role', 'query', 'get', 'search', 'attachments', 'diagnose_note', 'contains'},
+READ_ACTIONS = {'notes': {'status', 'sources', 'folders', 'folder_get', 'folder_inventory', 'folder_role', 'query', 'get', 'search', 'attachments', 'diagnose_note', 'contains'},
                 'reminders': {'status', 'sources', 'lists', 'query', 'get','list_membership'}}
 MAX_OUTPUT = 2_000_000
 
@@ -47,10 +47,12 @@ def validate_config(config):
     if not isinstance(config, dict) or set(config) - set(READ_ACTIONS):
         raise ValueError('Unknown native service configuration')
     for name, value in config.items():
-        if not isinstance(value, dict) or set(value) - {'source_ids', 'helper_path', 'access_mode','metadata_backend'}:
+        if not isinstance(value, dict) or set(value) - {'source_ids', 'helper_path', 'access_mode','metadata_backend','folder_write_backend'}:
             raise ValueError('Unknown native configuration fields')
         if 'metadata_backend' in value and (name!='notes' or not isinstance(value['metadata_backend'],str) or value['metadata_backend'] not in {'scripting','notes-store-readonly'}):
             raise ValueError('Unknown optional native metadata backend')
+        if 'folder_write_backend' in value and (name!='notes' or value['folder_write_backend'] not in ('scripting','notes-shared') or (value['folder_write_backend']=='notes-shared' and value.get('metadata_backend')!='notes-store-readonly')):
+            raise ValueError('Native folder writer requires explicit read-only store verification')
         if value.get('access_mode', 'read-only') not in {'disabled', 'read-only', 'write-enabled'}:
             raise ValueError('Invalid native access mode')
         ids = value.get('source_ids', [])

@@ -286,12 +286,13 @@ class PlanStore:
                 and record.get('original_sha256')==digest(original) and record.get('original_result_sha256')==digest(result)
                 and record.get('correction_id')==correction.get('plan_id') and record.get('correction_sha256')==digest(correction)
                 and correction.get('native_correction_of')==original_id
-                and original.get('kind')==correction.get('kind')=='reminders_change'
+                and original.get('kind')==correction.get('kind') and original.get('kind') in {'reminders_change','notes_change'}
                 and original['payload'].get('account')==correction['payload'].get('account')
                 and not original.get('native_correction_of')
                 and result.get('status')=='failed_or_uncertain' and result.get('phase')=='verification'
                 and len(changes)==len(repairs)==len(attempts)==1
-                and changes[0].get('operation')==repairs[0].get('operation') and changes[0].get('operation') in {'update_reminder','set_recurrence'}
+                and changes[0].get('operation')==repairs[0].get('operation')
+                and changes[0].get('operation') in ({'rename_folder'} if original.get('kind')=='notes_change' else {'update_reminder','set_recurrence'})
                 and changes[0].get('id')==repairs[0].get('id')==attempts[0].get('result',{}).get('id')
                 and changes[0].get('source_id')==repairs[0].get('source_id'))
 

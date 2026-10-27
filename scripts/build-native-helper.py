@@ -33,8 +33,12 @@ def main():
     architecture = {'arm64': 'arm64', 'x86_64': 'x86_64'}.get(platform.machine())
     if architecture is None:
         parser.error('Unsupported native build architecture')
-    subprocess.run(['/usr/bin/swiftc', str(source), '-target', architecture + '-apple-macos14.0', '-o', str(executable),
+    native = root / 'src/icloud_for_agents/native'
+    model_object = bundle / 'Contents' / 'notes-model.o'
+    subprocess.run(['/usr/bin/clang','-fobjc-arc','-arch',architecture,'-mmacosx-version-min=14.0','-c',str(native/'notes-model.m'),'-o',str(model_object)],check=True)
+    subprocess.run(['/usr/bin/swiftc', str(source), str(model_object), '-import-objc-header', str(native/'notes-model.h'), '-framework', 'CoreData', '-target', architecture + '-apple-macos14.0', '-o', str(executable),
                     '-Xlinker', '-sectcreate', '-Xlinker', '__TEXT', '-Xlinker', '__info_plist', '-Xlinker', str(plist)], check=True)
+    model_object.unlink()
     subprocess.run(['/usr/bin/codesign', '--force', '--sign', '-', '--identifier', info['CFBundleIdentifier'], str(bundle)], check=True)
     print(executable)
 

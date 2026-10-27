@@ -1,0 +1,128 @@
+// Fixed optional native model operation. No caller-selected selectors, SQL or paths.
+#import "notes-model.h"
+#import <CoreData/CoreData.h>
+#import <objc/message.h>
+#import <objc/runtime.h>
+#import <dlfcn.h>
+
+static NSData *Encode(NSDictionary *value) {
+    return [NSJSONSerialization dataWithJSONObject:value options:0 error:NULL] ?: [NSData data];
+}
+static NSDictionary *Failure(NSString *reason,BOOL dispatched) {
+    return @{@"protocol_version":@1,@"error":@"notes_model_refused",@"category":reason,@"mutation_dispatched":@(dispatched)};
+}
+static BOOL ModelAvailable(void) {
+    if(NSProcessInfo.processInfo.operatingSystemVersion.majorVersion!=27)return NO;
+    if(!dlopen("/System/Library/PrivateFrameworks/NotesShared.framework/NotesShared",RTLD_LAZY|RTLD_LOCAL))return NO;
+    Class context=NSClassFromString(@"ICNoteContext"),folder=NSClassFromString(@"ICFolder");
+    if(!context || !folder || !class_getClassMethod(context,NSSelectorFromString(@"startSharedContextWithOptions:")) || !class_getClassMethod(context,NSSelectorFromString(@"sharedContext")) || !class_getInstanceMethod(context,NSSelectorFromString(@"managedObjectContext")))return NO;
+    for(NSString *name in @[@"setTitle:",@"isSystemFolder",@"isSmartFolder",@"isSharedViaICloud"])
+        if(!class_getInstanceMethod(folder,NSSelectorFromString(name)))return NO;
+    return YES;
+}
+NSData *ICloudNotesModelStatus(void) {
+    return Encode(@{@"protocol_version":@1,@"service":@"notes",@"backend":@"notes-shared-folder-v1",@"interface_available":@(ModelAvailable()),@"context_open_requested":@NO,@"data_access":@"unverified",@"application_writes_enabled":@NO});
+}
+static BOOL Flag(id object,NSString *name) {
+    SEL selector=NSSelectorFromString(name);
+    return ((BOOL(*)(id,SEL))objc_msgSend)(object,selector);
+}
+static NSString *Identity(NSManagedObject *object) {return object.objectID.URIRepresentation.absoluteString;}
+static BOOL FolderAllowed(NSManagedObject *object,NSString *source,BOOL root) {
+    if(![object.entity.name isEqual:@"ICFolder"] || ![object.entity.relationshipsByName[@"account"].destinationEntity.name isEqual:@"ICAccount"] || !object.entity.attributesByName[@"title"] || !object.entity.attributesByName[@"folderType"])return NO;
+    NSManagedObject *account=[object valueForKey:@"account"];
+    if(![Identity(account) isEqual:source] || [[object valueForKey:@"markedForDeletion"] boolValue] || [[object valueForKey:@"folderType"] integerValue]!=0 || Flag(object,@"isSmartFolder") || Flag(object,@"isSharedViaICloud") || (root && Flag(object,@"isSystemFolder")))return NO;
+    return YES;
+}
+static BOOL Inventory(NSManagedObject *folder,NSString *source,NSUInteger depth,NSMutableArray *folders,NSMutableArray *notes,NSMutableSet *seen) {
+    if(depth>=32 || folders.count>=100 || !FolderAllowed(folder,source,YES) || [seen containsObject:folder.objectID])return NO;
+    [seen addObject:folder.objectID];NSManagedObject *parent=[folder valueForKey:@"parent"];
+    NSString *title=[folder valueForKey:@"title"];
+    if(![title isKindOfClass:NSString.class] || title.length>1000)return NO;
+    [folders addObject:@{@"id":Identity(folder),@"title":title,@"source_id":source,@"parent_id":parent?Identity(parent):source,@"shared":@NO,@"is_default":@NO}];
+    for(NSManagedObject *note in [folder valueForKey:@"notes"]) {
+        if([[note valueForKey:@"markedForDeletion"] boolValue])continue;
+        if(![note.entity.name isEqual:@"ICNote"] || ![[note valueForKey:@"folder"] isEqual:folder] || notes.count>=200)return NO;
+        [notes addObject:@{@"id":Identity(note),@"folder_id":Identity(folder)}];
+    }
+    for(NSManagedObject *child in [folder valueForKey:@"children"]) {
+        if([[child valueForKey:@"markedForDeletion"] boolValue])continue;
+        if(![[child valueForKey:@"parent"] isEqual:folder] || !Inventory(child,source,depth+1,folders,notes,seen))return NO;
+    }
+    return YES;
+}
+static NSArray *Sorted(NSArray *rows) {return [rows sortedArrayUsingComparator:^NSComparisonResult(NSDictionary *a,NSDictionary *b){return [a[@"id"] compare:b[@"id"] options:NSLiteralSearch];}];}
+
+NSData *ICloudNotesModelRename(NSData *data,BOOL (^enterMutation)(void)) {
+    __block BOOL dispatched=NO;__block NSManagedObjectContext *moc=nil;__block NSDictionary *answer=nil;
+    @try {
+        NSDictionary *request=[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
+        if(![request isKindOfClass:NSDictionary.class])return Encode(Failure(@"invalid_request",NO));
+        NSDictionary *change=request[@"change"];
+        if(![change isKindOfClass:NSDictionary.class])return Encode(Failure(@"invalid_request",NO));
+        NSDictionary *fields=change[@"fields"],*before=change[@"before"];
+        if(![fields isKindOfClass:NSDictionary.class] || ![before isKindOfClass:NSDictionary.class])return Encode(Failure(@"invalid_request",NO));
+        NSDictionary *expected=before[@"inventory"],*role=before[@"role"];
+        NSString *source=change[@"source_id"],*identity=change[@"id"],*title=fields[@"title"];
+        NSArray *sources=request[@"source_ids"];
+        if(![change isKindOfClass:NSDictionary.class] || ![fields isKindOfClass:NSDictionary.class] || ![before isKindOfClass:NSDictionary.class] || ![expected isKindOfClass:NSDictionary.class] || ![role isKindOfClass:NSDictionary.class] || ![source isKindOfClass:NSString.class] || ![identity isKindOfClass:NSString.class] || ![sources isKindOfClass:NSArray.class] || sources.count!=1 || ![sources[0] isEqual:source] || ![change[@"folder_id"] isEqual:identity] || ![change[@"operation"] isEqual:@"rename_folder"] || ![change[@"writer_backend"] isEqual:@"notes-shared"] || ![title isKindOfClass:NSString.class] || title.length<1 || title.length>1000 || [title rangeOfCharacterFromSet:NSCharacterSet.controlCharacterSet].location!=NSNotFound || ![role[@"folder_id"] isEqual:identity] || ![role[@"source_id"] isEqual:source] || ![role[@"storage_kind"] isEqual:@"regular"] || ![role[@"title"] isKindOfClass:NSString.class])return Encode(Failure(@"invalid_request",NO));
+        if(![expected[@"folders"] isKindOfClass:NSArray.class] || ![expected[@"notes"] isKindOfClass:NSArray.class] || [expected[@"folders"] count]<1 || [expected[@"folders"] count]>100 || [expected[@"notes"] count]>200 || expected.count!=3 || fields.count!=1)return Encode(Failure(@"invalid_request",NO));
+        if(!ModelAvailable())return Encode(Failure(@"unsupported_edit_target",NO));
+        Class cls=NSClassFromString(@"ICNoteContext");
+        ((void(*)(id,SEL,unsigned long long))objc_msgSend)((id)cls,NSSelectorFromString(@"startSharedContextWithOptions:"),0);
+        id context=((id(*)(id,SEL))objc_msgSend)((id)cls,NSSelectorFromString(@"sharedContext"));
+        id candidate=[context valueForKey:@"managedObjectContext"];
+        if(![candidate isKindOfClass:NSManagedObjectContext.class])return Encode(Failure(@"notes_model_unavailable",NO));
+        moc=candidate;
+        [moc performBlockAndWait:^{
+            @try {
+                if(moc.hasChanges) {answer=Failure(@"notes_model_has_unrelated_changes",NO);return;}
+                NSURL *url=[NSURL URLWithString:identity];NSManagedObjectID *oid=url?[moc.persistentStoreCoordinator managedObjectIDForURIRepresentation:url]:nil;
+                NSManagedObject *folder=oid?[moc existingObjectWithID:oid error:NULL]:nil;
+                if(!folder || ![Identity(folder) isEqual:identity] || !FolderAllowed(folder,source,YES) || ![[folder valueForKey:@"title"] isEqual:role[@"title"]]) {answer=Failure(@"snapshot_changed",NO);return;}
+                NSMutableSet *ancestors=[NSMutableSet set];NSManagedObject *ancestor=folder;
+                for(NSUInteger depth=0;ancestor;depth++) {
+                    if(depth>=32 || [ancestors containsObject:ancestor.objectID] || !FolderAllowed(ancestor,source,NO)) {answer=Failure(@"unsupported_edit_target",NO);return;}
+                    [ancestors addObject:ancestor.objectID];ancestor=[ancestor valueForKey:@"parent"];
+                }
+                NSMutableArray *folders=[NSMutableArray array],*notes=[NSMutableArray array],*siblings=[NSMutableArray array];NSMutableSet *seen=[NSMutableSet set];
+                if(!Inventory(folder,source,0,folders,notes,seen)) {answer=Failure(@"unsupported_edit_target",NO);return;}
+                NSManagedObject *parent=[folder valueForKey:@"parent"],*account=[folder valueForKey:@"account"];
+                if(![expected[@"siblings"] isKindOfClass:NSArray.class] || [expected[@"siblings"] count]>10000) {answer=Failure(@"invalid_request",NO);return;}
+                NSMutableSet *peerIDs=[NSMutableSet set];
+                for(NSDictionary *row in expected[@"siblings"]) {
+                    if(![row isKindOfClass:NSDictionary.class] || row.count!=2 || ![row[@"id"] isKindOfClass:NSString.class] || ![row[@"title"] isKindOfClass:NSString.class]) {answer=Failure(@"invalid_request",NO);return;}
+                    NSURL *peerURL=[NSURL URLWithString:row[@"id"]];NSManagedObjectID *peerID=peerURL?[moc.persistentStoreCoordinator managedObjectIDForURIRepresentation:peerURL]:nil;
+                    NSManagedObject *peer=peerID?[moc existingObjectWithID:peerID error:NULL]:nil;
+                    if(!peer || [peerIDs containsObject:peerID] || [peerID isEqual:folder.objectID] || ![peer.entity.name isEqual:@"ICFolder"] || ![[peer valueForKey:@"account"] isEqual:account] || !(([peer valueForKey:@"parent"]==parent)||[[peer valueForKey:@"parent"] isEqual:parent]) || [[peer valueForKey:@"markedForDeletion"] boolValue] || ![[peer valueForKey:@"title"] isEqual:row[@"title"]]) {answer=Failure(@"snapshot_changed",NO);return;}
+                    [peerIDs addObject:peerID];[siblings addObject:row];
+                }
+                // Check collisions without enumerating unrelated hidden folder metadata.
+                NSFetchRequest *fetch=[NSFetchRequest fetchRequestWithEntityName:@"ICFolder"];fetch.fetchLimit=2;
+                fetch.predicate=[NSPredicate predicateWithFormat:@"account == %@ AND parent == %@ AND markedForDeletion == NO AND title == %@",account,parent,title];
+                NSArray *collisions=[moc executeFetchRequest:fetch error:NULL];
+                if(!collisions) {answer=Failure(@"notes_model_unavailable",NO);return;}
+                for(NSManagedObject *peer in collisions)if(![peer.objectID isEqual:folder.objectID]) {answer=Failure(@"duplicate_folder",NO);return;}
+                NSMutableDictionary *wanted=[expected mutableCopy];NSMutableArray *wantedFolders=[NSMutableArray array];
+                for(NSDictionary *row in expected[@"folders"]) {NSMutableDictionary *copy=[row mutableCopy];if([copy[@"id"] isEqual:identity])copy[@"title"]=role[@"title"];[wantedFolders addObject:copy];}
+                wanted[@"folders"]=wantedFolders;
+                NSDictionary *observed=@{@"folders":Sorted(folders),@"notes":Sorted(notes),@"siblings":Sorted(siblings)};
+                if(![observed isEqual:wanted]) {answer=Failure(@"snapshot_changed",NO);return;}
+                if(!enterMutation()) {answer=Failure(@"native_dispatch_cancelled",NO);return;}
+                dispatched=YES;
+                [folder setValue:title forKey:@"title"];
+                NSMutableSet *allowed=[seen mutableCopy];
+                for(NSManagedObject *object in moc.registeredObjects) {
+                    if([seen containsObject:object.objectID] && object.entity.relationshipsByName[@"cloudState"]) {NSManagedObject *cloud=[object valueForKey:@"cloudState"];if(cloud)[allowed addObject:cloud.objectID];}
+                }
+                if(moc.insertedObjects.count || moc.deletedObjects.count) { [moc rollback];answer=Failure(@"unexpected_model_effect",YES);return; }
+                for(NSManagedObject *object in moc.updatedObjects)if(![allowed containsObject:object.objectID]) {[moc rollback];answer=Failure(@"unexpected_model_effect",YES);return;}
+                if(!enterMutation()) {[moc rollback];answer=Failure(@"native_dispatch_cancelled",YES);return;}
+                NSError *error=nil;
+                if(![moc save:&error]) {answer=Failure(@"model_save_failed",YES);return;}
+                answer=@{@"protocol_version":@1,@"result":@{@"id":identity,@"source_id":source,@"saved_locally":@YES,@"method":@"notes-shared-folder-v1"}};
+            } @catch(NSException *exception) {if(moc.hasChanges)[moc rollback];answer=Failure(@"notes_model_exception",dispatched);}
+        }];
+        return Encode(answer ?: Failure(@"notes_model_unavailable",dispatched));
+    } @catch(NSException *exception) {return Encode(Failure(@"notes_model_exception",dispatched));}
+}

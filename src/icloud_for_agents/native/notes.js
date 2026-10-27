@@ -1,11 +1,45 @@
 // Fixed read-only JXA protocol. User data is JSON, never executable script source.
 ObjC.import('Foundation');
+
+// Fixed metadata inventory: no note body, attachment or unlock operation.
+function notesFolderInventory(account,root) {
+    const records=[],notes=[],seenFolders=new Set(),seenNotes=new Set(),source=account.id();
+    const defaultID=account.defaultFolder().id();
+    function visit(folder,depth) {
+        if(depth>=32 || records.length>=100)throw Error('folder_limit');
+        const id=folder.id();if(seenFolders.has(id))throw Error('folder_limit');seenFolders.add(id);
+        const shared=folder.shared(),parent=folder.container().id(),title=folder.name();
+        if(typeof shared!=='boolean' || typeof title!=='string' || title.length>1000)throw Error('folder_metadata_unavailable');
+        records.push({id:id,title:title,source_id:source,parent_id:parent,shared:shared,is_default:id===defaultID});
+        const ids=folder.notes.id();if(ids.length>200)throw Error('query_limit');
+        ids.forEach(noteID=>{
+            const note=folder.notes.byId(noteID);if(note.container().id()!==id)return;
+            if(seenNotes.has(noteID) || notes.length>=200)throw Error('query_limit');seenNotes.add(noteID);
+            notes.push({id:noteID,folder_id:id});
+        });
+        folder.folders().filter(f=>f.container().id()===id).forEach(f=>visit(f,depth+1));
+    }
+    visit(root,0);
+    const parentID=root.container().id(),parent=parentID===source?account:account.folders.byId(parentID);
+    const children=parent.folders();if(children.length>10000)throw Error('folder_limit');
+    const siblings=children.filter(f=>f.container().id()===parentID && f.id()!==root.id()).map(f=>({id:f.id(),title:f.name()}));
+    const sorted=values=>values.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);
+    return {folders:sorted(records),notes:sorted(notes),siblings:sorted(siblings)};
+}
+function notesMetadataEqual(a,b) {
+    if(a===b)return true;
+    if(a===null || b===null || typeof a!=='object' || typeof b!=='object' || Array.isArray(a)!==Array.isArray(b))return false;
+    if(Array.isArray(a))return a.length===b.length && a.every((value,index)=>notesMetadataEqual(value,b[index]));
+    const keys=Object.keys(a).sort(),other=Object.keys(b).sort();
+    return keys.length===other.length && keys.every((key,index)=>key===other[index] && notesMetadataEqual(a[key],b[key]));
+}
+
 function readRequest() {
     const data = $.NSFileHandle.fileHandleWithStandardInput.readDataToEndOfFile;
     const text = ObjC.unwrap($.NSString.alloc.initWithDataEncoding(data, $.NSUTF8StringEncoding));
     if (text.length > 65536) throw Error('invalid_request');
     const req = JSON.parse(text);
-    if (req.protocol_version !== 1 || !['sources','folders','folder_get','query','get','search','attachments','diagnose_note','contains'].includes(req.action)) throw Error('unsupported_action');
+    if (req.protocol_version !== 1 || !['sources','folders','folder_get','folder_inventory','query','get','search','attachments','diagnose_note','contains'].includes(req.action)) throw Error('unsupported_action');
     return req;
 }
 function run() { const req=readRequest(); return readNotes(Application('com.apple.Notes'), req); }
@@ -104,6 +138,7 @@ function readNotes(app, req) {
     const matches = folders.filter(f => f.object.id() === req.folder_id);
     if (matches.length !== 1) throw Error('not_found_in_scope');
     const folder = matches[0];
+    if(req.action==='folder_inventory')return JSON.stringify(Object.assign({protocol_version:1},notesFolderInventory(selected.find(a=>a.id()===folder.source),folder.object)));
     if (req.action==='folder_get') {
         const metadata=f=>({id:f.id(),title:f.name(),source_id:folder.source,parent_id:f.container().id(),shared:f.shared()});
         return JSON.stringify({protocol_version:1,folder:metadata(folder.object),ancestors:targetPath.slice(1).map(metadata)});

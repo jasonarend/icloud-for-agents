@@ -156,7 +156,7 @@ requestAction=action
 guard let service=req["service"] as? String, ["notes","reminders"].contains(service) else { fail("unsupported_service") }
 requestService=service
 if service == "notes" {
-    guard ["status", "request_access", "sources", "folders", "folder_get", "query", "get", "search", "attachments", "diagnose_note", "contains", "apply", "diagnose_read_access"].contains(action) else { fail("unsupported_action") }
+    guard ["status", "request_access", "sources", "folders", "folder_get", "folder_inventory", "query", "get", "search", "attachments", "diagnose_note", "contains", "apply", "diagnose_read_access"].contains(action) else { fail("unsupported_action") }
     if action == "diagnose_read_access" {
         // Explicit operator setup probe: a real, minimal read through normal OS
         // enforcement. Does not inspect note bodies, alter policy or approve consent.
@@ -197,6 +197,32 @@ if service == "notes" {
         let state = result == noErr ? "granted" : result == -1743 ? "denied" : result == -1744 ? "requires_consent" : result == -600 ? "target_not_running" : result == -1712 ? "unknown_timeout" : "unknown"
         respond(["protocol_version": 1, "service": "notes", "permission_status": result, "permission_state": state,
                  "permission_granted": result == noErr, "application_writes_enabled": false])
+    }
+    if action == "apply", let change=req["change"] as? [String:Any], change["operation"] as? String == "rename_folder", change["writer_backend"] as? String == "notes-shared" {
+        guard let url=Bundle.main.url(forResource:"notes-write",withExtension:"js"),let source=try? String(contentsOf:url,encoding:.utf8) else {fail("notes_bridge_unavailable")}
+        _ = NSApplication.shared
+        _ = NativeMutationGate()
+        DispatchQueue.global(qos:.userInitiated).async {
+            func scriptingPhase(_ phase:String)->[String:Any]? {
+                let encoded=data.base64EncodedString()
+                let bridge="\nfunction run(){return applyNotes(Application('com.apple.Notes'),JSON.parse(ObjC.unwrap($.NSString.alloc.initWithDataEncoding($.NSData.alloc.initWithBase64EncodedStringOptions('"+encoded+"',0),$.NSUTF8StringEncoding))),function(){return Boolean($.NSClassFromString('ICloudAgentsMutationGate').beginMutation);},'"+phase+"');}"
+                guard let script=notesScript(source+bridge) else {return nil}
+                var diagnostic:NSDictionary?
+                guard let output=script.executeAndReturnError(&diagnostic)?.stringValue else {return nil}
+                return (try? JSONSerialization.jsonObject(with:Data(output.utf8))) as? [String:Any]
+            }
+            guard let checked=scriptingPhase("validate_model"),checked["validated"] as? Bool == true else {fail("notes_model_snapshot_refused")}
+            let output=ICloudNotesModelRename(data,{NativeMutationGate.beginMutation()})
+            guard let value=(try? JSONSerialization.jsonObject(with:output)) as? [String:Any] else {fail("notes_model_invalid_response")}
+            if value["result"] != nil {
+                // Preserve the saved known ID even if refreshing the app cache fails.
+                // Independent scripting + read-only store verification decides success.
+                _ = scriptingPhase("refresh_model")
+            }
+            respond(value)
+        }
+        RunLoop.current.run(until:Date(timeIntervalSinceNow:30))
+        fail("mutation_failed_or_uncertain")
     }
     // Every actual event uses the fixed nonprompting sender below. macOS checks
     // current permission on each send; no cached grant or preflight fallback.

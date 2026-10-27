@@ -100,10 +100,10 @@ def application_request(helper, request, timeout=40):
             if original!=mutation_request('notes',plan['payload']['changes'][execution['index']]):raise SafetyError('Native request differs from its admitted item')
             store.write_once(store.path(plan_id,'.native-exchange-'+str(execution['index'])),
                 {'plan_sha256':digest(plan),'request_id':directory.name,'request_sha256':digest(original),
-                 'helper_fingerprint':bundle_fingerprint(helper),'exchange_directory':str(directory)})
+                 'helper_fingerprint':bundle_fingerprint(helper),'backend_id':plan['payload']['context']['backend'],'exchange_directory':str(directory)})
     env={k:os.environ[k] for k in ('HOME','PATH','TMPDIR','LANG') if k in os.environ}
     try:
-        if request.get('service')=='notes' and request.get('action') in {'sources','folders','folder_get','query','get','search','attachments','diagnose_note','contains','apply','request_access','diagnose_read_access'}:
+        if request.get('service')=='notes' and request.get('action') in {'sources','folders','folder_get','folder_inventory','query','get','search','attachments','diagnose_note','contains','apply','request_access','diagnose_read_access'}:
             # Normal application launch, not Automation consent or a fallback
             # host. Status stays nonlaunching. Wake the fixed target before the
             # helper's already-running-target permission preflight.
@@ -176,8 +176,9 @@ def completed_exchange_evidence(expected,*,plan_id=None,store=None):
         store=store or PlanStore();binding=store.path(plan_id,'.native-exchange-0')
         if binding.exists():
             record=store.read(binding);plan=store.read(store.path(plan_id,'.json'));directory=Path(record['exchange_directory'])
+            base='notes-creation-v1:'+record.get('helper_fingerprint','');backend=plan.get('payload',{}).get('context',{}).get('backend')
             if (record.get('plan_sha256')!=digest(plan) or record.get('request_sha256')!=digest(expected)
-                    or plan.get('payload',{}).get('context',{}).get('backend')!='notes-creation-v1:'+record.get('helper_fingerprint','')
+                    or backend!=record.get('backend_id',base) or not (backend==base or isinstance(backend,str) and backend.startswith(base+':notes-store-role-v1:'))
                     or directory.parent not in roots or directory.name!=record.get('request_id')):
                 raise SafetyError('Native exchange does not bind the admitted plan, helper or ledger')
             bound=directory

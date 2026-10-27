@@ -94,3 +94,8 @@ def folder_role(folder_id,source_ids):
                 'storage_kind':storage_kind,'native_folder_type':kind,'marked_for_deletion':bool(deleted),'has_smart_query':bool(smart),
                 'revision':revision,'parent_pk':parent,'backend':'notes-store-role-v1','schema_sha256':schema,
                 'default_folder_status':'requires independent Notes scripting check','content_read':False,'database_writes':False}
+
+
+def backend_suffix():
+    import hashlib
+    return 'notes-store-role-v1:'+hashlib.sha256(Path(__file__).read_bytes()).hexdigest()

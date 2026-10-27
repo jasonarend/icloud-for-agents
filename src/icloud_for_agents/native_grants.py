@@ -14,7 +14,7 @@ from .native_once import selected_read_access
 
 FIELDS={
  'notes':{'create_note':{'title','body','format'},'append_note':{'body','format'},'prepend_note':{'body','format'},'replace_text':{'find','replacement','expected_matches'},
-          'update_note':{'title','body','format'},'move_note':{'destination_folder_id'},'create_folder':{'title'}},
+          'update_note':{'title','body','format'},'move_note':{'destination_folder_id'},'create_folder':{'title'},'rename_folder':{'title'}},
  'reminders':{'create_reminder':{'title','notes','priority','due','start','url','alarms','recurrence'},'update_reminder':{'title','notes','priority','due','start','url','alarms'},
               'set_completed':{'completed'},'move_reminder':{'list_id'},'create_list':{'title'},'rename_list':{'title'},'set_recurrence':{'recurrence','recurrence_scope'}}}
 
@@ -80,7 +80,16 @@ class NativeGrants:
             root=rule['operation'] in {'create_folder','create_list'}
             if not root and rule['container_id']==rule['source_id']:raise SafetyError('An item operation needs a real container ID')
             if rule['operation']=='create_list' and rule['container_id']!=rule['source_id']:raise SafetyError('List creation targets its selected source root')
-            result.append({'source':self.container(rule['source_id'],rule['container_id']),
+            source=self.container(rule['source_id'],rule['container_id'])
+            if rule['operation'] in {'rename_folder','rename_list'}:source={k:v for k,v in source.items() if k!='title'}
+            if rule['operation']=='rename_folder':
+                role=self.engine.adapter.reader.read('folder_role',folder_id=rule['container_id'])
+                inventory=self.engine.adapter.reader.read('folder_inventory',folder_id=rule['container_id'])
+                root=[f for f in inventory.get('folders',[]) if f.get('id')==rule['container_id']]
+                if (role.get('storage_kind')!='regular' or role.get('source_id')!=rule['source_id'] or role.get('folder_id')!=rule['container_id']
+                        or len(root)!=1 or root[0].get('is_default') is not False):raise SafetyError('Rename grant requires a verified ordinary nondefault folder')
+                source['storage_role']={k:role[k] for k in ('source_id','folder_id','storage_kind','marked_for_deletion','has_smart_query','schema_sha256')}
+            result.append({'source':source,
                            'destinations':[self.container(rule['source_id'],d) for d in rule['destinations']]})
         return result
     def prepare(self,scope,*,_replaces=None):

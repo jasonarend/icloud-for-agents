@@ -136,7 +136,9 @@ def register_change_tools(mcp):
             folder_id, body/format), replace_text (id, folder_id, exact find,
             replacement and integer expected_matches), update_note (id, folder_id,
             complete title/body/format), move_note (id, folder_id, exact
-            destination_folder_id). All require source_id and fields object.
+            destination_folder_id), rename_folder (folder_id, title; requires the
+            explicitly selected development native writer and store metadata).
+            All require source_id and fields object.
             Literal replacement preserves the title; prepend follows the title.
             Existing native objects and unsupported body rewrites are refused.
             Use prepare_once or an approved scenario grant for read-only access.
@@ -163,6 +165,20 @@ def register_change_tools(mcp):
             """Read back known creation IDs and record verified effects; no retry, mutation or approval minting."""
             check_plan_scope('notes',plan_id)
             return editor('notes').reconcile_created(plan_id)
+
+        @mcp.tool(annotations=WRITE)
+        @guard
+        def notes_prepare_folder_rename_correction(plan_id:str,target:str='before')->dict:
+            """Review one returned-ID folder-title correction to before/requested state after failed verification; no automatic replay."""
+            check_plan_scope('notes',plan_id)
+            return editor('notes').prepare_folder_rename_correction(plan_id,target)
+
+        @mcp.tool(annotations=WRITE)
+        @guard
+        def notes_reconcile_folder_rename_correction(plan_id:str)->dict:
+            """Verify a successful exact folder-title correction against scripting and persisted metadata; retain original failure."""
+            check_plan_scope('notes',plan_id)
+            return editor('notes').reconcile_correction(plan_id)
 
         @mcp.tool(annotations=WRITE)
         @guard

@@ -179,6 +179,27 @@ class NativeChanges:
             return {'plan_id':correction_id,'review':correction,'sha256':digest(correction),
                     'approval_required':True,'authorization_path':path,'local_receipt_required':receipt}
 
+    def prepare_folder_rename_correction(self,original_id,target='before'):
+        if self.name!='notes' or target not in {'requested','before'}:raise SafetyError('Known Notes folder-title correction required')
+        import uuid
+        context=self.context(True)
+        with self.serialized():
+            original=self.store.read(self.store.path(original_id,'.json'));result=self.store.read(self.store.path(original_id,'.result'));items=original.get('payload',{}).get('changes',[]);attempts=result.get('attempted',[])
+            if (original.get('kind')!='notes_change' or original.get('native_correction_of') or original['payload'].get('account')!=self.account
+                    or original['payload'].get('context',{}).get('source_ids')!=context['source_ids'] or result.get('status')!='failed_or_uncertain' or result.get('phase')!='verification'
+                    or len(items)!=1 or items[0].get('operation')!='rename_folder' or len(attempts)!=1 or attempts[0].get('index')!=0 or attempts[0].get('operation')!='rename_folder'
+                    or attempts[0].get('result',{}).get('id')!=items[0].get('id') or self.store.read(self.store.path(original_id,'.started')).get('sha256')!=digest(original)
+                    or self.store.read(self.store.path(original_id,'.attempt-0'))!={'plan_sha256':digest(original),'attempt':attempts[0]}):raise SafetyError('Only one admitted returned-ID folder rename with failed verification qualifies')
+            repair=self.adapter.prepare_folder_rename_repair(items[0],target);self.check_item(repair,context);identity=uuid.uuid4().hex
+            plan={'plan_id':identity,'kind':'notes_change','created':self.store.clock(),'expires':self.store.clock()+1800,'native_correction_of':original_id,
+                'payload':{'account':self.account,'context':context,'changes':[repair],'correction_target':target,'original_failure_sha256':digest(result),
+                    'purpose':'Explicit exact folder-title correction; no rename replay, content rewrite or generic uncertainty clear'}}
+            self.store.write_once(self.store.path(original_id,'.native-correction'),{'status':'reserved_known_update_correction','original_sha256':digest(original),'original_result_sha256':digest(result),'correction_id':identity,'correction_sha256':digest(plan)})
+            self.store.write_once(self.store.path(identity,'.json'),plan)
+            from .approvals import authorization_path
+            path,receipt=authorization_path(plan)
+            return {'plan_id':identity,'review':plan,'sha256':digest(plan),'approval_required':True,'authorization_path':path,'local_receipt_required':receipt}
+
     def reconcile_correction(self,correction_id):
         """Verify the explicitly chosen requested/before outcome; preserve both audits."""
         self.context(True)
@@ -190,7 +211,9 @@ class NativeChanges:
             original=self.store.read(self.store.path(original_id,'.json'));original_result=self.store.read(self.store.path(original_id,'.result'))
             intended=original['payload']['changes'][0]
             rollback=correction['payload'].get('correction_target')=='before'
-            if rollback and intended['operation']=='set_recurrence':
+            if rollback and intended['operation']=='rename_folder':
+                intended=dict(intended,fields={'title':intended['before']['folder']['title']})
+            elif rollback and intended['operation']=='set_recurrence':
                 from .native_recurrence import observed_rule
                 rules=intended['before']['item'].get('recurrence_rules',[])
                 intended=dict(intended,fields={'recurrence_scope':'exact_native_rule','recurrence':observed_rule(rules[0]) if rules else None})
@@ -221,7 +244,7 @@ class NativeChanges:
         return self.reconcile_known_changes(plan_id)
 
     def reconcile_known_changes(self,plan_id):
-        allowed=({'append_note','prepend_note','replace_text','update_note','move_note'} if self.name=='notes' else {'update_reminder','set_completed','move_reminder','rename_list','set_recurrence'})
+        allowed=({'append_note','prepend_note','replace_text','update_note','move_note','rename_folder'} if self.name=='notes' else {'update_reminder','set_completed','move_reminder','rename_list','set_recurrence'})
         return self._reconcile_known(plan_id,allowed)
 
     def _reconcile_known(self,plan_id,allowed):
@@ -246,7 +269,7 @@ class NativeChanges:
                 entry=self.store.read(self.store.path(plan_id,'.attempt-'+str(index)))
                 if (entry!={'plan_sha256':digest(plan),'attempt':attempt} or attempt.get('index')!=index
                         or attempt.get('operation')!=item['operation']
-                        or (item['operation'] in {'append_note','prepend_note','replace_text','update_note','move_note','update_reminder','set_completed','move_reminder','rename_list','set_recurrence'} and attempt.get('result',{}).get('id')!=item.get('id'))
+                        or (item['operation'] in {'append_note','prepend_note','replace_text','update_note','move_note','rename_folder','update_reminder','set_completed','move_reminder','rename_list','set_recurrence'} and attempt.get('result',{}).get('id')!=item.get('id'))
                         or not self.adapter.verify(item,attempt['result'])):
                     raise SafetyError('Known native object does not verify; uncertainty retained')
                 hashes.append(digest(entry))

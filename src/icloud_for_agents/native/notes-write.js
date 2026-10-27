@@ -1,13 +1,47 @@
 // Fixed mutation protocol, invoked only by the approved-plan executor.
 // This module never accepts scripts, arbitrary commands, paths or approval flags.
 ObjC.import('Foundation');
-function applyNotes(app, req, beginMutation) {
+
+// Fixed metadata inventory: no note body, attachment or unlock operation.
+function notesFolderInventory(account,root) {
+    const records=[],notes=[],seenFolders=new Set(),seenNotes=new Set(),source=account.id();
+    const defaultID=account.defaultFolder().id();
+    function visit(folder,depth) {
+        if(depth>=32 || records.length>=100)throw Error('folder_limit');
+        const id=folder.id();if(seenFolders.has(id))throw Error('folder_limit');seenFolders.add(id);
+        const shared=folder.shared(),parent=folder.container().id(),title=folder.name();
+        if(typeof shared!=='boolean' || typeof title!=='string' || title.length>1000)throw Error('folder_metadata_unavailable');
+        records.push({id:id,title:title,source_id:source,parent_id:parent,shared:shared,is_default:id===defaultID});
+        const ids=folder.notes.id();if(ids.length>200)throw Error('query_limit');
+        ids.forEach(noteID=>{
+            const note=folder.notes.byId(noteID);if(note.container().id()!==id)return;
+            if(seenNotes.has(noteID) || notes.length>=200)throw Error('query_limit');seenNotes.add(noteID);
+            notes.push({id:noteID,folder_id:id});
+        });
+        folder.folders().filter(f=>f.container().id()===id).forEach(f=>visit(f,depth+1));
+    }
+    visit(root,0);
+    const parentID=root.container().id(),parent=parentID===source?account:account.folders.byId(parentID);
+    const children=parent.folders();if(children.length>10000)throw Error('folder_limit');
+    const siblings=children.filter(f=>f.container().id()===parentID && f.id()!==root.id()).map(f=>({id:f.id(),title:f.name()}));
+    const sorted=values=>values.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);
+    return {folders:sorted(records),notes:sorted(notes),siblings:sorted(siblings)};
+}
+function notesMetadataEqual(a,b) {
+    if(a===b)return true;
+    if(a===null || b===null || typeof a!=='object' || typeof b!=='object' || Array.isArray(a)!==Array.isArray(b))return false;
+    if(Array.isArray(a))return a.length===b.length && a.every((value,index)=>notesMetadataEqual(value,b[index]));
+    const keys=Object.keys(a).sort(),other=Object.keys(b).sort();
+    return keys.length===other.length && keys.every((key,index)=>key===other[index] && notesMetadataEqual(a[key],b[key]));
+}
+
+function applyNotes(app, req, beginMutation, nativePhase) {
     let stage='validation', mutationDispatched=false;
     function markMutation(){if(typeof beginMutation!=='function' || !beginMutation())throw Error('native_dispatch_cancelled');mutationDispatched=true;}
     try {
     if (req.protocol_version!==1 || req.action!=='apply' || !Array.isArray(req.source_ids)) throw Error('invalid_request');
     const item=req.change;
-    if (!item || !['create_note','create_folder','repair_note_body','append_note','prepend_note','replace_text','update_note','move_note'].includes(item.operation) || !req.source_ids.includes(item.source_id)) throw Error('unsupported_operation');
+    if (!item || !['create_note','create_folder','repair_note_body','append_note','prepend_note','replace_text','update_note','move_note','rename_folder'].includes(item.operation) || !req.source_ids.includes(item.source_id)) throw Error('unsupported_operation');
     const accounts=app.accounts().filter(a=>a.id()===item.source_id);
     if(accounts.length!==1)throw Error('not_found_in_scope');
     const account=accounts[0];
@@ -54,6 +88,26 @@ function applyNotes(app, req, beginMutation) {
     if(matches.length!==1)throw Error('not_found_in_scope');
     const folder=matches[0];
     requirePrivateFolder(folder);
+    if(item.operation==='rename_folder') {
+        if(item.id!==item.folder_id || !item.before || !item.before.inventory)throw Error('invalid_fields');
+        const inventory=notesFolderInventory(account,folder);
+        if(inventory.folders.some(f=>f.shared || f.is_default))throw Error('unsupported_edit_target');
+        if(nativePhase==='refresh_model' && item.writer_backend==='notes-shared') {
+            const root=inventory.folders.find(f=>f.id===item.id), prior=item.before.inventory.folders.find(f=>f.id===item.id);
+            if(!root || !prior || ![prior.title,fields.title].includes(root.title))throw Error('snapshot_changed');
+            root.title=prior.title;
+        }
+        if(!notesMetadataEqual(inventory,item.before.inventory))throw Error('snapshot_changed');
+        if(inventory.siblings.some(f=>f.title===fields.title))throw Error('duplicate_folder');
+        if(nativePhase==='validate_model' && item.writer_backend==='notes-shared')return JSON.stringify({protocol_version:1,validated:true});
+        if(nativePhase==='refresh_model' && item.writer_backend==='notes-shared') {
+            if(folder.name()!==fields.title){stage='folder_cache_refresh';markMutation();folder.name=fields.title;}
+            return JSON.stringify({protocol_version:1,result:{id:item.id,source_id:item.source_id,saved_locally:true}});
+        }
+        if(item.writer_backend!=='scripting' || item.legacy_title_restore!==true || !item.before.role || item.before.role.title!==fields.title)throw Error('unsupported_edit_target');
+        stage='folder_rename';markMutation();folder.name=fields.title;
+        return JSON.stringify({protocol_version:1,result:{id:item.id,source_id:item.source_id,saved_locally:true}});
+    }
     if(item.operation==='move_note') {
         const before=item.before && item.before.note;
         const destinations=folders.filter(f=>f.id()===fields.destination_folder_id);

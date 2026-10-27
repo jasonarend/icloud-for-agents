@@ -51,7 +51,7 @@ def prepare_content(fields):
 
 
 class NotesCreateAdapter:
-    operations={'create_note','create_folder','append_note','prepend_note','replace_text','update_note','move_note'}
+    operations={'create_note','create_folder','append_note','prepend_note','replace_text','update_note','move_note','rename_folder'}
     def __init__(self):self.reader=NativeReader('notes')
 
     @property
@@ -59,7 +59,12 @@ class NotesCreateAdapter:
         config=native_config('notes');helper=config.get('helper_path')
         if not helper:raise SafetyError('Configure the signed native helper before Notes writes')
         from .native_app import bundle_fingerprint
-        return 'notes-creation-v1:'+bundle_fingerprint(helper)
+        identity='notes-creation-v1:'+bundle_fingerprint(helper)
+        if config.get('metadata_backend')=='notes-store-readonly':
+            from .native_note_store import backend_suffix
+            identity+=':'+backend_suffix()
+        if config.get('folder_write_backend')=='notes-shared':identity+=':notes-shared-folder-v1'
+        return identity
 
     def folders(self):
         result=[];offset=0
@@ -100,6 +105,101 @@ class NotesCreateAdapter:
             if not isinstance(parent,str) or not parent:raise SafetyError('Notes folder ancestry is unavailable')
             current=parent
         raise SafetyError('Notes folder ancestry exceeds the verified bound')
+
+    def folder_rename_snapshot(self,item):
+        folder=self.private_folder(item['folder_id'],item['source_id'])
+        inventory=self.reader.read('folder_inventory',folder_id=item['folder_id'])
+        values=inventory.get('folders');notes=inventory.get('notes');siblings=inventory.get('siblings')
+        if (not isinstance(values,list) or not 1<=len(values)<=100 or not isinstance(notes,list) or len(notes)>200
+                or not isinstance(siblings,list) or len(siblings)>10000
+                or any(not isinstance(f,dict) or set(f)!={'id','title','source_id','parent_id','shared','is_default'} for f in values)
+                or any(not isinstance(n,dict) or set(n)!={'id','folder_id'} for n in notes)
+                or any(not isinstance(f,dict) or set(f)!={'id','title'} for f in siblings)):
+            raise SafetyError('Complete bounded folder subtree and note membership required')
+        for row in values+notes+siblings:
+            for key,value in row.items():
+                if key in {'id','parent_id','source_id','folder_id','title'} and (not isinstance(value,str) or not 1<=len(value)<=1000):
+                    raise SafetyError('Invalid native inventory identity or title')
+        identities={f['id'] for f in values}
+        if (len(identities)!=len(values) or len({n['id'] for n in notes})!=len(notes) or len({f['id'] for f in siblings})!=len(siblings)
+                or item['folder_id'] in {f['id'] for f in siblings} or any(n['folder_id'] not in identities for n in notes)):
+            raise SafetyError('Native inventory has repeated or unrelated identities')
+        parents={f['id']:f['parent_id'] for f in values}
+        for identity in identities-{item['folder_id']}:
+            current=identity;seen=set()
+            while current!=item['folder_id']:
+                if current in seen or current not in parents:raise SafetyError('Inventory subtree is disconnected or cyclic')
+                seen.add(current);current=parents[current]
+        roots=[f for f in values if f.get('id')==item['folder_id']]
+        if len(roots)!=1 or any(roots[0].get(k)!=folder.get(k) for k in ('id','title','source_id','parent_id','shared')):
+            raise SafetyError('Folder inventory and physical ancestry disagree')
+        if any(f.get('source_id')!=item['source_id'] or f.get('shared') is not False or f.get('is_default') is not False for f in values):
+            raise SafetyError('Renaming requires an entirely private subtree without a default folder')
+        if any(f.get('title')==item['fields']['title'] for f in siblings):raise SafetyError('A sibling already has the requested title')
+        roles=[]
+        for child in values:
+            role=self.reader.read('folder_role',folder_id=child['id'])
+            if (role.get('folder_id')!=child['id'] or role.get('source_id')!=item['source_id'] or (role.get('title')!=child['title'] and not (child['id']==item['folder_id'] and item.get('rename_title_repair') is True))
+                    or role.get('storage_kind')!='regular' or role.get('marked_for_deletion') is not False or role.get('has_smart_query') is not False):
+                raise SafetyError('Unknown, stale, special, deleted or smart folder role; no rename')
+            roles.append(role)
+        return {'folder':folder,'inventory':{k:inventory[k] for k in ('folders','notes','siblings')},'roles':roles}
+
+    def prepare_folder_rename(self,change):
+        if set(change)!={'operation','source_id','folder_id','fields'} or change['source_id'] not in planning_access('notes')['source_ids']:
+            raise SafetyError('Select an exact source and folder for renaming')
+        fields=change['fields']
+        if not isinstance(fields,dict) or set(fields)!={'title'}:raise SafetyError('Folder rename changes only its title')
+        if native_config('notes').get('folder_write_backend')!='notes-shared':raise SafetyError('Folder rename requires the explicitly configured native model writer and independent store verification')
+        title=prepare_content(fields)['title']
+        if not isinstance(change['folder_id'],str) or not 1<=len(change['folder_id'])<=1000:raise SafetyError('Select a saved exact folder ID')
+        item={'operation':'rename_folder','source_id':change['source_id'],'folder_id':change['folder_id'],'id':change['folder_id'],'fields':{'title':title},
+              'writer_backend':'notes-shared','fidelity_verified':True,'effects':{'change':'Rename the existing native folder only; no body, attachment, move, sharing or deletion operation',
+              'verification':'Complete bounded native folder/note membership and independently selected storage roles',
+              'native_metadata':'Unexposed native note metadata and cloud/device rendering remain unverified'}}
+        item['before']=self.folder_rename_snapshot(item)
+        if item['before']['folder']['title']==title:raise SafetyError('Folder already has the requested title')
+        return item
+
+    def prepare_folder_rename_repair(self,original,target):
+        from .native_once import planning
+        if original.get('operation')!='rename_folder' or target not in {'requested','before'}:raise SafetyError('Exact known folder-title correction required')
+        writer=native_config('notes').get('folder_write_backend','scripting')
+        if writer!='notes-shared' and target!='before':raise SafetyError('Scripting correction can only restore the already-persisted original title')
+        title=original['before']['folder']['title'] if target=='before' else original['fields']['title']
+        item={k:original[k] for k in ('operation','source_id','folder_id','id')};item.update(fields={'title':title},writer_backend=writer,legacy_title_restore=writer=='scripting',rename_title_repair=True,fidelity_verified=True,
+            effects={'correction':'Restore the original name' if target=='before' else 'Persist the originally requested name','native_content':'No note body, membership, attachment, sharing or deletion change'})
+        item['before']=self.folder_rename_snapshot(item)
+        allowed={original['before']['folder']['title'],original['fields']['title']}
+        if item['before']['folder']['title'] not in allowed or any(r['title'] not in allowed for r in item['before']['roles'] if r['folder_id']==item['id']):raise SafetyError('Unrelated external title change requires separate review')
+        baseline=original['before'];current=item['before']
+        expected=dict(baseline['folder'],title=current['folder']['title'])
+        if expected!=current['folder']:raise SafetyError('Folder permissions or ancestry changed; no corrective overwrite')
+        inventory={k:[dict(row) for row in values] for k,values in baseline['inventory'].items()}
+        for row in inventory['folders']:
+            if row['id']==item['id']:row['title']=current['folder']['title']
+        if inventory!=current['inventory']:raise SafetyError('Folder membership or siblings changed; no corrective overwrite')
+        for prior,after in zip(baseline['roles'],current['roles']):
+            expected=dict(prior,revision=after['revision'])
+            if prior['folder_id']==item['id']:expected['title']=after['title']
+            if expected!=after or after['revision']<prior['revision']:raise SafetyError('Folder role changed; no corrective overwrite')
+        return item
+
+    def verify_folder_rename(self,item,outcome):
+        if outcome.get('id')!=item['id']:return False
+        actual=self.folder_rename_snapshot(dict(item,rename_title_repair=False));before=item['before'];expected=dict(before['folder'],title=item['fields']['title'])
+        if actual['folder']!=expected:return False
+        inventory={k:[dict(row) for row in values] for k,values in before['inventory'].items()}
+        for row in inventory['folders']:
+            if row['id']==item['id']:row['title']=item['fields']['title']
+        if inventory!=actual['inventory'] or len(actual['roles'])!=len(before['roles']):return False
+        for prior,after in zip(before['roles'],actual['roles']):
+            wanted=dict(prior)
+            if prior['folder_id']==item['id']:wanted['title']=item['fields']['title']
+            if type(after.get('revision')) is not int or after['revision']<prior['revision']:return False
+            wanted['revision']=after['revision']
+            if after!=wanted:return False
+        return True
 
     def note_snapshot(self,item,*,rewrite=True):
         folder=self.private_folder(item['folder_id'],item['source_id'])
@@ -204,6 +304,7 @@ class NotesCreateAdapter:
         return item
 
     def prepare(self,change):
+        if isinstance(change,dict) and change.get('operation')=='rename_folder':return self.prepare_folder_rename(change)
         if isinstance(change,dict) and change.get('operation')=='move_note':return self.prepare_move(change)
         if isinstance(change,dict) and change.get('operation') in {'append_note','prepend_note','replace_text','update_note'}:
             return self.prepare_existing(change)
@@ -241,6 +342,7 @@ class NotesCreateAdapter:
         return item
 
     def snapshot(self,item):
+        if item['operation']=='rename_folder':return self.folder_rename_snapshot(item)
         if item['operation']=='move_note':return self.move_snapshot(item)
         if item['operation'] in {'append_note','prepend_note','replace_text','update_note'}:return self.note_snapshot(item)
         if item['operation']=='create_folder':
@@ -262,6 +364,7 @@ class NotesCreateAdapter:
 
     def verify(self,item,outcome):
         if outcome.get('source_id')!=item['source_id'] or not isinstance(outcome.get('id'),str):return False
+        if item['operation']=='rename_folder':return self.verify_folder_rename(item,outcome)
         if item['operation']=='move_note':return self.verify_move(item,outcome)
         if item['operation']=='create_folder':
             return any(f['id']==outcome['id'] and f['title']==item['fields']['title']
