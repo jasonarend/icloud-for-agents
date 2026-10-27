@@ -451,13 +451,16 @@ def inspect_reminder_hierarchy(reader, identity, max_nodes=10, max_depth=3):
             raise SafetyError('Reminder access changed during hierarchy inspection')
         item=reader.read('get',id=current,include_native_hierarchy=True,include_native_children=True)['item']
         metadata=item['native_metadata']
+        title=item.get('title');completed=item.get('completed')
+        if not isinstance(title,str) or type(completed) is not bool:
+            raise SafetyError('Hierarchy item title or completion state is unavailable')
         if source is None:source,list_id=item['source_id'],item['list_id']
         if item['source_id']!=source or item['list_id']!=list_id:
             raise SafetyError('Hierarchy crossed the selected source or list')
         if parent is not None and (metadata['is_subtask'] is not True or metadata['parent_id']!=parent):
             raise SafetyError('Hierarchy changed or a child has a different parent')
         children=metadata['child_ids']
-        nodes.append({'id':current,'depth':depth,'parent_id':metadata['parent_id'],
+        nodes.append({'id':current,'title':title[:1000],'title_truncated':len(title)>1000,'completed':completed,'depth':depth,'parent_id':metadata['parent_id'],
                       'is_subtask':metadata['is_subtask'],'has_subtasks':metadata['has_subtasks'],
                       'child_ids':children,'children_fetch_status':metadata['children_fetch_status']})
         if children is None:

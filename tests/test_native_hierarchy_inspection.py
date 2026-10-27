@@ -10,7 +10,7 @@ class Reader:
         self.tree={'root':(None,['a','b']),'a':('root',['c']),'b':('root',None),'c':('a',[])}
     def read(self,action,**fields):
         self.calls.append(fields['id']);parent,children=self.tree[fields['id']]
-        return {'item':{'id':fields['id'],'source_id':'source','list_id':'list','native_metadata':{
+        return {'item':{'id':fields['id'],'title':'Task '+fields['id'],'completed':False,'source_id':'source','list_id':'list','native_metadata':{
             'parent_id':parent,'is_subtask':parent is not None,'has_subtasks':None if children is None else bool(children),
             'child_ids':children,'children_fetch_status':'unavailable' if children is None else 'provider_reported'}}}
 
@@ -21,6 +21,7 @@ class HierarchyInspectionTests(unittest.TestCase):
     def test_parentage_unknown_and_bounded_traversal(self):
         result=inspect_reminder_hierarchy(self.reader,'root',max_nodes=3,max_depth=5)
         self.assertEqual(self.reader.calls,['root','a','b']);self.assertFalse(result['hierarchy_complete'])
+        self.assertEqual((result['nodes'][1]['title'],result['nodes'][1]['completed'],result['nodes'][1]['title_truncated']),('Task a',False,False))
         self.assertEqual({(x['id'],x['reason']) for x in result['unexpanded']},{('c','node_limit'),('b','provider_unavailable')})
         self.assertEqual(result['observation_consistency'],'separate_provider_reads')
     def test_depth_limit_and_cycles_refuse(self):
@@ -28,6 +29,17 @@ class HierarchyInspectionTests(unittest.TestCase):
         self.assertEqual(self.reader.calls,['root']);self.assertEqual({x['id'] for x in result['unexpanded']},{'a','b'})
         self.reader.tree['a']=('root',['root'])
         with self.assertRaises(SafetyError):inspect_reminder_hierarchy(self.reader,'root')
+    def test_titles_are_bounded_and_invalid_completion_is_refused(self):
+        reader=Reader();read=reader.read
+        def long_title(*args,**kwargs):
+            result=read(*args,**kwargs);result['item']['title']='x'*1001;return result
+        reader.read=long_title
+        node=inspect_reminder_hierarchy(reader,'root',max_depth=0)['nodes'][0]
+        self.assertEqual(len(node['title']),1000);self.assertTrue(node['title_truncated'])
+        def invalid_completion(*args,**kwargs):
+            result=read(*args,**kwargs);result['item']['completed']=None;return result
+        reader.read=invalid_completion
+        with self.assertRaises(SafetyError):inspect_reminder_hierarchy(reader,'root')
     def test_scope_parent_and_access_drift_refuse(self):
         self.reader.tree['a']=('other',[])
         with self.assertRaises(SafetyError):inspect_reminder_hierarchy(self.reader,'root')

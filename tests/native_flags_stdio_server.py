@@ -32,7 +32,7 @@ def dispatch(self,request,config):
         if 'tag' in request:result['native_tag_filter']=evidence
         if 'urgent' in request:result['native_urgent_filter']=evidence
         return result
-    item={'id':request.get('id','synthetic-task'),'list_id':'list','source_id':'selected','content_complete':False}
+    item={'id':request.get('id','synthetic-task'),'title':'Synthetic task','completed':False,'list_id':'list','source_id':'selected','content_complete':False}
     if request.get('include_native_metadata'):
         item['native_metadata']={'id':item['id'],'source_id':item['source_id'],'list_id':item['list_id'],'flagged':True,'flag_state':1,'coverage':['flagged'],'native_metadata_complete':False,'observation_consistency':'separate_provider_reads'}
     if request.get('include_native_tags'):

@@ -55,7 +55,7 @@ def run():
                 recovery_tree=next(t for t in tools if t['name']=='reminders_inspect_recovery_hierarchy');assert recovery_tree['annotations']['readOnlyHint'] is True
                 tree=data(rpc('tools/call',{'name':'reminders_inspect_recovery_hierarchy','arguments':{'id':'synthetic-child','source_id':'selected'}})['result']);assert tree['recovery_root_id']=='synthetic-parent' and len(tree['nodes'])==2 and tree['hierarchy_complete'] is False
                 hierarchy_tool=next(t for t in tools if t['name']=='reminders_inspect_hierarchy');assert hierarchy_tool['annotations']['readOnlyHint'] is True
-                tree=data(rpc('tools/call',{'name':'reminders_inspect_hierarchy','arguments':{'id':'synthetic-parent'}})['result']);assert len(tree['nodes'])==2 and tree['nodes'][1]['parent_id']=='synthetic-parent' and tree['hierarchy_complete'] is False
+                tree=data(rpc('tools/call',{'name':'reminders_inspect_hierarchy','arguments':{'id':'synthetic-parent'}})['result']);assert len(tree['nodes'])==2 and tree['nodes'][1]['parent_id']=='synthetic-parent' and tree['nodes'][1]['title']=='Synthetic task' and tree['nodes'][1]['completed'] is False and tree['hierarchy_complete'] is False
                 assert rpc('tools/call',{'name':'reminders_inspect_hierarchy','arguments':{'id':'synthetic-parent','max_nodes':21}})['result'].get('isError')
                 query=next(t for t in tools if t['name']=='reminders_query');assert query['annotations']['readOnlyHint'] is True
                 urgent_page=data(rpc('tools/call',{'name':'reminders_query','arguments':{'urgent':True,'limit':1}})['result']);assert urgent_page['native_urgent_filter']['scanned']==1 and urgent_page['done'] is False
