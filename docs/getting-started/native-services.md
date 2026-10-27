@@ -233,13 +233,15 @@ Local checks located the dedicated synthetic note in both its regular test folde
 
 **Notes special-folder role check under development**
 
-The optional native Notes model now has an internal, read-only check for one exact selected-account folder and its ancestors. It distinguishes an ordinary non-system folder from a system folder that the model identifies as Trash, and refuses other system, smart, shared, deleted, contradictory, unknown and dirty-context states. It does not read note bodies or save changes. This check requires the explicitly selected native Notes backend and existing macOS data access. It does not request access or fall back to a less precise check.
+The optional native Notes model provides a read-only check for one exact selected-account folder and its ancestors. It distinguishes an ordinary non-system folder from a system folder that the model identifies as Trash, and refuses other system, smart, shared, deleted, contradictory, unknown and dirty-context states. It does not read note bodies or save changes. This check requires the explicitly selected native Notes and read-only store backends and existing macOS data access. It does not request access or fall back to a less precise check.
 
 Synthetic in-memory model checks pass. On the development Mac, the helper reported that the native store was unavailable, so real folder classification and the use of this check to re-enable moves remain unverified. Ordinary Notes moves stay paused.
 
 **Notes recovery observations**
 
 On the tested Mac, a synthetic note moved to Recently Deleted in the Notes app remained accessible through the existing selected-account folder discovery and exact-note reads. The same note was restored through the app to its original test folder and its ID, title and content were verified. The folder was no longer exposed by scripting when it became empty. Folder names alone do not prove a special folder's role, and this observation does not establish programmatic deletion or restoration behavior. Those operations remain under development.
+
+A separate synthetic rich note with a native table was moved to Recently Deleted and restored through the Notes app. The app displayed the same table in Recently Deleted, and independent reads after restoration matched the original note identity, folder, exported content, table projection and exposed attachment inventory. This does not establish fidelity for other native objects or programmatic restoration.
 
 **Recovery-view lookup**
 
