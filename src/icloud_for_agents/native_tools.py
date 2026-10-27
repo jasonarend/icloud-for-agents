@@ -103,6 +103,14 @@ def register_change_tools(mcp):
 
     if enabled('notes'):
         from .native_move_recovery import NotesMoveRecovery
+        @mcp.tool(annotations=READ)
+        @guard
+        def notes_inspect_uncertain_edit(plan_id:str, folder_id:str)->dict:
+            """Inspect an exact known note after one uncertain edit. This never settles the plan, changes data, or proves dispatch."""
+            from .native_edit_observation import inspect_uncertain_note_edit
+            check_plan_scope('notes',plan_id)
+            return inspect_uncertain_note_edit(editor('notes'),plan_id,folder_id)
+
         @mcp.tool(annotations=WRITE)
         @guard
         def notes_prepare_move_recovery(plan_id:str)->dict:

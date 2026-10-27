@@ -59,3 +59,10 @@ class NativeToolTests(unittest.TestCase):
             with patch('platform.system',return_value='Darwin'),patch('subprocess.run',side_effect=AssertionError('No helper')):
                 with self.assertRaises(ToolError):tool.fn(folder_id='folder',source_id='selected')
             self.assertFalse((Path(directory)/'runtime').exists())
+
+    def test_uncertain_edit_observation_is_read_only_and_rejects_unknown_plan(self):
+        with tempfile.TemporaryDirectory() as directory:
+            tools=self.load(Path(directory)/'runtime');tool=tools['notes_inspect_uncertain_edit']
+            self.assertTrue(tool.annotations.read_only_hint)
+            with patch('subprocess.run',side_effect=AssertionError('No helper')):
+                with self.assertRaises(ToolError):tool.fn(plan_id='a'*32,folder_id='folder')
