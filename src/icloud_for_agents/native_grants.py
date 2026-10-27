@@ -11,6 +11,7 @@ import os
 import stat
 from .core import SafetyError,digest
 from .native_once import selected_read_access
+from .native_read import native_config
 
 FIELDS={
  'notes':{'create_note':{'title','body','format'},'append_note':{'body','format'},'prepend_note':{'body','format'},'replace_text':{'find','replacement','expected_matches'},
@@ -82,6 +83,10 @@ class NativeGrants:
             if not root and rule['container_id']==rule['source_id']:raise SafetyError('An item operation needs a real container ID')
             if rule['operation']=='create_list' and rule['container_id']!=rule['source_id']:raise SafetyError('List creation targets its selected source root')
             source=self.container(rule['source_id'],rule['container_id'])
+            if (self.name=='notes' and native_config('notes').get('folder_write_backend')=='notes-shared'
+                    and rule['operation'] in {'create_note','append_note','prepend_note','replace_text','update_note','create_folder'}
+                    and rule['container_id']!=rule['source_id']):
+                source=self.engine.adapter.checked_content_folder_role(source,rule['source_id'])
             if rule['operation'] in {'rename_folder','rename_list'}:source={k:v for k,v in source.items() if k!='title'}
             if rule['operation']=='set_list_color':source={k:v for k,v in source.items() if k!='color'}
             if rule['operation']=='rename_folder':
@@ -109,7 +114,7 @@ class NativeGrants:
                  'exclusions':'No permanent deletion, collaboration changes, invitations, locks, recording or external export.',
                  'sharing':'Notes private ancestors checked; EventKit does not expose reminder-list participant state.',
                  'quotas':'All admitted batch items count, including uncertain or refused items; no automatic refund.'}}
-        if self.name=='notes':payload['effects']['folder_role']='Notes scripting does not verify special folder roles. Do not grant create or edit authority over Recently Deleted.'
+        if self.name=='notes':payload['effects']['folder_role']=('The optional native model checks selected content folders and their ancestors before admission; separate provider reads are not atomic.' if native_config('notes').get('folder_write_backend')=='notes-shared' else 'Notes scripting does not verify special folder roles. Do not grant create or edit authority over Recently Deleted.')
         if _replaces is not None:
             payload['replaces']={'grant_id':_replaces['plan_id'],'sha256':digest(_replaces)}
             payload['previous_scope']=_replaces['payload']['scope']

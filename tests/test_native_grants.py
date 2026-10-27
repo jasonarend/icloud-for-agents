@@ -58,6 +58,17 @@ class NativeGrantTests(unittest.TestCase):
     def test_notes_grant_preview_discloses_unverified_special_folder_role(self):
         proposal=self.manager.prepare(self.scope())
         self.assertIn('Recently Deleted',proposal['review']['payload']['effects']['folder_role'])
+    def test_opted_in_notes_grant_rechecks_folder_role(self):
+        os.environ['ICLOUD_NATIVE_CONFIG']=json.dumps({'notes':{'access_mode':'write-enabled','source_ids':['selected'],'metadata_backend':'notes-store-readonly','folder_write_backend':'notes-shared'}})
+        state={'role':'ordinary_non_system'}
+        def check(folder,source):
+            if state['role']!='ordinary_non_system':raise SafetyError('Special folder')
+            return dict(folder,verified_model_role={'role':state['role'],'folder_id':folder['id'],'source_id':source})
+        self.adapter.checked_content_folder_role=check
+        grant=self.activate();state['role']='system_trash'
+        with self.assertRaises(SafetyError):self.engine.prepare_with_grant(grant,self.changes())
+        with self.assertRaises(SafetyError):self.manager.prepare(self.scope())
+
     def test_pending_revoked_expired_and_wrong_owner_cannot_authorize(self):
         p=self.manager.prepare(self.scope())
         with self.assertRaises(SafetyError):self.engine.prepare_with_grant(p['plan_id'],self.changes())

@@ -201,8 +201,20 @@ class NotesCreateAdapter:
             if after!=wanted:return False
         return True
 
+    def checked_content_folder_role(self,folder,source_id):
+        # Opted-in native model can identify Recently Deleted and unsafe ancestors.
+        # The ordinary scripting route cannot reliably classify those roles.
+        if native_config('notes').get('folder_write_backend')!='notes-shared':return folder
+        role=self.reader.read('model_folder_role',folder_id=folder['id'],source_id=source_id)
+        if (role.get('folder_id')!=folder['id'] or role.get('source_id')!=source_id
+                or role.get('role')!='ordinary_non_system' or role.get('data_mutated') is not False
+                or role.get('backend')!='notes-shared-folder-role-v1' or type(role.get('ancestor_count')) is not int
+                or not 0<=role['ancestor_count']<32):
+            raise SafetyError('Notes writes require an ordinary folder with verified nonsystem ancestors')
+        return dict(folder,verified_model_role=role)
+
     def note_snapshot(self,item,*,rewrite=True):
-        folder=self.private_folder(item['folder_id'],item['source_id'])
+        folder=self.checked_content_folder_role(self.private_folder(item['folder_id'],item['source_id']),item['source_id'])
         note=self.reader.read('get',folder_id=item['folder_id'],id=item['id'])['item']
         if (folder.get('source_id')!=item['source_id'] or folder.get('shared') is not False
                 or note.get('id')!=item['id'] or note.get('folder_id')!=item['folder_id']
@@ -298,7 +310,7 @@ class NotesCreateAdapter:
         item.update(fields={'title':title,'html':html,'expected_text':project_html(html)['text']},before=before,
                     fidelity_verified=True,effects={'existing_content':effect,'native_objects':'Existing attachments, tables, checklists and unknown structures refused',
                     'sharing':'none','sync_status':'unconfirmed',
-                    'folder_role':'Unverified by scripting; Recently Deleted is not a supported edit target.'})
+                    'folder_role':('Optional native model checks this folder and its ancestors before admission; separate provider reads are not atomic.' if native_config('notes').get('folder_write_backend')=='notes-shared' else 'Unverified by scripting; Recently Deleted is not a supported edit target.')})
         return item
 
     def prepare(self,change):
@@ -325,7 +337,7 @@ class NotesCreateAdapter:
         item={'operation':operation,'source_id':source,'fields':fields,
               'fidelity_verified':True,'effects':{'sharing':'none','existing_content':'unchanged',
               'rich_native_features':'not certified by text readback',
-              'folder_role':'Unverified by scripting; Recently Deleted is not a supported creation target.'}}
+              'folder_role':('Optional native model checks selected parent folders before admission; separate provider reads are not atomic.' if native_config('notes').get('folder_write_backend')=='notes-shared' else 'Unverified by scripting; Recently Deleted is not a supported creation target.')}}
         if operation=='create_note':item['folder_id']=change['folder_id']
         if operation=='create_folder' and 'parent_folder_id' in change:
             parent=change['parent_folder_id']
@@ -346,14 +358,14 @@ class NotesCreateAdapter:
         if item['operation'] in {'append_note','prepend_note','replace_text','update_note'}:return self.note_snapshot(item)
         if item['operation']=='create_folder':
             parent=item.get('parent_folder_id',item['source_id'])
-            parent_snapshot=self.private_folder(parent,item['source_id']) if 'parent_folder_id' in item else None
+            parent_snapshot=self.checked_content_folder_role(self.private_folder(parent,item['source_id']),item['source_id']) if 'parent_folder_id' in item else None
             folders=[f for f in self.folders() if f['source_id']==item['source_id'] and f['parent_id']==parent]
             result={'source_id':item['source_id'],'parent_id':parent,'membership_sha256':digest(sorted(folders,key=lambda f:f['id'])),
                     'folder_count':len(folders),'matching_titles':sum(f['title']==item['fields']['title'] for f in folders)}
             if parent_snapshot is not None:result['parent']=parent_snapshot
             return result
         folder=self.private_folder(item['folder_id'],item['source_id'])
-        return folder
+        return self.checked_content_folder_role(folder,item['source_id'])
 
     def apply(self,item):
         require_write('notes',item)

@@ -62,6 +62,22 @@ class NativeNotesTests(unittest.TestCase):
         self.assertEqual(item['effects']['existing_content'],'unchanged')
         self.assertIn('Recently Deleted',item['effects']['folder_role'])
         self.assertNotIn('approved',item)
+    def test_opted_in_model_checks_content_folder_role_at_each_snapshot(self):
+        config={'notes':{'access_mode':'write-enabled','source_ids':['selected'],'metadata_backend':'notes-store-readonly','folder_write_backend':'notes-shared'}}
+        os.environ['ICLOUD_NATIVE_CONFIG']=json.dumps(config)
+        original=self.reader.read
+        role={'folder_id':'folder','source_id':'selected','role':'ordinary_non_system','backend':'notes-shared-folder-role-v1','data_mutated':False,'ancestor_count':0}
+        def read(action,**fields):
+            return dict(role) if action=='model_folder_role' else original(action,**fields)
+        self.reader.read=read
+        item=self.prepare();self.assertEqual(item['before']['verified_model_role']['role'],'ordinary_non_system')
+        edited=self.edit();self.assertEqual(edited['before']['folder']['verified_model_role']['role'],'ordinary_non_system')
+        role['role']='system_trash'
+        with self.assertRaises(SafetyError):self.prepare()
+        with self.assertRaises(SafetyError):self.adapter.snapshot(edited)
+        role['role']='ordinary_non_system';role['source_id']='other'
+        with self.assertRaises(SafetyError):self.prepare()
+
     def test_duplicate_root_folder_refused(self):
         with self.assertRaises(SafetyError):
             self.adapter.prepare({'operation':'create_folder','source_id':'selected','fields':{'title':'Synthetic'}})
