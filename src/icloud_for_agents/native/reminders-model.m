@@ -111,6 +111,38 @@ NSData *ICloudRemindersSetFlag(NSData *data,BOOL (^enterMutation)(void)){
     }@catch(NSException *exception){return EncodeFlag(@{@"protocol_version":@1,@"error":dispatched?@"mutation_failed_or_uncertain":@"private_metadata_unavailable",@"mutation_dispatched":@(dispatched)});}
 }
 
+// Change only the current user urgent state after an exact prior-state check.
+NSData *ICloudRemindersSetUrgent(NSData *data,BOOL (^enterMutation)(void)){
+    __block BOOL dispatched=NO;
+    @try{
+        id request=[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
+        if(![request isKindOfClass:NSDictionary.class] || [request count]!=5 || !enterMutation)return EncodeFlag(FlagFailure(@"invalid_public_identity"));
+        id requested=request[@"urgent"],prior=request[@"expected_urgent"];
+        if(![requested isKindOfClass:NSNumber.class] || CFGetTypeID((__bridge CFTypeRef)requested)!=CFBooleanGetTypeID() ||
+           ![prior isKindOfClass:NSNumber.class] || CFGetTypeID((__bridge CFTypeRef)prior)!=CFBooleanGetTypeID())return EncodeFlag(FlagFailure(@"invalid_public_identity"));
+        NSDictionary *identity=@{@"id":request[@"id"] ?: [NSNull null],@"source_id":request[@"source_id"] ?: [NSNull null],@"list_id":request[@"list_id"] ?: [NSNull null]};
+        NSData *identityData=[NSJSONSerialization dataWithJSONObject:identity options:0 error:NULL];NSDictionary *failure=nil;id store=nil;
+        id reminder=SelectedReminderWithStore(identityData,&failure,&store);
+        if(!reminder || !store)return EncodeFlag(failure ?: FlagFailure(@"private_store_unavailable"));
+        id current=ObjectValue(reminder,@"urgentAlarmContext");
+        if(!current || !MethodMatches([current class],@"isUrgentStateEnabledForCurrentUser",@"B@:",NO))return EncodeFlag(FlagFailure(@"unsupported_urgent_metadata"));
+        BOOL currentFlag=((BOOL(*)(id,SEL))objc_msgSend)(current,NSSelectorFromString(@"isUrgentStateEnabledForCurrentUser"));
+        if(currentFlag!=[prior boolValue])return EncodeFlag(FlagFailure(@"snapshot_changed"));
+        Class cls=NSClassFromString(@"REMSaveRequest");
+        if(!MethodMatches(cls,@"initWithStore:",@"@@:@",NO) || !MethodMatches(cls,@"updateReminder:",@"@@:@",NO) || !MethodMatches(cls,@"saveSynchronouslyWithError:",@"B@:^@",NO))return EncodeFlag(FlagFailure(@"unsupported_urgent_write"));
+        id save=((id(*)(id,SEL,id))objc_msgSend)([cls alloc],NSSelectorFromString(@"initWithStore:"),store);
+        id change=((id(*)(id,SEL,id))objc_msgSend)(save,NSSelectorFromString(@"updateReminder:"),reminder);
+        id flag=ObjectValue(change,@"urgentAlarmContext");
+        if(!flag || !MethodMatches([flag class],@"setIsUrgentStateEnabledForCurrentUser:",@"v@:B",NO))return EncodeFlag(FlagFailure(@"unsupported_urgent_write"));
+        ((void(*)(id,SEL,BOOL))objc_msgSend)(flag,NSSelectorFromString(@"setIsUrgentStateEnabledForCurrentUser:"),[requested boolValue]);
+        if(!enterMutation())return EncodeFlag(FlagFailure(@"native_dispatch_cancelled"));
+        dispatched=YES;NSError *error=nil;
+        BOOL saved=((BOOL(*)(id,SEL,NSError **))objc_msgSend)(save,NSSelectorFromString(@"saveSynchronouslyWithError:"),&error);
+        if(!saved || error)return EncodeFlag(@{@"protocol_version":@1,@"error":@"mutation_failed_or_uncertain",@"mutation_dispatched":@YES});
+        return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":identity[@"id"],@"source_id":identity[@"source_id"],@"list_id":identity[@"list_id"],@"saved_locally":@YES}});
+    }@catch(NSException *exception){return EncodeFlag(@{@"protocol_version":@1,@"error":dispatched?@"mutation_failed_or_uncertain":@"private_metadata_unavailable",@"mutation_dispatched":@(dispatched)});}
+}
+
 // Tags are read only from the exact reminder already proved by EventKit.
 NSData *ICloudRemindersReadTags(NSData *data){
     @try{

@@ -58,9 +58,11 @@ class NativeCorrectionTests(unittest.TestCase):
         self.assertEqual(self.adapter.calls,2)
     def test_public_correction_refuses_changed_optional_native_flags(self):
         os.environ['ICLOUD_NATIVE_CONFIG']=json.dumps({'reminders':{'access_mode':'write-enabled','source_ids':['selected'],'advanced_backend':'reminderkit','helper_path':'/synthetic/helper'}})
-        adapter=Adapter();flag=False;read=adapter.reader.read
+        adapter=Adapter();flag=False;urgent=False;read=adapter.reader.read
         def enriched(action,**fields):
             result=read(action,**fields)
+            if action=='get' and fields.get('include_native_urgent'):
+                result['item']['native_metadata']={**{k:result['item'][k] for k in ('id','source_id','list_id')},'coverage':['urgent'],'urgent':urgent}
             if action=='get' and fields.get('include_native_metadata'):
                 result['item']['native_metadata']={**{k:result['item'][k] for k in ('id','source_id','list_id')},'coverage':['flagged','tags','hierarchy','children'],'flagged':flag,'flag_state':int(flag),'tags':[],'tags_complete':True,'is_subtask':False,'parent_id':None,'has_subtasks':False,'hierarchy_complete':False,'children_status':'provider_reported','child_ids':[],'children_complete':False,'children_fetch_status':'provider_reported'}
             return result
@@ -69,6 +71,8 @@ class NativeCorrectionTests(unittest.TestCase):
         original=engine.prepare([{'operation':'update_reminder','source_id':'selected','id':'task','fields':{'due':{'year':2026,'month':10,'day':28}}}])['plan_id']
         self.assertEqual(engine.execute(original)['status'],'failed_or_uncertain')
         flag=True
+        with self.assertRaises(SafetyError):engine.prepare_update_correction(original)
+        flag=False;urgent=True
         with self.assertRaises(SafetyError):engine.prepare_update_correction(original)
         self.assertEqual(adapter.calls,1)
 
@@ -173,6 +177,8 @@ class NativeCorrectionTests(unittest.TestCase):
         adapter=Adapter();adapter.fail=False;flag=[False];tags=[];read=adapter.reader.read
         def enriched(action,**fields):
             result=read(action,**fields)
+            if action=='get' and fields.get('include_native_urgent'):
+                result['item']['native_metadata']={**{k:result['item'][k] for k in ('id','source_id','list_id')},'coverage':['urgent'],'urgent':False}
             if action=='get' and fields.get('include_native_metadata'):
                 result['item']['native_metadata']={**{k:result['item'][k] for k in ('id','source_id','list_id')},'coverage':['flagged','tags','hierarchy','children'],'flagged':flag[0],'flag_state':int(flag[0]),'tags':copy.deepcopy(tags),'tags_complete':True,'is_subtask':False,'parent_id':None,'has_subtasks':False,'hierarchy_complete':False,'children_status':'provider_reported','child_ids':[],'children_complete':False,'children_fetch_status':'provider_reported'}
             return result
@@ -186,3 +192,26 @@ class NativeCorrectionTests(unittest.TestCase):
         with self.assertRaises(SafetyError):engine.prepare_update_correction(plan['plan_id'])
         tags.clear();fail[0]=False;repair=engine.prepare_update_correction(plan['plan_id']);self.assertEqual(engine.execute(repair['plan_id'])['status'],'applied')
         self.assertEqual(engine.reconcile_correction(repair['plan_id'])['status'],'verified_after_explicit_correction');self.assertTrue(flag[0])
+
+    def test_native_urgent_correction_checks_other_fields_and_original_audit(self):
+        os.environ['ICLOUD_NATIVE_CONFIG']=json.dumps({'reminders':{'access_mode':'write-enabled','source_ids':['selected'],'advanced_backend':'reminderkit','helper_path':'/synthetic/helper'}})
+        for target in ('requested','before'):
+            with self.subTest(target=target):
+                adapter=Adapter();adapter.fail=False;urgent=[False];tags=[];read=adapter.reader.read
+                def enriched(action,**fields):
+                    result=read(action,**fields)
+                    if action=='get' and fields.get('include_native_urgent'):result['item']['native_metadata']={**{k:result['item'][k] for k in ('id','source_id','list_id')},'coverage':['urgent'],'urgent':urgent[0]}
+                    if action=='get' and fields.get('include_native_metadata'):result['item']['native_metadata']={**{k:result['item'][k] for k in ('id','source_id','list_id')},'coverage':['flagged','tags','hierarchy','children'],'flagged':False,'flag_state':0,'tags':copy.deepcopy(tags),'tags_complete':True,'is_subtask':False,'parent_id':None,'has_subtasks':False,'hierarchy_complete':False,'children_status':'provider_reported','child_ids':[],'children_complete':False,'children_fetch_status':'provider_reported'}
+                    return result
+                adapter.reader.read=enriched;engine=NativeChanges('reminders','synthetic@example.com',adapter,PlanStore(Path(self.temp.name)/('urgent-'+target)));calls=[0];real_verify=adapter.verify
+                def apply(item):
+                    calls[0]+=1
+                    if calls[0]>1 or target=='before':urgent[0]=item['fields']['urgent']
+                    return {'id':'task','source_id':'selected','list_id':'list'}
+                def verify(item,outcome):return False if calls[0]==1 else real_verify(item,outcome)
+                adapter.apply=apply;adapter.verify=verify;plan=engine.prepare_once([{'operation':'set_urgent','source_id':'selected','id':'task','fields':{'urgent':True}}]);self.assertEqual(engine.execute(plan['plan_id'])['status'],'failed_or_uncertain')
+                tags.append({'id':'tag','name':'Synthetic','native_type':0})
+                with self.assertRaises(SafetyError):engine.prepare_update_correction(plan['plan_id'],target)
+                tags.clear();repair=engine.prepare_update_correction(plan['plan_id'],target);self.assertEqual(engine.execute(repair['plan_id'])['status'],'applied')
+                expected='restored_before_after_explicit_correction' if target=='before' else 'verified_after_explicit_correction'
+                self.assertEqual(engine.reconcile_correction(repair['plan_id'])['status'],expected);self.assertEqual(urgent[0],target=='requested')

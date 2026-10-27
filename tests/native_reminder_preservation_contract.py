@@ -8,6 +8,7 @@ struct Source {let sourceIdentifier="selected"}
 struct Calendar {let source=Source();let calendarIdentifier="list"}
 struct EKReminder {let calendar=Calendar();let calendarItemIdentifier="task"}
 var flag=false
+var urgent=false
 var tagName="Project"
 var childIDs=["synthetic-child"]
 var privateReads=0
@@ -20,6 +21,10 @@ func output(_ input:Data,_ tags:Bool)->Data {
     value["native_metadata_complete"]=false;value["observation_consistency"]="separate_provider_reads"
     if tags {value["backend"]="reminderkit-tags-v1";value["tags_complete"]=true;value["coverage"]=["tags"];value["tags"]=[["id":"tag","name":tagName,"native_type":0]]}
     else {value["backend"]="reminderkit-flags-v1";value["flagged"]=flag;value["flag_state"]=flag ? 1:0;value["coverage"]=["flagged"]}
+    return try! JSONSerialization.data(withJSONObject:["native_metadata":value])
+}
+func ICloudRemindersReadUrgent(_ input:Data)->Data {
+    var value=try! JSONSerialization.jsonObject(with:input) as! [String:Any];value["coverage"]=["urgent"];value["urgent"]=urgent
     return try! JSONSerialization.data(withJSONObject:["native_metadata":value])
 }
 func ICloudRemindersReadFlag(_ input:Data)->Data {output(input,false)}
@@ -62,7 +67,7 @@ def run():
     assert source.index(move_gate)<source.index('            } else if operation == "move_reminder" {')
     functions=source[source.index('func selectedNativeMetadata('):source.index('if action == "get" {')]
     start=source.index('            if let selectedNative=before["native_metadata"]')
-    gate=source[start:source.index('            if operation == "set_flagged"',start)]
+    gate=source[start:source.index('            if operation == "set_urgent"',start)]
     with tempfile.TemporaryDirectory(prefix='native-preservation-') as directory:
         p=Path(directory);(p/'main.swift').write_text('import Foundation\n'+FIXTURE+functions+CHECKS)
         (p/'move.swift').write_text('import Foundation\nlet operation=CommandLine.arguments[1]\nfunc fail(_ code:String)->Never {print("refused:"+code);exit(0)}\n'+move_gate+'\nprint("admitted")\n')
@@ -80,7 +85,7 @@ def run():
                   'child_ids':['synthetic-child'],'children_complete':False,'children_fetch_status':'provider_reported',
                   'native_metadata_complete':False,'observation_consistency':'separate_provider_reads'}
         item={'operation':'update_reminder','source_id':'selected','id':'task','fields':{'notes':'new'},
-              'before':{'item':{'id':'task'},'native_metadata':metadata}}
+              'before':{'item':{'id':'task'},'native_metadata':metadata,'urgent':False}}
         envelope=mutation_request('reminders',item)
         assert envelope['change']['before']['native_metadata']==metadata
         header=FIXTURE.replace('func fail(_ code:String)->Never {fatalError(code)}','func fail(_ code:String)->Never {print("refused:"+code);exit(0)}')
@@ -89,7 +94,9 @@ let input=try! JSONSerialization.jsonObject(with:FileHandle.standardInput.readDa
 let change=input["change"] as! [String:Any]
 let before=change["before"] as! [String:Any]
 let reminder=EKReminder()
+let identifier="task",sourceID="selected"
 if CommandLine.arguments[1]=="drift" {flag=true}
+if CommandLine.arguments[1]=="urgent_drift" {urgent=true}
 func check(_ before:[String:Any],_ reminder:EKReminder) {
 '''+gate+'''
  print("mutation_admitted")
@@ -102,6 +109,9 @@ check(before,reminder)
             return subprocess.run([str(p/'gate'),scenario],input=json.dumps(payload),capture_output=True,text=True,check=True,timeout=5).stdout.strip()
         assert run_gate(envelope,'same')=='mutation_admitted'
         assert run_gate(envelope,'drift')=='refused:snapshot_changed'
+        assert run_gate(envelope,'urgent_drift')=='refused:snapshot_changed'
+        missing=json.loads(json.dumps(envelope));del missing['change']['before']['urgent']
+        assert run_gate(missing,'same')=='refused:snapshot_changed'
         malformed=json.loads(json.dumps(envelope));malformed['change']['before']['native_metadata']='invalid'
         assert run_gate(malformed,'same')=='refused:invalid_mutation'
     print(json.dumps({'status':'passed','apple_store_opened':False,'checks':['default_no_private_reads','complete_combined_snapshot','flag_tag_scope_and_missing_data_drift_refused','real_envelope_to_pre_dispatch_gate']}))

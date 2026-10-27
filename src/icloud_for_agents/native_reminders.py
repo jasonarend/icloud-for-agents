@@ -153,7 +153,7 @@ def alarm_effects(alarms,due):
 
 
 class RemindersCreateAdapter:
-    operations={'create_list','create_reminder','update_reminder','set_completed','move_reminder','rename_list','set_recurrence','set_list_color','set_flagged','remove_tag','add_tag','replace_tag'}
+    operations={'create_list','create_reminder','update_reminder','set_completed','move_reminder','rename_list','set_recurrence','set_list_color','set_flagged','remove_tag','add_tag','replace_tag','set_urgent'}
     def __init__(self):self.reader=NativeReader('reminders')
     @property
     def backend_id(self):
@@ -264,6 +264,9 @@ class RemindersCreateAdapter:
                 if str(uuid.UUID(fields['tag_id'])).upper()!=fields['tag_id'].upper():raise ValueError()
             except ValueError:raise SafetyError('Use one exact native tag ID') from None
             if native_config('reminders').get('advanced_backend')!='reminderkit':raise SafetyError('Native tag changes require the explicitly selected ReminderKit backend')
+        elif operation=='set_urgent':
+            if set(fields)!={'urgent'} or type(fields['urgent']) is not bool:raise SafetyError('Use an explicit native urgent Boolean')
+            if native_config('reminders').get('advanced_backend')!='reminderkit':raise SafetyError('Native urgent writes require the explicitly selected ReminderKit backend')
         elif operation=='set_flagged':
             if set(fields)!={'flagged'} or type(fields['flagged']) is not bool:raise SafetyError('Use an explicit native flag Boolean')
             if native_config('reminders').get('advanced_backend')!='reminderkit':raise SafetyError('Native flag writes require the explicitly selected ReminderKit backend')
@@ -292,9 +295,12 @@ class RemindersCreateAdapter:
               'fidelity_verified':True,'effects':{'existing_content':'only explicitly listed public EventKit fields change',
               'native_metadata':'advanced native-field preservation requires live acceptance',
               'notifications':'Apple controls sync and notification delivery'}}
-        if native_config('reminders').get('advanced_backend')=='reminderkit':item['effects']['native_metadata']='Observed flags, native tags and partial hierarchy metadata must be unchanged before dispatch and during independent readback; complete subtree and other native metadata remain unverified.'
+        if native_config('reminders').get('advanced_backend')=='reminderkit':item['effects']['native_metadata']='Observed flags, native tags, urgent state and partial hierarchy metadata must be unchanged before dispatch and during independent readback; complete subtree and other native metadata remain unverified.'
         if 'alarms' in item['fields']:item['effects']['notifications']='Replace the complete supported time/location alarm set; may schedule, reschedule or cancel notifications on synced devices. Past triggers may notify immediately; delivery remains controlled by Apple.'
         item['before']=self.snapshot(item)
+        if operation=='set_urgent':
+            if item['before'].get('urgent') is fields['urgent']:raise SafetyError('Reminder already has the requested urgent state')
+            item['effects']['urgent']='Change the current user urgent state. Apple controls sync and notifications; urgent notifications may repeat.'
         if operation=='set_flagged':
             metadata=item['before'].get('native_metadata')
             if not isinstance(metadata,dict) or type(metadata.get('flagged')) is not bool:raise SafetyError('Exact native flag state is required')
@@ -322,7 +328,7 @@ class RemindersCreateAdapter:
         if isinstance(change,dict) and change.get('operation')=='set_list_color':return self.prepare_list_color(change)
         if isinstance(change,dict) and change.get('operation')=='set_recurrence':return self.prepare_recurrence(change)
         if isinstance(change,dict) and change.get('operation')=='rename_list':return self.prepare_list_rename(change)
-        if isinstance(change,dict) and change.get('operation') in {'update_reminder','set_completed','move_reminder','set_recurrence','set_flagged','remove_tag','add_tag','replace_tag'}:
+        if isinstance(change,dict) and change.get('operation') in {'update_reminder','set_completed','move_reminder','set_recurrence','set_flagged','remove_tag','add_tag','replace_tag','set_urgent'}:
             return self.prepare_existing(change)
         if not isinstance(change,dict) or set(change)-{'operation','source_id','list_id','fields'}:
             raise SafetyError('Unknown Reminders change fields')
@@ -388,6 +394,12 @@ class RemindersCreateAdapter:
             raise SafetyError('Exact optional native metadata snapshot is unavailable or changed')
         return metadata
 
+    def urgent_snapshot(self,public_item):
+        observed=dict(self.reader.read('get',id=public_item['id'],include_native_urgent=True)['item']);metadata=observed.pop('native_metadata',None)
+        if (observed!=public_item or not isinstance(metadata,dict) or metadata.get('coverage')!=['urgent'] or type(metadata.get('urgent')) is not bool
+                or any(metadata.get(key)!=public_item.get(key) for key in ('id','source_id','list_id'))):raise SafetyError('Exact urgent state is unavailable or changed')
+        return metadata['urgent']
+
     def snapshot(self,item):
         # No current backend proves a complete subtree before a cross-list move.
         # Apply this to fresh plans and rechecks of already approved plans.
@@ -395,14 +407,16 @@ class RemindersCreateAdapter:
             raise SafetyError('Reminder moves are unavailable until complete hierarchy effects can be verified before dispatch')
         if item['operation'] in {'rename_list','set_list_color'}:return self.list_rename_snapshot(item)
         lists=[c for c in self.lists() if c['source_id']==item['source_id']]
-        if item['operation'] in {'update_reminder','set_completed','move_reminder','set_recurrence','set_flagged','remove_tag','add_tag','replace_tag'}:
+        if item['operation'] in {'update_reminder','set_completed','move_reminder','set_recurrence','set_flagged','remove_tag','add_tag','replace_tag','set_urgent'}:
             reminder=self.reader.read('get',id=item['id'])['item']
             if reminder.get('source_id')!=item['source_id']:raise SafetyError('Reminder belongs to another source')
             current=next((c for c in lists if c['id']==reminder['list_id']),None)
             if not current or not current.get('writable'):raise SafetyError('Reminder list is not writable')
             result={'list':current,'item':reminder}
             native=self.native_snapshot(reminder)
-            if native is not None:result['native_metadata']=native
+            if native is not None:
+                result['native_metadata']=native
+                result['urgent']=self.urgent_snapshot(reminder)
             if item['operation']=='move_reminder':
                 destination=next((c for c in lists if c['id']==item['fields']['list_id']),None)
                 if not destination or not destination.get('writable'):raise SafetyError('Destination is absent, out of source scope or read-only')
@@ -433,7 +447,7 @@ class RemindersCreateAdapter:
             return actual==expected
         if item['operation']=='create_list':return any(c['id']==outcome['id'] and c['title']==item['fields']['title'] and c['source_id']==item['source_id'] for c in self.lists())
         note=self.reader.read('get',id=outcome['id'])['item']
-        if item['operation'] in {'update_reminder','set_completed','move_reminder','set_recurrence','set_flagged','remove_tag','add_tag','replace_tag'}:
+        if item['operation'] in {'update_reminder','set_completed','move_reminder','set_recurrence','set_flagged','remove_tag','add_tag','replace_tag','set_urgent'}:
             if outcome['id']!=item['id'] or note.get('source_id')!=item['source_id']:return False
             expected=dict(item['before']['item']);expected.update(item['fields'])
             if 'alarms' in item['fields']:expected['has_alarms']=bool(item['fields']['alarms'])
@@ -457,6 +471,7 @@ class RemindersCreateAdapter:
                     expected_native['tags']=sorted(prior+added,key=lambda t:t['id'])
 
             if native!=expected_native:return False
+            if 'urgent' in item['before'] and self.urgent_snapshot(note) is not (item['fields']['urgent'] if item['operation']=='set_urgent' else item['before']['urgent']):return False
             for key in ('title','notes','priority','due','start','list_id','completed','url','location','has_recurrence','has_alarms','recurrence_rules','alarms'):
                 if key not in expected:continue
                 actual=note.get(key);wanted=expected.get(key)

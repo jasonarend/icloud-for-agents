@@ -99,8 +99,16 @@ static int flagSaves=0;static BOOL saveFails=NO;
 -(void)removeHashtag:(id)tag{[self.hashtags removeObject:tag];}
 -(id)addHashtagWithType:(NSInteger)type name:(id)name{FixtureTag *tag=[FixtureTag new];FixtureID *identity=[FixtureID new];identity.uuid=[[NSUUID alloc]initWithUUIDString:@"AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA"];identity.entityName=@"REMCDHashtag";tag.remObjectID=identity;tag.accountID=fixture.account.remObjectID;tag.reminderID=fixture.remObjectID;tag.name=name;tag.type=type;[self.hashtags addObject:tag];return tag;}
 @end
+@interface FixtureUrgentChange:NSObject
+@property BOOL enabled;
+-(void)setIsUrgentStateEnabledForCurrentUser:(BOOL)value;
+@end
+@implementation FixtureUrgentChange
+-(void)setIsUrgentStateEnabledForCurrentUser:(BOOL)value{self.enabled=value;}
+@end
 @interface FixtureReminderChange:NSObject
 @property FixtureFlagChange *flaggedContext;
+@property FixtureUrgentChange *urgentAlarmContext;
 @property FixtureTagChange *hashtagContext;
 @end
 @implementation FixtureReminderChange
@@ -113,10 +121,11 @@ static int flagSaves=0;static BOOL saveFails=NO;
 @end
 @implementation FixtureSave
 -(id)initWithStore:(id)store{return [super init];}
--(id)updateReminder:(id)reminder{self.change=[FixtureReminderChange new];self.change.flaggedContext=[FixtureFlagChange new];self.change.hashtagContext=[FixtureTagChange new];self.change.hashtagContext.hashtags=[NSMutableArray arrayWithArray:((FixtureTags *)fixture.hashtagContext).hashtags ?: @[]];return self.change;}
--(BOOL)saveSynchronouslyWithError:(NSError **)error{flagSaves++;if(saveFails){*error=[NSError errorWithDomain:@"synthetic" code:1 userInfo:nil];return NO;}((FixtureFlag *)fixture.flaggedContext).flagged=self.change.flaggedContext.flagged;if(fixture.hashtagContext)((FixtureTags *)fixture.hashtagContext).hashtags=self.change.hashtagContext.hashtags;return YES;}
+-(id)updateReminder:(id)reminder{self.change=[FixtureReminderChange new];self.change.flaggedContext=[FixtureFlagChange new];self.change.urgentAlarmContext=[FixtureUrgentChange new];self.change.urgentAlarmContext.enabled=((FixtureUrgent *)fixture.urgentAlarmContext).enabled;self.change.hashtagContext=[FixtureTagChange new];self.change.hashtagContext.hashtags=[NSMutableArray arrayWithArray:((FixtureTags *)fixture.hashtagContext).hashtags ?: @[]];return self.change;}
+-(BOOL)saveSynchronouslyWithError:(NSError **)error{flagSaves++;if(saveFails){*error=[NSError errorWithDomain:@"synthetic" code:1 userInfo:nil];return NO;}((FixtureFlag *)fixture.flaggedContext).flagged=self.change.flaggedContext.flagged;if(fixture.hashtagContext)((FixtureTags *)fixture.hashtagContext).hashtags=self.change.hashtagContext.hashtags;if(fixture.urgentAlarmContext)((FixtureUrgent *)fixture.urgentAlarmContext).enabled=self.change.urgentAlarmContext.enabled;return YES;}
 @end
 static FixtureID *Identity(NSString *entity,NSString *value){FixtureID *v=[FixtureID new];v.entityName=entity;v.uuid=[[NSUUID alloc]initWithUUIDString:value];return v;}
+static NSDictionary *SetUrgent(NSDictionary *request,BOOL allow){NSData *data=[NSJSONSerialization dataWithJSONObject:request options:0 error:NULL];return [NSJSONSerialization JSONObjectWithData:ICloudRemindersSetUrgent(data,^{return allow;}) options:0 error:NULL];}
 static NSDictionary *Urgent(NSDictionary *request){NSData *data=[NSJSONSerialization dataWithJSONObject:request options:0 error:NULL];return [NSJSONSerialization JSONObjectWithData:ICloudRemindersReadUrgent(data) options:0 error:NULL];}
 static NSDictionary *Children(NSDictionary *request){NSData *data=[NSJSONSerialization dataWithJSONObject:request options:0 error:NULL];return [NSJSONSerialization JSONObjectWithData:ICloudRemindersReadChildren(data) options:0 error:NULL];}
 static NSDictionary *Hierarchy(NSDictionary *request){NSData *data=[NSJSONSerialization dataWithJSONObject:request options:0 error:NULL];return [NSJSONSerialization JSONObjectWithData:ICloudRemindersReadHierarchy(data) options:0 error:NULL];}
@@ -152,6 +161,10 @@ int main(){@autoreleasepool{
  NSCAssert(Call(@{@"id":task,@"source_id":source,@"list_id":list,@"selector":@"anything"})[@"error"],@"no arbitrary selectors");
  FixtureUrgent *urgent=[FixtureUrgent new];fixture.urgentAlarmContext=urgent;
  NSDictionary *urgentRead=Urgent(request);NSCAssert(urgentRead[@"native_metadata"] && CFGetTypeID((__bridge CFTypeRef)urgentRead[@"native_metadata"][@"urgent"])==CFBooleanGetTypeID() && ![urgentRead[@"native_metadata"][@"urgent"] boolValue],@"false urgent is a JSON boolean");
+ NSDictionary *urgentChange=@{@"id":task,@"source_id":source,@"list_id":list,@"urgent":@YES,@"expected_urgent":@NO};int urgentSaves=flagSaves;
+ NSCAssert(SetUrgent(urgentChange,NO)[@"error"] && flagSaves==urgentSaves && !urgent.enabled,@"closed gate prevents urgent write");
+ NSCAssert(SetUrgent(urgentChange,YES)[@"result"] && urgent.enabled,@"urgent setting saved");
+ NSCAssert(SetUrgent(urgentChange,YES)[@"error"],@"stale urgent value refused");
  urgent.enabled=YES;NSCAssert([Urgent(request)[@"native_metadata"][@"urgent"] boolValue],@"true urgent observed");fixture.urgentAlarmContext=nil;NSCAssert(Urgent(request)[@"error"],@"unavailable urgent not false");
  FixtureTags *context=[FixtureTags new];context.hashtags=@[];fixture.hashtagContext=context;
  NSCAssert([Tags(request)[@"native_metadata"][@"tags_complete"] boolValue] && [Tags(request)[@"native_metadata"][@"tags"] count]==0,@"verified empty collection");

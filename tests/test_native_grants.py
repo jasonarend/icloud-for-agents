@@ -311,3 +311,10 @@ class NativeGrantTests(unittest.TestCase):
         with self.assertRaises(SafetyError):self.manager.match(grant,item)
         scope=self.scope();scope['rules'][0].update(operation='replace_tag',fields=['tag_id','tag_name'])
         self.manager.match(self.manager.checked(self.activate(scope)),item)
+
+    def test_native_urgent_scope_is_separate_from_flag(self):
+        self.engine.name='reminders';self.engine.kind='reminders_change';self.manager.name='reminders'
+        scope=self.scope();scope['rules'][0].update(operation='set_flagged',fields=['flagged'])
+        grant=self.manager.checked(self.activate(scope));item={'operation':'set_urgent','source_id':'selected','before':{'item':{'list_id':'folder'}},'fields':{'urgent':True},'requested_fields':['urgent']}
+        with self.assertRaises(SafetyError):self.manager.match(grant,item)
+        scope=self.scope();scope['rules'][0].update(operation='set_urgent',fields=['urgent']);self.manager.match(self.manager.checked(self.activate(scope)),item)

@@ -75,6 +75,8 @@ class NativeRemindersTests(unittest.TestCase):
         read=self.reader.read
         def enriched(action,**fields):
             result=read(action,**fields)
+            if action=='get' and fields.get('include_native_urgent'):
+                result['item']['native_metadata']={**{k:result['item'][k] for k in ('id','source_id','list_id')},'coverage':['urgent'],'urgent':False}
             if action=='get' and fields.get('include_native_metadata'):
                 result['item']['native_metadata']={**copy.deepcopy(metadata),**{k:result['item'][k] for k in ('id','source_id','list_id')}}
             return result
@@ -92,6 +94,17 @@ class NativeRemindersTests(unittest.TestCase):
         self.assertFalse(self.adapter.verify(item,outcome));metadata['tags']=[]
         metadata['has_subtasks']=True;metadata['child_ids']=['unexpected-child'];self.assertFalse(self.adapter.verify(item,outcome))
 
+    def test_urgent_drift_blocks_nonurgent_write_readback_and_snapshot(self):
+        self.native_reader();state={'urgent':False};read=self.reader.read
+        def enriched(action,**fields):
+            result=read(action,**fields)
+            if action=='get' and fields.get('include_native_urgent'):result['item']['native_metadata']['urgent']=state['urgent']
+            return result
+        self.reader.read=enriched;item=self.existing();self.reader.item['notes']='Edited body'
+        self.assertTrue(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
+        state['urgent']=True;self.assertFalse(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
+        self.reader.item['notes']=item['before']['item']['notes'];self.assertNotEqual(self.adapter.snapshot(item),item['before'])
+
     def test_native_flag_change_requires_opt_in_and_preserves_other_metadata(self):
         change={'operation':'set_flagged','source_id':'selected','id':'created','fields':{'flagged':True}}
         with self.assertRaises(SafetyError):self.adapter.prepare(change)
@@ -105,6 +118,24 @@ class NativeRemindersTests(unittest.TestCase):
         metadata['tags']=[{'id':'tag','name':'Synthetic','native_type':0}]
         self.assertFalse(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
         with self.assertRaises(SafetyError):self.adapter.prepare({'operation':'set_flagged','source_id':'selected','id':'created','fields':{'flagged':1}})
+
+    def test_urgent_write_requires_separate_exact_state_and_preserves_metadata(self):
+        change={'operation':'set_urgent','source_id':'selected','id':'created','fields':{'urgent':True}}
+        with self.assertRaises(SafetyError):self.adapter.prepare(change)
+        metadata=self.native_reader();state={'urgent':False};read=self.reader.read
+        def enriched(action,**fields):
+            result=read(action,**fields)
+            if action=='get' and fields.get('include_native_urgent'):
+                result['item']['native_metadata']={**{key:result['item'][key] for key in ('id','source_id','list_id')},'coverage':['urgent'],'urgent':state['urgent']}
+            return result
+        self.reader.read=enriched;item=self.adapter.prepare(change);self.assertIs(item['before']['urgent'],False)
+        from icloud_for_agents.native_protocol import mutation_request
+        self.assertIs(mutation_request('reminders',item)['change']['before']['urgent'],False)
+        state['urgent']=True;self.assertTrue(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
+        metadata['flagged']=True;metadata['flag_state']=1;self.assertFalse(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
+        metadata.update(flagged=False,flag_state=0)
+        with self.assertRaises(SafetyError):self.adapter.prepare(change)
+        with self.assertRaises(SafetyError):self.adapter.prepare({**change,'fields':{'urgent':1}})
 
     def test_exact_native_tag_removal_preserves_remaining_tags_and_flag(self):
         first={'id':'11111111-1111-4111-8111-111111111111','name':'SyntheticOne','native_type':0}

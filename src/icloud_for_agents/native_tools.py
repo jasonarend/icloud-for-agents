@@ -264,6 +264,7 @@ def register_change_tools(mcp):
             location with title, latitude, longitude, radius_meters and proximity
             enter/leave. Review includes exact triggers and notification effects.
             Location-text writes and unsupported advanced alarms are refused.
+            set_urgent uses exact id and fields.urgent Boolean; it changes current-user urgent notifications.
             set_flagged uses exact id and fields.flagged Boolean, requiring the
             explicitly selected ReminderKit backend. remove_tag uses exact id and
             fields.tag_id for one observed native tag, with the same backend.

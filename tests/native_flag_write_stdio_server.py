@@ -19,6 +19,8 @@ class Adapter(RemindersCreateAdapter):
         self.flag=False;read=self.reader.read
         def enriched(action,**fields):
             result=read(action,**fields)
+            if action=='get' and fields.get('include_native_urgent'):
+                result['item']['native_metadata']={**{k:result['item'][k] for k in ('id','source_id','list_id')},'coverage':['urgent'],'urgent':False}
             if action=='get' and fields.get('include_native_metadata'):
                 result['item']['native_metadata']={**{k:result['item'][k] for k in ('id','source_id','list_id')},'flagged':self.flag,'flag_state':int(self.flag),'tags':[],'tags_complete':True,'coverage':['flagged','tags','hierarchy','children'],'native_metadata_complete':False,'is_subtask':False,'parent_id':None,'has_subtasks':False,'hierarchy_complete':False,'children_status':'provider_reported','child_ids':[],'children_complete':False,'children_fetch_status':'provider_reported'}
             return result
