@@ -12,7 +12,7 @@ from .core import SafetyError, NativeOperationRefused, digest
 from .services import enabled
 
 
-READ_ACTIONS = {'notes': {'status', 'sources', 'folders', 'folder_get', 'query', 'get', 'search', 'attachments', 'diagnose_note', 'contains'},
+READ_ACTIONS = {'notes': {'status', 'sources', 'folders', 'folder_get', 'folder_role', 'query', 'get', 'search', 'attachments', 'diagnose_note', 'contains'},
                 'reminders': {'status', 'sources', 'lists', 'query', 'get','list_membership'}}
 MAX_OUTPUT = 2_000_000
 
@@ -47,8 +47,10 @@ def validate_config(config):
     if not isinstance(config, dict) or set(config) - set(READ_ACTIONS):
         raise ValueError('Unknown native service configuration')
     for name, value in config.items():
-        if not isinstance(value, dict) or set(value) - {'source_ids', 'helper_path', 'access_mode'}:
+        if not isinstance(value, dict) or set(value) - {'source_ids', 'helper_path', 'access_mode','metadata_backend'}:
             raise ValueError('Unknown native configuration fields')
+        if 'metadata_backend' in value and (name!='notes' or not isinstance(value['metadata_backend'],str) or value['metadata_backend'] not in {'scripting','notes-store-readonly'}):
+            raise ValueError('Unknown optional native metadata backend')
         if value.get('access_mode', 'read-only') not in {'disabled', 'read-only', 'write-enabled'}:
             raise ValueError('Invalid native access mode')
         ids = value.get('source_ids', [])
@@ -113,6 +115,11 @@ class NativeReader:
                    **{k: v for k, v in fields.items() if v is not None}}
         if action in {'folders','query','search','attachments','lists'}:
             request.setdefault('limit',limit);request.setdefault('offset',offset)
+        if self.name=='notes' and action=='folder_role':
+            if config.get('metadata_backend','scripting')!='notes-store-readonly':raise SafetyError('Optional Notes store metadata requires explicit owner configuration; no automatic fallback')
+            if set(fields)!={'folder_id'}:raise SafetyError('Folder-role reads require only one exact folder ID')
+            from .native_note_store import folder_role
+            return folder_role(fields['folder_id'],sources)
         result = self._dispatch(request, config)
         if self.name == 'notes' and action == 'search':
             from .notes_content import project_html
@@ -298,6 +305,12 @@ def register_read_tools(mcp):
             return NativeReader('reminders').read('get', id=id)
 
     if enabled('notes'):
+        @mcp.tool(annotations=annotations)
+        @guard
+        def notes_folder_role(folder_id:str)->dict:
+            """Read exact selected-folder storage role through explicitly opted-in read-only metadata; no note bodies or database writes. Default-folder status requires scripting verification."""
+            return NativeReader('notes').read('folder_role',folder_id=folder_id)
+
         @mcp.tool(annotations=annotations)
         @guard
         def notes_access_status() -> dict:

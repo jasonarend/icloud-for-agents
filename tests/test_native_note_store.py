@@ -1,0 +1,63 @@
+"""Owner-opted-in fixed metadata queries, using only synthetic SQLite stores."""
+import hashlib,json,os,sqlite3,tempfile,unittest
+from pathlib import Path
+from unittest.mock import patch
+from icloud_for_agents.core import SafetyError
+from icloud_for_agents import native_note_store as store
+from icloud_for_agents.native_read import NativeReader,validate_config
+UUID='00000000-0000-0000-0000-000000000001'
+SOURCE=f'x-coredata://{UUID}/ICAccount/p1'
+FOLDER=f'x-coredata://{UUID}/ICFolder/p10'
+
+class NoteStoreTests(unittest.TestCase):
+    def setUp(self):
+        temporary=tempfile.TemporaryDirectory();self.addCleanup(temporary.cleanup);self.path=Path(temporary.name)/'NoteStore.sqlite'
+        with sqlite3.connect(self.path) as c:
+            c.executescript('''CREATE TABLE Z_METADATA(Z_UUID TEXT);
+CREATE TABLE Z_PRIMARYKEY(Z_ENT INTEGER PRIMARY KEY,Z_NAME TEXT);
+CREATE TABLE ZICCLOUDSYNCINGOBJECT(Z_PK INTEGER PRIMARY KEY,Z_ENT INTEGER,Z_OPT INTEGER,ZACCOUNT8 INTEGER,ZPARENT INTEGER,ZFOLDERTYPE INTEGER,ZMARKEDFORDELETION INTEGER,ZSMARTFOLDERQUERYJSON TEXT,ZTITLE2 TEXT);
+CREATE TABLE ZICNOTEDATA(ZDATA BLOB);
+INSERT INTO Z_PRIMARYKEY VALUES(1,'ICAccount'),(2,'ICFolder');
+INSERT INTO ZICCLOUDSYNCINGOBJECT VALUES(1,1,1,NULL,NULL,NULL,0,NULL,NULL),(2,1,1,NULL,NULL,NULL,0,NULL,NULL),(10,2,3,1,NULL,0,0,NULL,'Synthetic ordinary folder'),(11,2,1,2,NULL,0,0,NULL,'Unselected folder');
+INSERT INTO ZICNOTEDATA VALUES(X'00010203');''')
+            c.execute('INSERT INTO Z_METADATA VALUES(?)',(UUID,))
+        self.path.chmod(0o600)
+        for context in (patch.object(store,'store_path',return_value=self.path),patch('platform.system',return_value='Darwin'),patch('platform.mac_ver',return_value=('27.0',('','',''),''))):
+            context.start();self.addCleanup(context.stop)
+    def alter(self,query):
+        with sqlite3.connect(self.path) as c:c.execute(query)
+    def test_exact_entity_account_and_storage_kind_without_body_reads_or_writes(self):
+        before=hashlib.sha256(self.path.read_bytes()).hexdigest();result=store.folder_role(FOLDER,[SOURCE])
+        self.assertEqual(result['storage_kind'],'regular');self.assertEqual(result['source_id'],SOURCE);self.assertEqual(result['revision'],3)
+        self.assertFalse(result['content_read']);self.assertFalse(result['database_writes']);self.assertEqual(hashlib.sha256(self.path.read_bytes()).hexdigest(),before)
+    def test_queries_never_widen_to_an_unselected_account_or_different_entity(self):
+        for identity in (FOLDER.replace('p10','p11'),FOLDER.replace('p10','p1'),FOLDER.replace('/ICFolder/','/ICNote/'),FOLDER+"' OR 1=1",FOLDER.replace(UUID,'00000000-0000-0000-0000-000000000002')):
+            with self.subTest(identity=identity),self.assertRaises(SafetyError):store.folder_role(identity,[SOURCE])
+        with self.assertRaises(SafetyError):store.folder_role(FOLDER,[SOURCE.replace('p1','p10')])
+    def test_default_is_not_inferred_and_special_smart_and_deleted_are_never_regular(self):
+        self.assertIn('scripting',store.folder_role(FOLDER,[SOURCE])['default_folder_status'])
+        for field,value in [('ZFOLDERTYPE','1'),('ZFOLDERTYPE','2'),('ZMARKEDFORDELETION','1'),('ZSMARTFOLDERQUERYJSON',"'{}'")]:
+            self.alter('UPDATE ZICCLOUDSYNCINGOBJECT SET '+field+'='+value+' WHERE Z_PK=10')
+            self.assertEqual(store.folder_role(FOLDER,[SOURCE])['storage_kind'],'special_smart_or_deleted')
+            self.alter('UPDATE ZICCLOUDSYNCINGOBJECT SET ZFOLDERTYPE=0,ZMARKEDFORDELETION=0,ZSMARTFOLDERQUERYJSON=NULL WHERE Z_PK=10')
+    def test_write_attach_extension_pragma_and_note_content_queries_are_denied(self):
+        with store.readonly_store() as (connection,_):
+            for query in ("UPDATE ZICCLOUDSYNCINGOBJECT SET ZTITLE2='changed'",'CREATE TEMP TABLE example(a)',"ATTACH ':memory:' AS other",'PRAGMA user_version=123',"SELECT load_extension('not-a-library')",'SELECT ZDATA FROM ZICNOTEDATA'):
+                with self.subTest(query=query),self.assertRaises(sqlite3.Error):connection.execute(query)
+    def test_unknown_schema_store_identity_platform_and_unsafe_files_refuse(self):
+        with patch('platform.mac_ver',return_value=('26.0',('','',''),'')),self.assertRaises(SafetyError):store.folder_role(FOLDER,[SOURCE])
+        self.path.chmod(0o666)
+        with self.assertRaises(SafetyError):store.folder_role(FOLDER,[SOURCE])
+        self.path.chmod(0o600);self.alter("UPDATE Z_METADATA SET Z_UUID='different'")
+        with self.assertRaises(SafetyError):store.folder_role(FOLDER,[SOURCE])
+        self.alter('ALTER TABLE ZICCLOUDSYNCINGOBJECT RENAME COLUMN ZACCOUNT8 TO UNKNOWN_ACCOUNT')
+        with self.assertRaises(SafetyError):store.folder_role(FOLDER,[SOURCE])
+    def test_optional_route_requires_owner_opt_in_and_current_service_read_access(self):
+        env={'ICLOUD_ENABLE_NOTES':'1','ICLOUD_MAIL_ACCESS':'read-only','ICLOUD_NATIVE_CONFIG':json.dumps({'notes':{'source_ids':[SOURCE]}})}
+        with patch.dict(os.environ,env,clear=True):
+            with patch.object(store,'folder_role',side_effect=AssertionError('No automatic store access')),self.assertRaises(SafetyError):NativeReader('notes').read('folder_role',folder_id=FOLDER)
+            os.environ['ICLOUD_NATIVE_CONFIG']=json.dumps({'notes':{'source_ids':[SOURCE],'metadata_backend':'notes-store-readonly'}})
+            self.assertEqual(NativeReader('notes').read('folder_role',folder_id=FOLDER)['storage_kind'],'regular')
+            os.environ['ICLOUD_MAIL_ACCESS']='disabled'
+            with self.assertRaises(SafetyError):NativeReader('notes').read('folder_role',folder_id=FOLDER)
+        with self.assertRaises(ValueError):validate_config({'reminders':{'metadata_backend':'notes-store-readonly'}})
