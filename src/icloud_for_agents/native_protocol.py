@@ -19,9 +19,9 @@ def mutation_request(service,item):
         if operation in {'append_note','prepend_note','replace_text','update_note','repair_note_body','move_note'}:
             before=item['before'];change['before']={'note':{key:before['note'][key] for key in ('title','html','modified')}}
             if operation=='move_note':change['before']['attachments']=before['attachments']
-    elif service=='reminders' and operation in {'create_list','create_reminder','update_reminder','set_completed','move_reminder','rename_list','set_list_color','set_recurrence','set_flagged'}:
+    elif service=='reminders' and operation in {'create_list','create_reminder','update_reminder','set_completed','move_reminder','rename_list','set_list_color','set_recurrence','set_flagged','remove_tag'}:
         change={key:item[key] for key in ('operation','source_id','list_id','id','fields') if key in item}
-        if operation in {'update_reminder','set_completed','move_reminder','set_recurrence','set_flagged'}:
+        if operation in {'update_reminder','set_completed','move_reminder','set_recurrence','set_flagged','remove_tag'}:
             change['before']={'item':item['before']['item']}
             if 'native_metadata' in item['before']:change['before']['native_metadata']=item['before']['native_metadata']
         if operation in {'rename_list','set_list_color'}:change['before']=item['before']

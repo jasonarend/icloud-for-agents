@@ -105,6 +105,19 @@ class NativeRemindersTests(unittest.TestCase):
         metadata['tags']=[{'id':'tag','name':'Synthetic','native_type':0}]
         self.assertFalse(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
         with self.assertRaises(SafetyError):self.adapter.prepare({'operation':'set_flagged','source_id':'selected','id':'created','fields':{'flagged':1}})
+
+    def test_exact_native_tag_removal_preserves_remaining_tags_and_flag(self):
+        first={'id':'11111111-1111-4111-8111-111111111111','name':'SyntheticOne','native_type':0}
+        second={'id':'22222222-2222-4222-8222-222222222222','name':'SyntheticTwo','native_type':0}
+        change={'operation':'remove_tag','source_id':'selected','id':'created','fields':{'tag_id':first['id']}}
+        with self.assertRaises(SafetyError):self.adapter.prepare(change)
+        metadata=self.native_reader();metadata['tags']=[first,second];item=self.adapter.prepare(change)
+        from icloud_for_agents.native_protocol import mutation_request
+        self.assertEqual(mutation_request('reminders',item)['change']['before']['native_metadata']['tags'],[first,second])
+        metadata['tags']=[second];self.assertTrue(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
+        metadata['flagged']=True;metadata['flag_state']=1;self.assertFalse(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
+        metadata['flagged']=False;metadata['flag_state']=0
+        with self.assertRaises(SafetyError):self.adapter.prepare(change)
     def test_selected_native_backend_refuses_missing_or_incomplete_native_snapshot(self):
         metadata=self.native_reader();metadata['tags_complete']=False
         with self.assertRaises(SafetyError):self.existing()
