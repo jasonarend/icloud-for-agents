@@ -53,6 +53,24 @@ class NativeReadTests(unittest.TestCase):
             with self.assertRaises(SafetyError):NativeReader('notes').read('status')
             self.assertEqual(backend.call_count,1)
 
+    def test_markdown_is_local_read_projection_and_never_forwarded_to_helper(self):
+        config={'notes':{'source_ids':['selected']}};calls=[]
+        def dispatch(request,config):
+            calls.append(request);return {'protocol_version':1,'item':{'id':'synthetic','html':'<h1>Title</h1><p><b>Decision</b></p>','truncated':False}}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',side_effect=dispatch):
+            result=NativeReader('notes').read('get',folder_id='folder',id='synthetic',representation='markdown')
+        self.assertNotIn('representation',calls[0]);self.assertIn('**Decision**',result['item']['markdown']);self.assertFalse(result['item']['markdown_projection']['round_trip_safe']);self.assertIn('html',result['item'])
+    def test_markdown_does_not_turn_missing_or_locked_html_into_an_empty_export(self):
+        config={'notes':{'source_ids':['selected']}}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value={'protocol_version':1,'item':{'locked':True}}):
+            result=NativeReader('notes').read('get',folder_id='folder',id='synthetic',representation='markdown')
+        self.assertNotIn('markdown',result['item']);self.assertEqual(result['item']['markdown_projection']['status'],'unavailable')
+    def test_representation_type_scope_and_value_refused_before_helper(self):
+        config={name:{'source_ids':['selected']} for name in ('notes','reminders')}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',side_effect=AssertionError('No helper')):
+            for name,action,value in [('notes','get','unknown'),('notes','get',True),('notes','query','native'),('reminders','get','markdown')]:
+                with self.subTest(name=name,action=action,value=value),self.assertRaises(SafetyError):NativeReader(name).read(action,representation=value)
+
     def test_disabled_unknown_or_unscoped_refused_before_backend(self):
         with self.env(ICLOUD_ENABLE_NOTES='0'), patch('subprocess.run', side_effect=AssertionError('No helper')):
             with self.assertRaises(SafetyError): NativeReader('notes').read('sources')

@@ -7,6 +7,7 @@ from datetime import date
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import subprocess
 import tempfile
+from typing import Literal
 
 from .core import SafetyError, NativeOperationRefused, digest
 from .services import enabled
@@ -85,6 +86,10 @@ class NativeReader:
         sources = config.get('source_ids', [])
         if action not in {'status', 'sources'} and not sources:
             raise SafetyError('Select exact native source IDs before reading content')
+        if 'representation' in fields and (self.name!='notes' or action!='get'):raise SafetyError('Representation selection is supported only for Notes get')
+        representation=fields.pop('representation','native')
+        if (not isinstance(representation,str) or representation not in {'native','markdown'} or
+                (representation!='native' and (self.name!='notes' or action!='get'))):raise SafetyError('Markdown is a read-only Notes get representation')
         if set(fields) - {'id', 'folder_id', 'list_id', 'limit', 'offset', 'completed', 'text', 'due_date', 'timezone', 'include_overdue', 'due_from', 'due_through', 'priorities'}:
             raise SafetyError('Unknown native read fields')
         limit, offset = fields.get('limit', 50), fields.get('offset', 0)
@@ -156,6 +161,15 @@ class NativeReader:
             except ValueError:
                 result['item']['text_projection_complete'] = False
                 result['item']['projection_error'] = 'unsupported_html_structure'
+        if self.name=='notes' and action=='get' and representation=='markdown':
+            item=result.get('item',{})
+            if isinstance(item.get('html'),str):
+                from .notes_markdown import project_markdown
+                try:
+                    projection=project_markdown(item['html'],source_truncated=bool(item.get('truncated')))
+                    item['markdown']=projection.pop('text');item['markdown_projection']=projection
+                except ValueError:item['markdown_projection']={'status':'unavailable','reason':'unsupported_or_oversized_html','round_trip_safe':False}
+            else:item['markdown_projection']={'status':'unavailable','reason':'native_html_unavailable','round_trip_safe':False}
         return result
 
     def _dispatch(self, request, config):
@@ -364,6 +378,6 @@ def register_read_tools(mcp):
 
         @mcp.tool(annotations=annotations)
         @guard
-        def notes_get(folder_id: str, id: str) -> dict:
-            """Read unlocked note text/HTML with explicit native-content completeness limits."""
-            return NativeReader('notes').read('get', folder_id=folder_id, id=id)
+        def notes_get(folder_id: str, id: str, representation: Literal['native','markdown']='native') -> dict:
+            """Read scoped unlocked Notes HTML/text; optional Markdown is a bounded lossy view with an explicit loss report, never a native backup. No assets are fetched."""
+            return NativeReader('notes').read('get', folder_id=folder_id, id=id, representation=representation)
