@@ -227,6 +227,8 @@ Synthetic native tests cover true/false states, exact entity/source/list relatio
 
 `notes_locate` checks one bounded page of folders in the selected account for an exact note ID. It returns matching folder IDs and titles with `role: "unverified"`; a folder name does not establish whether it is a recovery folder. Follow `next_offset` until `done` is true. Folder discovery and membership are separate live observations, so changes can shift pages. Access changes or incomplete membership checks refuse the page.
 
+`notes_search` optionally filters modification times with `modified_from` and `modified_before`, using UTC timestamps such as `2026-10-27T12:00:00Z`. The first bound is inclusive and the second is exclusive. Notes with unavailable modification times are reported as unavailable, and pages remain live observations. Older helpers that do not verify the requested filter are refused. Local validation covered an in-range synthetic note and an exclusive upper bound; other data and macOS versions have not been exhaustively tested.
+
 For an exact folder and selected source, `notes_model_folder_role` can inspect the native model's ordinary or Recently Deleted role when both the optional `notes-shared` writer and `notes-store-readonly` metadata backend are selected. It does not request permission or change data. It refuses when the store, folder, or native role cannot be verified; the model store has not been accessible in the local live test. This observation does not enable note moves, deletion, or restoration.
 
 Local checks located the dedicated synthetic note in both its regular test folder and the app's Recently Deleted view, then verified it after the app restored it. This read does not delete or restore a note.

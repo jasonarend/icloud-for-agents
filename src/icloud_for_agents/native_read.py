@@ -3,7 +3,7 @@ import json
 import os
 from pathlib import Path
 import platform
-from datetime import date
+from datetime import date, datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import subprocess
 import tempfile
@@ -120,8 +120,18 @@ class NativeReader:
         representation=fields.pop('representation','native')
         if (not isinstance(representation,str) or representation not in {'native','markdown'} or
                 (representation!='native' and (self.name!='notes' or action!='get'))):raise SafetyError('Markdown is a read-only Notes get representation')
-        if set(fields) - {'id', 'folder_id', 'list_id', 'limit', 'offset', 'completed', 'text', 'due_date', 'timezone', 'include_overdue', 'due_from', 'due_through', 'priorities', 'flagged', 'tag', 'source_id'}:
+        if set(fields) - {'id', 'folder_id', 'list_id', 'limit', 'offset', 'completed', 'text', 'due_date', 'timezone', 'include_overdue', 'due_from', 'due_through', 'priorities', 'flagged', 'tag', 'source_id', 'modified_from', 'modified_before'}:
             raise SafetyError('Unknown native read fields')
+        modified={k:fields[k] for k in ('modified_from','modified_before') if fields.get(k) is not None}
+        if modified:
+            import re
+            try:
+                if self.name!='notes' or action!='search':raise ValueError()
+                for value in modified.values():
+                    if not isinstance(value,str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z',value):raise ValueError()
+                    datetime.strptime(value,'%Y-%m-%dT%H:%M:%SZ')
+                if len(modified)==2 and modified['modified_from']>=modified['modified_before']:raise ValueError()
+            except (ValueError,TypeError):raise SafetyError('Notes modification bounds require ordered UTC timestamps; the upper bound is exclusive') from None
         limit, offset = fields.get('limit', 50), fields.get('offset', 0)
         if type(limit) is not int or not 1 <= limit <= 100 or type(offset) is not int or not 0 <= offset <= 100000:
             raise SafetyError('Invalid bounded native page')
@@ -235,6 +245,16 @@ class NativeReader:
             candidates=result.pop('table_projection_candidates',[])
             if not isinstance(candidates,list) or len(candidates)>limit:
                 raise SafetyError('Invalid bounded Notes search projection')
+            if modified:
+                if (result.get('modified_filter')!={'from':modified.get('modified_from'),'before':modified.get('modified_before'),'semantics':'utc_inclusive_from_exclusive_before'}
+                        or not isinstance(result.get('items'),list)):
+                    raise SafetyError('Configured helper did not verify the requested Notes modification filter')
+                for row in result['items']+candidates:
+                    stamp=row.get('modified') if isinstance(row,dict) else None
+                    try:
+                        if not isinstance(stamp,str) or len(stamp)!=24 or datetime.strptime(stamp,'%Y-%m-%dT%H:%M:%S.%fZ') is None:raise ValueError()
+                        if (modified.get('modified_from') and stamp<modified['modified_from'][:-1]+'.000Z') or (modified.get('modified_before') and stamp>=modified['modified_before'][:-1]+'.000Z'):raise ValueError()
+                    except ValueError:raise SafetyError('Configured helper returned a note outside the requested modification range') from None
             for candidate in candidates:
                 try:
                     projected=project_html(candidate['html'])
@@ -244,6 +264,7 @@ class NativeReader:
                         result['items'][-1].update(excerpt=projected['text'][max(0,index-80):index+240],
                             locked=False,content_complete=False,match_source='exported_table_text',
                             text_projection_complete=projected['text_projection_complete'] and not candidate.get('truncated',False))
+                        if modified:result['items'][-1]['modified']=candidate['modified']
                 except (ValueError,KeyError,TypeError):
                     result.setdefault('unavailable',[]).append({'category':'table_projection_unavailable'})
             if len(result.get('items',[]))>limit:raise SafetyError('Native search exceeded result limit')
@@ -609,9 +630,10 @@ def register_read_tools(mcp):
 
         @mcp.tool(annotations=annotations)
         @guard
-        def notes_search(text: str, folder_id: str | None = None, limit: int = 50, offset: int = 0) -> dict:
-            """Bounded title, plaintext and exported table-text search. Follow next_offset until done even after empty pages."""
-            return NativeReader('notes').read('search', text=text, folder_id=folder_id, limit=limit, offset=offset)
+        def notes_search(text: str, folder_id: str | None = None, limit: int = 50, offset: int = 0,
+                         modified_from: str | None = None, modified_before: str | None = None) -> dict:
+            """Search bounded title, plaintext and exported table text. Optional UTC modification bounds are inclusive from and exclusive before; follow next_offset even after empty pages."""
+            return NativeReader('notes').read('search', text=text, folder_id=folder_id, limit=limit, offset=offset, modified_from=modified_from, modified_before=modified_before)
 
         @mcp.tool(annotations=annotations)
         @guard

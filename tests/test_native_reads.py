@@ -268,6 +268,22 @@ class NativeReadTests(unittest.TestCase):
         self.assertNotIn('table_projection_candidates',result)
         self.assertNotIn('html',result['items'][0])
 
+    def test_notes_modification_filter_rejects_old_helpers_and_out_of_range_rows(self):
+        config={'notes':{'source_ids':['selected']}}
+        fields={'text':'table','modified_from':'2026-10-27T12:00:00Z','modified_before':'2026-10-27T13:00:00Z'}
+        filter_info={'from':fields['modified_from'],'before':fields['modified_before'],'semantics':'utc_inclusive_from_exclusive_before'}
+        candidate={'id':'note','title':'Synthetic','source_id':'selected','folder_id':'folder','html':'<table><tr><td>table</td></tr></table>','truncated':False,'modified':'2026-10-27T12:00:00.000Z'}
+        page={'items':[],'table_projection_candidates':[candidate],'modified_filter':filter_info,'done':True,'next_offset':1}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=page):
+            result=NativeReader('notes').read('search',**fields)
+            self.assertEqual(result['items'][0]['modified'],candidate['modified'])
+        for invalid in ({'items':[]}, {**page,'table_projection_candidates':[{**candidate,'modified':'2026-10-27T13:00:00.000Z'}]}, {**page,'items':[{'modified':None}]}):
+            with self.subTest(invalid=invalid),self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=invalid),self.assertRaises(SafetyError):
+                NativeReader('notes').read('search',**fields)
+        for invalid in ({'modified_from':'2026-02-30T00:00:00Z'}, {'modified_from':'2026-10-27T12:00:00+00:00'}, {'modified_from':'2026-10-27T13:00:00Z','modified_before':'2026-10-27T12:00:00Z'}):
+            with self.subTest(invalid=invalid),self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',side_effect=AssertionError('No helper')),self.assertRaises(SafetyError):
+                NativeReader('notes').read('search',text='table',**invalid)
+
     def test_due_range_and_priority_filters_refuse_invalid_values_before_sdk(self):
         cases=[{'due_from':'2026-10-28','due_through':'2026-10-27','timezone':'UTC'},
                {'due_from':'2026-10-27'}, {'due_date':'2026-10-27','due_from':'2026-10-26','timezone':'UTC'},

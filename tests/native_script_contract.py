@@ -40,7 +40,7 @@ const fixtureApplication = name=>{
 def run():
     source = (ROOT/'src/icloud_for_agents/native/notes.js').read_text()
     with tempfile.TemporaryDirectory(prefix='icloud-native-fixtures-') as directory:
-        script=Path(directory)/'notes-fixture.js';script.write_text(FIXTURE+'\n'+source+"\nfunction run() { const req=readRequest();fixtureNoWalk=req.synthetic_no_walk===true;return readNotes(fixtureApplication('Notes'),req); }\n")
+        script=Path(directory)/'notes-fixture.js';script.write_text(FIXTURE+'\n'+source+"\nfunction run() { const req=readRequest();fixtureNoWalk=req.synthetic_no_walk===true;if(req.synthetic_modified)fixtureNotes[0].modificationDate=()=>new Date('2026-10-27T12:00:00.000Z');return readNotes(fixtureApplication('Notes'),req); }\n")
         def call(action, **fields):
             request={'protocol_version':1,'action':action,'source_ids':['selected'],**fields}
             process=subprocess.run(['/usr/bin/osascript','-l','JavaScript',str(script)],
@@ -96,6 +96,11 @@ print(result)
         assert search['items']==[] and search['locked_bodies_excluded']>0
         table_search=call('search',text='Table-only',limit=1,offset=0)
         assert len(table_search['table_projection_candidates'])==1
+        bounded=call('search',text='Table-only',folder_id='folder-1',limit=10,offset=0,synthetic_modified=True,modified_from='2026-10-27T12:00:00Z',modified_before='2026-10-27T12:00:01Z')
+        assert bounded['table_projection_candidates'][0]['modified']=='2026-10-27T12:00:00.000Z'
+        assert bounded['modified_filter']['semantics']=='utc_inclusive_from_exclusive_before'
+        outside=call('search',text='content',folder_id='folder-1',limit=10,offset=0,synthetic_modified=True,modified_before='2026-10-27T12:00:00Z')
+        assert outside['items']==[]
         attachments=call('attachments',folder_id='folder-1',id='note-1',limit=1,offset=0)
         assert attachments['attachments'][0]['id']=='attachment-1' and attachments['content_downloaded'] is False
         assert attachments['attachments'][0]['name'] is None

@@ -88,6 +88,12 @@ function readNotes(app, req) {
     } else selected.forEach(a => walk(a,a.id(),0));
     if (req.action==='search') {
         if(typeof req.text!=='string' || req.text.length<1 || req.text.length>1000 || !Number.isInteger(req.limit) || req.limit<1 || req.limit>100 || !Number.isInteger(req.offset) || req.offset<0 || req.offset>100000)throw Error('invalid_page');
+        const hasModified=req.modified_from!==undefined || req.modified_before!==undefined;
+        for(const value of [req.modified_from,req.modified_before])if(value!==undefined) {
+            if(typeof value!=='string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(value))throw Error('invalid_fields');
+            const date=new Date(value);if(!Number.isFinite(date.getTime()) || date.toISOString()!==value.slice(0,-1)+'.000Z')throw Error('invalid_fields');
+        }
+        if(req.modified_from!==undefined && req.modified_before!==undefined && req.modified_from>=req.modified_before)throw Error('invalid_fields');
         const refs=[];
         folders.filter(f=>!req.folder_id || f.object.id()===req.folder_id).forEach(f=>{
             f.object.notes.id().forEach(id=>refs.push({id:id,folder:f}));
@@ -103,6 +109,13 @@ function readNotes(app, req) {
             try {
                 const note=ref.folder.object.notes.byId(ref.id);
                 if(note.container().id()!==ref.folder.object.id())continue;
+                let modified=null;
+                if(hasModified) {
+                    const date=note.modificationDate();
+                    if(!date || !Number.isFinite(date.getTime())){unavailable.push({id:ref.id,category:'modification_date_unavailable'});continue;}
+                    modified=date.toISOString();
+                    if((req.modified_from && modified<req.modified_from.slice(0,-1)+'.000Z') || (req.modified_before && modified>=req.modified_before.slice(0,-1)+'.000Z'))continue;
+                }
                 const title=note.name(), locked=note.passwordProtected();
                 let body='';
                 if(locked)lockedSkipped++;
@@ -110,7 +123,7 @@ function readNotes(app, req) {
                 const index=body.toLowerCase().indexOf(needle);
                 if(title.toLowerCase().includes(needle) || index>=0)items.push({id:ref.id,title:title.slice(0,1000),
                     source_id:ref.folder.source,folder_id:ref.folder.object.id(),locked:locked,
-                    excerpt:index>=0?body.slice(Math.max(0,index-80),index+240):'',content_complete:false});
+                    excerpt:index>=0?body.slice(Math.max(0,index-80),index+240):'',content_complete:false,...(hasModified?{modified:modified}:{})});
                 else if(!locked) {
                     const html=note.body();
                     if(html.includes('<table')) {
@@ -118,14 +131,15 @@ function readNotes(app, req) {
                         if(projectionBytes+bounded.length>250000)unavailable.push({id:ref.id,category:'table_projection_budget'});
                         else {projectionBytes+=bounded.length;projections.push({id:ref.id,title:title.slice(0,1000),
                             source_id:ref.folder.source,folder_id:ref.folder.object.id(),html:bounded,
-                            truncated:html.length>100000});}
+                            truncated:html.length>100000,...(hasModified?{modified:modified}:{})});}
                     }
                 }
             } catch(_) {unavailable.push({id:ref.id,category:'note_read_unavailable'});}
         }
         return JSON.stringify({protocol_version:1,items:items,table_projection_candidates:projections,done:offset>=refs.length,next_offset:offset,
             scanned:scanned,unavailable:unavailable,locked_bodies_excluded:lockedSkipped,truncated_bodies:truncatedBodies,
-            search_coverage:'title, bounded plaintext and exported table text; no native OCR/attachment/semantic index',pagination_consistency:'live_offset_may_shift'});
+            search_coverage:'title, bounded plaintext and exported table text; no native OCR/attachment/semantic index',pagination_consistency:'live_offset_may_shift',
+            ...(hasModified?{modified_filter:{from:req.modified_from||null,before:req.modified_before||null,semantics:'utc_inclusive_from_exclusive_before'}}:{})});
     }
     if (req.action === 'folders') {
         const limit=req.limit===undefined?100:req.limit, offset=req.offset===undefined?0:req.offset;
