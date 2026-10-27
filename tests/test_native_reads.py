@@ -135,12 +135,12 @@ class NativeReadTests(unittest.TestCase):
 
     def test_recovery_lookup_rejects_unselected_or_unverified_results(self):
         config={'reminders':{'source_ids':['selected'],'helper_path':'/synthetic/helper','advanced_backend':'reminderkit'}}
-        response={'id':'task','source_id':'selected','found_as_root':True,'view':'provider_recently_deleted','observation_consistency':'separate_provider_reads','data_mutated':False}
+        response={'id':'task','source_id':'selected','found_as_root':True,'view':'provider_recently_deleted','reported_child_ids':None,'children_status':'unavailable','children_complete':False,'observation_consistency':'separate_provider_reads','data_mutated':False}
         with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=response):
             self.assertTrue(NativeReader('reminders').read('recovery_lookup',id='task',source_id='selected')['found_as_root'])
             with self.assertRaises(SafetyError):NativeReader('reminders').read('recovery_lookup',id='task',source_id='foreign')
             with self.assertRaises(SafetyError):NativeReader('reminders').read('get',id='task',source_id='selected')
-        for value in ({'items':[]},{**response,'source_id':'foreign'},{**response,'found_as_root':1},{**response,'data_mutated':True}):
+        for value in ({'items':[]},{**response,'source_id':'foreign'},{**response,'found_as_root':1},{**response,'data_mutated':True},{**response,'reported_child_ids':['x','x'],'children_status':'provider_reported'},{**response,'found_as_root':False,'reported_child_ids':['x'],'children_status':'provider_reported'}):
             with self.subTest(value=value),self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=value),self.assertRaises(SafetyError):
                 NativeReader('reminders').read('recovery_lookup',id='task',source_id='selected')
 

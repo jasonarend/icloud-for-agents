@@ -14,7 +14,7 @@ def dispatch(self,request,config):
     assert self.name=='reminders' and request['source_ids']==['selected']
     if request['action']=='recovery_lookup':
         assert request['source_id']=='selected'
-        return {'protocol_version':1,'id':request['id'],'source_id':'selected','found_as_root':True,'view':'provider_recently_deleted','data_mutated':False,'observation_consistency':'separate_provider_reads'}
+        return {'protocol_version':1,'id':request['id'],'source_id':'selected','found_as_root':True,'view':'provider_recently_deleted','reported_child_ids':None,'children_status':'unavailable','children_complete':False,'data_mutated':False,'observation_consistency':'separate_provider_reads'}
     if request['action']=='query':
         assert (type(request.get('flagged')) is bool or isinstance(request.get('tag'),str)) and request['limit']==1
         if 'due_date' in request:assert request['due_date']=='2026-10-27' and request['timezone']=='UTC' and request['completed'] is False and request['list_id']=='list'

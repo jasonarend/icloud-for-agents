@@ -42,7 +42,8 @@ static NSString *target=@"22222222-2222-2222-2222-222222222222";
 }
 -(id)resultFromPerformingSwiftInvocation:(id)inv parametersData:(NSData *)data storages:(id)stores error:(NSError **)error{
  if([scenario isEqual:@"error"]){*error=[NSError errorWithDomain:@"synthetic" code:1 userInfo:nil];return nil;}
- NSDictionary *obj=@{@"objectID":@{@"uuid":target,@"entityName":@"REMCDReminder"}};
+ NSDictionary *child=@{@"objectID":@{@"uuid":@"44444444-4444-4444-4444-444444444444",@"entityName":@"REMCDReminder"}};
+ NSDictionary *obj=@{@"objectID":@{@"uuid":target,@"entityName":@"REMCDReminder"},@"subtasks":[scenario isEqual:@"bad_children"]?@[child,child]:@[child]};
  id list=[scenario isEqual:@"absent"]?@[]:[scenario isEqual:@"duplicate"]?@[obj,obj]:[scenario isEqual:@"malformed"]?@[@{@"objectID":@{}}]:@[obj];
  FakeResult *result=[FakeResult new];result.resultData=[NSPropertyListSerialization dataWithPropertyList:@{@"model":@{@"reminders":list}} format:NSPropertyListBinaryFormat_v1_0 options:0 error:NULL];return result;
 }
@@ -63,8 +64,8 @@ def run():
         p=Path(directory);(p/'reminders-model.h').write_text((ROOT/'src/icloud_for_agents/native/reminders-model.h').read_text());(p/'test.m').write_text(source+'\n'+FIXTURE)
         result=subprocess.run(['/usr/bin/clang','-fobjc-arc','-framework','Foundation',str(p/'test.m'),'-o',str(p/'contract')],capture_output=True,text=True,timeout=60);assert result.returncode==0,result.stderr
         def call(s):return json.loads(subprocess.run([str(p/'contract'),s],capture_output=True,text=True,check=True,timeout=5).stdout)
-        yes=call('present');assert yes['found_as_root'] is True and yes['data_mutated'] is False and yes['view']=='provider_recently_deleted'
+        yes=call('present');assert yes['found_as_root'] is True and yes['data_mutated'] is False and yes['view']=='provider_recently_deleted' and len(yes['reported_child_ids'])==1 and yes['children_complete'] is False
         assert call('absent')['found_as_root'] is False
-        for scenario in ('foreign','duplicate_account','unsupported','error','duplicate','malformed'):assert call(scenario)['error']=='private_metadata_unavailable',scenario
+        for scenario in ('foreign','duplicate_account','unsupported','error','duplicate','malformed','bad_children'):assert call(scenario)['error']=='private_metadata_unavailable',scenario
     print(json.dumps({'status':'passed','apple_store_opened':False,'checks':['fixed_scoped_provider_view','true_false_boolean','foreign_duplicate_denied_malformed_refused','no_mutation']}))
 if __name__=='__main__':run()

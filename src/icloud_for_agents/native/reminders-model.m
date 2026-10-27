@@ -187,15 +187,31 @@ NSData *ICloudRemindersRecoveryLookup(NSData *data){
         id model=[decoded isKindOfClass:NSDictionary.class]?decoded[@"model"]:nil;
         id values=[model isKindOfClass:NSDictionary.class]?model[@"reminders"]:nil;
         if(error || ![values isKindOfClass:NSArray.class] || [values count]>5000)return EncodeFlag(FlagFailure(@"recovery_read_unavailable"));
-        NSUInteger matches=0;
+        NSUInteger matches=0;id selectedRoot=nil;
         for(id value in values){
             id objectID=[value isKindOfClass:NSDictionary.class]?value[@"objectID"]:nil;
             id uuid=[objectID isKindOfClass:NSDictionary.class]?objectID[@"uuid"]:nil;
             id entity=[objectID isKindOfClass:NSDictionary.class]?objectID[@"entityName"]:nil;
             if(![uuid isKindOfClass:NSString.class] || ![[NSUUID alloc]initWithUUIDString:uuid] || ![entity isEqual:@"REMCDReminder"])return EncodeFlag(FlagFailure(@"recovery_read_unavailable"));
-            if(UUIDEqual(uuid,identifier))matches++;
+            if(UUIDEqual(uuid,identifier)){matches++;selectedRoot=value;}
         }
         if(matches>1)return EncodeFlag(FlagFailure(@"native_identity_mismatch"));
-        return EncodeFlag(@{@"protocol_version":@1,@"source_id":source,@"id":identifier,@"found_as_root":@((BOOL)(matches==1)),@"view":@"provider_recently_deleted",@"observation_consistency":@"separate_provider_reads",@"data_mutated":@NO});
+        id children=[NSNull null];NSString *childrenStatus=@"unavailable";
+        if(selectedRoot && selectedRoot[@"subtasks"]){
+            id values=selectedRoot[@"subtasks"];
+            if(![values isKindOfClass:NSArray.class] || [values count]>100)return EncodeFlag(FlagFailure(@"recovery_read_unavailable"));
+            NSMutableArray *ids=[NSMutableArray array];NSMutableSet *seen=[NSMutableSet set];
+            for(id value in values){
+                id objectID=[value isKindOfClass:NSDictionary.class]?value[@"objectID"]:nil;
+                NSString *uuid=[objectID isKindOfClass:NSDictionary.class]?objectID[@"uuid"]:nil;
+                id entity=[objectID isKindOfClass:NSDictionary.class]?objectID[@"entityName"]:nil;
+                NSUUID *parsed=[uuid isKindOfClass:NSString.class]?[[NSUUID alloc]initWithUUIDString:uuid]:nil;
+                NSString *canonical=parsed.UUIDString;
+                if(!canonical || ![entity isEqual:@"REMCDReminder"] || UUIDEqual(canonical,identifier) || [seen containsObject:canonical])return EncodeFlag(FlagFailure(@"recovery_read_unavailable"));
+                [seen addObject:canonical];[ids addObject:canonical];
+            }
+            [ids sortUsingSelector:@selector(compare:)];children=ids;childrenStatus=@"provider_reported";
+        }
+        return EncodeFlag(@{@"protocol_version":@1,@"source_id":source,@"id":identifier,@"found_as_root":@((BOOL)(matches==1)),@"view":@"provider_recently_deleted",@"reported_child_ids":children,@"children_status":childrenStatus,@"children_complete":@NO,@"observation_consistency":@"separate_provider_reads",@"data_mutated":@NO});
     }@catch(NSException *exception){return EncodeFlag(FlagFailure(@"private_read_exception"));}
 }

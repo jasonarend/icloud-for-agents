@@ -159,7 +159,14 @@ class NativeReader:
                 raise SafetyError('Reminder access changed during recovery lookup')
             if (not isinstance(result,dict) or result.get('id')!=fields['id'] or result.get('source_id')!=fields['source_id']
                     or type(result.get('found_as_root')) is not bool or result.get('view')!='provider_recently_deleted'
-                    or result.get('observation_consistency')!='separate_provider_reads' or result.get('data_mutated') is not False):
+                    or result.get('observation_consistency')!='separate_provider_reads' or result.get('data_mutated') is not False
+                    or result.get('children_complete') is not False or 'reported_child_ids' not in result
+                    or result.get('children_status') not in {'unavailable','provider_reported'}
+                    or (result.get('children_status')=='unavailable')!=(result['reported_child_ids'] is None)
+                    or (result.get('found_as_root') is False and result.get('reported_child_ids') is not None)
+                    or (result.get('reported_child_ids') is not None and (not isinstance(result['reported_child_ids'],list)
+                        or len(result['reported_child_ids'])>100 or any(not isinstance(x,str) or not x for x in result['reported_child_ids'])
+                        or len(set(result['reported_child_ids']))!=len(result['reported_child_ids'])))):
                 raise SafetyError('Configured helper did not verify the exact recovery view; update or review its compatibility')
         if native_selections:
             # Older helpers may silently ignore newer selectors. Never return a
