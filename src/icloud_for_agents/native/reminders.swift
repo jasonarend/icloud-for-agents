@@ -157,6 +157,31 @@ guard let service=req["service"] as? String, ["notes","reminders"].contains(serv
 requestService=service
 if service == "notes" {
     guard ["status", "request_access", "sources", "folders", "folder_get", "folder_inventory", "query", "get", "search", "attachments", "diagnose_note", "contains", "apply", "diagnose_read_access"].contains(action) else { fail("unsupported_action") }
+    // Reuse the running fixed target without a redundant reopen Apple event.
+    // Only the normal helper application launches Notes; permission enforcement
+    // remains on every subsequent event from this same host.
+    if action != "status" && !NSRunningApplication.runningApplications(withBundleIdentifier:"com.apple.Notes").contains(where:{!$0.isTerminated}) {
+        _ = NSApplication.shared
+        let configuration=NSWorkspace.OpenConfiguration()
+        configuration.activates=false
+        configuration.addsToRecentItems=false
+        let launchLock=NSLock()
+        var finished=false
+        var launched=false
+        NSWorkspace.shared.openApplication(at:URL(fileURLWithPath:"/System/Applications/Notes.app"),configuration:configuration) {app,error in
+            launchLock.lock();defer {launchLock.unlock()}
+            launched=app != nil && error == nil
+            finished=true
+        }
+        let deadline=Date(timeIntervalSinceNow:8)
+        while Date()<deadline {
+            launchLock.lock();let done=finished;launchLock.unlock()
+            if done {break}
+            _ = RunLoop.current.run(mode:.default,before:Date(timeIntervalSinceNow:0.05))
+        }
+        launchLock.lock();let ready=finished && launched;launchLock.unlock()
+        guard ready else {fail("notes_application_launch_failed")}
+    }
     if action == "diagnose_read_access" {
         // Explicit operator setup probe: a real, minimal read through normal OS
         // enforcement. Does not inspect note bodies, alter policy or approve consent.
