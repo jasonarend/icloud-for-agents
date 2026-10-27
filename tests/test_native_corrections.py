@@ -62,7 +62,7 @@ class NativeCorrectionTests(unittest.TestCase):
         def enriched(action,**fields):
             result=read(action,**fields)
             if action=='get' and fields.get('include_native_metadata'):
-                result['item']['native_metadata']={**{k:result['item'][k] for k in ('id','source_id','list_id')},'coverage':['flagged','tags'],'flagged':flag,'flag_state':int(flag),'tags':[],'tags_complete':True}
+                result['item']['native_metadata']={**{k:result['item'][k] for k in ('id','source_id','list_id')},'coverage':['flagged','tags','hierarchy','children'],'flagged':flag,'flag_state':int(flag),'tags':[],'tags_complete':True,'is_subtask':False,'parent_id':None,'has_subtasks':False,'hierarchy_complete':False,'children_status':'provider_reported','child_ids':[],'children_complete':False,'children_fetch_status':'provider_reported'}
             return result
         adapter.reader.read=enriched
         engine=NativeChanges('reminders','synthetic@example.com',adapter,PlanStore(Path(self.temp.name)/'native-runtime'))

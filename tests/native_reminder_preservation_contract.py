@@ -9,6 +9,7 @@ struct Calendar {let source=Source();let calendarIdentifier="list"}
 struct EKReminder {let calendar=Calendar();let calendarItemIdentifier="task"}
 var flag=false
 var tagName="Project"
+var childIDs=["synthetic-child"]
 var privateReads=0
 func fail(_ code:String)->Never {fatalError(code)}
 func respond(_ value:[String:Any])->Never {fatalError("unexpected refusal")}
@@ -23,25 +24,32 @@ func output(_ input:Data,_ tags:Bool)->Data {
 }
 func ICloudRemindersReadFlag(_ input:Data)->Data {output(input,false)}
 func ICloudRemindersReadTags(_ input:Data)->Data {output(input,true)}
-func ICloudRemindersReadChildren(_ input:Data)->Data {fatalError("children not requested") }
+func ICloudRemindersReadChildren(_ input:Data)->Data {
+    privateReads+=1
+    var value=try! JSONSerialization.jsonObject(with:input) as! [String:Any]
+    value["backend"]="reminderkit-children-v1";value["coverage"]=["children"];value["native_metadata_complete"]=false
+    value["observation_consistency"]="separate_provider_reads";value["child_ids"]=childIDs;value["children_complete"]=false;value["children_fetch_status"]="provider_reported"
+    return try! JSONSerialization.data(withJSONObject:["native_metadata":value])
+}
 func ICloudRemindersReadHierarchy(_ input:Data)->Data {
     privateReads+=1
     var value=try! JSONSerialization.jsonObject(with:input) as! [String:Any]
     value["backend"]="reminderkit-hierarchy-v1";value["coverage"]=["hierarchy"];value["native_metadata_complete"]=false
-    value["observation_consistency"]="separate_provider_reads";value["is_subtask"]=false;value["has_subtasks"]=false;value["hierarchy_complete"]=false
+    value["observation_consistency"]="separate_provider_reads";value["is_subtask"]=false;value["parent_id"]=NSNull();value["has_subtasks"]=false;value["hierarchy_complete"]=false;value["children_status"]="provider_reported"
     return try! JSONSerialization.data(withJSONObject:["native_metadata":value])
 }
 '''
 CHECKS='''
 let reminder=EKReminder()
 precondition(selectedNativeMetadata(reminder,[:])==nil && privateReads==0)
-let expected=selectedNativeMetadata(reminder,["include_native_metadata":true,"include_native_tags":true])!
-precondition(expected["coverage"] as! [String]==["flagged","tags"])
+let expected=selectedNativeMetadata(reminder,["include_native_metadata":true,"include_native_tags":true,"include_native_hierarchy":true,"include_native_children":true])!
+precondition(expected["coverage"] as! [String]==["flagged","tags","hierarchy","children"])
 precondition(nativeSnapshotMatches(reminder,expected))
 let combined=selectedNativeMetadata(reminder,["include_native_metadata":true,"include_native_tags":true,"include_native_hierarchy":true])!
 precondition(combined["coverage"] as! [String]==["flagged","tags","hierarchy"] && combined["backend"] as! String=="reminderkit-combined-v1" && combined["hierarchy_complete"] as! Bool==false)
 flag=true;precondition(!nativeSnapshotMatches(reminder,expected));flag=false
  tagName="Externally changed";precondition(!nativeSnapshotMatches(reminder,expected));tagName="Project"
+childIDs.append("new-child");precondition(!nativeSnapshotMatches(reminder,expected));childIDs.removeLast()
 var wrong=expected;wrong["source_id"]="foreign";precondition(!nativeSnapshotMatches(reminder,wrong))
 wrong=expected;wrong["list_id"]="foreign";precondition(!nativeSnapshotMatches(reminder,wrong))
 wrong=expected;wrong.removeValue(forKey:"tags");precondition(!nativeSnapshotMatches(reminder,wrong))
@@ -61,7 +69,9 @@ def run():
         from icloud_for_agents.native_protocol import mutation_request
         metadata={'id':'task','source_id':'selected','list_id':'list','flagged':False,'flag_state':0,
                   'tags':[{'id':'tag','name':'Project','native_type':0}],'tags_complete':True,
-                  'coverage':['flagged','tags'],'backend':'reminderkit-flags-and-tags-v1',
+                  'coverage':['flagged','tags','hierarchy','children'],'backend':'reminderkit-combined-v1',
+                  'is_subtask':False,'parent_id':None,'has_subtasks':False,'hierarchy_complete':False,'children_status':'provider_reported',
+                  'child_ids':['synthetic-child'],'children_complete':False,'children_fetch_status':'provider_reported',
                   'native_metadata_complete':False,'observation_consistency':'separate_provider_reads'}
         item={'operation':'update_reminder','source_id':'selected','id':'task','fields':{'notes':'new'},
               'before':{'item':{'id':'task'},'native_metadata':metadata}}

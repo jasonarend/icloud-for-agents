@@ -73,7 +73,12 @@ class NativeReadTests(unittest.TestCase):
 
     def test_private_reminder_metadata_is_opt_in_and_preserves_exact_public_scope(self):
         config={'reminders':{'source_ids':['selected'],'helper_path':'/synthetic/helper','advanced_backend':'reminderkit'}};calls=[]
-        def dispatch(request,config):calls.append(request);return {'protocol_version':1,'item':{'id':'synthetic'}}
+        def dispatch(request,config):
+            calls.append(request);item={'id':'synthetic','source_id':'selected','list_id':'list'}
+            coverage=[label for key,label in (('include_native_metadata','flagged'),('include_native_tags','tags'),('include_native_hierarchy','hierarchy'),('include_native_children','children')) if request.get(key)]
+            if coverage:
+                item['native_metadata']={'id':'synthetic','source_id':'selected','list_id':'list','coverage':coverage,'flagged':False,'flag_state':0,'tags':[],'tags_complete':True,'is_subtask':False,'parent_id':None,'has_subtasks':None,'hierarchy_complete':False,'children_status':'unavailable','child_ids':None,'children_complete':False,'children_fetch_status':'unavailable'}
+            return {'protocol_version':1,'item':item}
         with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',side_effect=dispatch):
             NativeReader('reminders').read('get',id='synthetic')
             NativeReader('reminders').read('get',id='synthetic',include_native_metadata=True)
@@ -91,13 +96,28 @@ class NativeReadTests(unittest.TestCase):
                 with self.subTest(name=name,action=action,value=value),self.assertRaises(SafetyError):NativeReader(name).read(action,include_native_children=value)
     def test_flag_filter_requires_opt_in_boolean_and_selected_scope(self):
         config={'reminders':{'source_ids':['selected'],'helper_path':'/synthetic/helper','advanced_backend':'reminderkit'}};calls=[]
-        def dispatch(request,config):calls.append(request);return {'protocol_version':1,'items':[],'done':False,'next_offset':1}
+        def dispatch(request,config):calls.append(request);return {'protocol_version':1,'items':[],'done':False,'next_offset':1,'pagination_consistency':'live_offset_may_shift','native_flag_filter':{'scanned':1,'matched':0,'observation_consistency':'separate_provider_reads'}}
         with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',side_effect=dispatch):
             NativeReader('reminders').read('query',flagged=False,limit=1)
             self.assertIs(calls[0]['flagged'],False);self.assertEqual(calls[0]['source_ids'],['selected'])
             for name,action,value in [('reminders','query',1),('reminders','get',True),('notes','query',True)]:
                 with self.subTest(name=name,action=action,value=value),self.assertRaises(SafetyError):NativeReader(name).read(action,flagged=value)
         with self.env(ICLOUD_NATIVE_CONFIG=json.dumps({'reminders':{'source_ids':['selected']}})),patch('platform.system',return_value='Darwin'),self.assertRaises(SafetyError):NativeReader('reminders').read('query',flagged=True)
+
+    def test_old_or_unscoped_helper_cannot_silently_succeed_at_requested_metadata(self):
+        config={'reminders':{'source_ids':['selected'],'helper_path':'/synthetic/helper','advanced_backend':'reminderkit'}}
+        item={'id':'synthetic','source_id':'selected','list_id':'list'}
+        for response in ({'item':item},{'item':{**item,'native_metadata':{'id':'synthetic','source_id':'foreign','list_id':'list','coverage':['children'],'child_ids':[],'children_complete':False}}},{'item':{**item,'native_metadata':{'id':'synthetic','source_id':'selected','list_id':'list','coverage':['children'],'children_complete':False,'children_fetch_status':'unavailable'}}}):
+            with self.subTest(response=response),self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=response),self.assertRaises(SafetyError):
+                NativeReader('reminders').read('get',id='synthetic',include_native_children=True)
+
+    def test_old_or_unfiltered_helper_cannot_succeed_at_flagged_query(self):
+        config={'reminders':{'source_ids':['selected'],'helper_path':'/synthetic/helper','advanced_backend':'reminderkit'}}
+        responses=[{'items':[],'done':True}, {'items':[],'done':False,'next_offset':0,'native_flag_filter':{'scanned':0,'matched':0}}, {'items':[],'done':True,'next_offset':0,'native_flag_filter':{'scanned':1,'matched':0}},
+                   {'items':[{'id':'x','source_id':'selected','list_id':'list'}],'done':True,'next_offset':1,'native_flag_filter':{'scanned':1,'matched':1}}]
+        for response in responses:
+            with self.subTest(response=response),self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=response),self.assertRaises(SafetyError):
+                NativeReader('reminders').read('query',flagged=True)
 
     def test_unknown_advanced_backends_are_not_configuration_authority(self):
         for config in ({'notes':{'advanced_backend':'reminderkit'}},{'reminders':{'advanced_backend':'unknown'}},{'reminders':{'advanced_backend':True}}):

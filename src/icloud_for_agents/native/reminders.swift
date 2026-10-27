@@ -684,7 +684,7 @@ func selectedNativeMetadata(_ reminder:EKReminder,_ selections:[String:Any])->[S
     return nil
 }
 func nativeSnapshotMatches(_ reminder:EKReminder,_ expected:[String:Any])->Bool {
-    guard let observed=selectedNativeMetadata(reminder,["include_native_metadata":true,"include_native_tags":true]) else {return false}
+    guard let observed=selectedNativeMetadata(reminder,["include_native_metadata":true,"include_native_tags":true,"include_native_hierarchy":true,"include_native_children":true]) else {return false}
     return NSDictionary(dictionary:observed).isEqual(to:expected)
 }
 if action == "get" {
@@ -709,6 +709,11 @@ let requestedList = req["list_id"] as? String
 let selected = lists.filter { requestedList == nil || $0.calendarIdentifier == requestedList }
 guard !selected.isEmpty else {
     if requestedList != nil { fail("not_found_in_scope") }
+    if let flag=req["flagged"] {
+        guard let value=flag as? NSNumber,CFGetTypeID(value)==CFBooleanGetTypeID() else {fail("invalid_request")}
+        respond(["protocol_version":1,"items":[],"done":true,"next_offset":offset,"pagination_consistency":"live_offset_may_shift",
+                 "native_flag_filter":["scanned":0,"matched":0,"observation_consistency":"separate_provider_reads"]])
+    }
     respond(["protocol_version": 1, "items": [], "done": true])
 }
 let dueFilter = req["due_date"] as? String

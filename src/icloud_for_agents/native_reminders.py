@@ -122,7 +122,7 @@ class RemindersCreateAdapter:
         path=Path(helper)
         if not path.is_file() or path.stat().st_size>50_000_000:raise SafetyError('Invalid native helper')
         identity='eventkit-creation-v1:'+hashlib.sha256(path.read_bytes()).hexdigest()
-        if native_config('reminders').get('advanced_backend')=='reminderkit':identity+=':reminderkit-flags-tags-preservation-v1'
+        if native_config('reminders').get('advanced_backend')=='reminderkit':identity+=':reminderkit-observed-metadata-preservation-v2'
         return identity
     def lists(self):
         result=[];offset=0
@@ -229,7 +229,7 @@ class RemindersCreateAdapter:
               'fidelity_verified':True,'effects':{'existing_content':'only explicitly listed public EventKit fields change',
               'native_metadata':'advanced native-field preservation requires live acceptance',
               'notifications':'Apple controls sync and notification delivery'}}
-        if native_config('reminders').get('advanced_backend')=='reminderkit':item['effects']['native_metadata']='The exact observed flags and native tags must be unchanged before dispatch and during independent readback; other native metadata remains incomplete.'
+        if native_config('reminders').get('advanced_backend')=='reminderkit':item['effects']['native_metadata']='Observed flags, native tags and partial hierarchy metadata must be unchanged before dispatch and during independent readback; complete subtree and other native metadata remain unverified.'
         if 'alarms' in item['fields']:item['effects']['notifications']='Replace the complete exposed ordinary time-alarm set; may schedule, reschedule or cancel notifications on synced devices. Past triggers may notify immediately; delivery remains controlled by Apple.'
         item['before']=self.snapshot(item)
         if 'alarms' in item['fields']:
@@ -290,13 +290,23 @@ class RemindersCreateAdapter:
         return item
     def native_snapshot(self,public_item):
         if native_config('reminders').get('advanced_backend')!='reminderkit':return None
-        observed=dict(self.reader.read('get',id=public_item['id'],include_native_metadata=True,include_native_tags=True)['item'])
+        observed=dict(self.reader.read('get',id=public_item['id'],include_native_metadata=True,include_native_tags=True,include_native_hierarchy=True,include_native_children=True)['item'])
         metadata=observed.pop('native_metadata',None)
-        if (observed!=public_item or not isinstance(metadata,dict) or metadata.get('coverage')!=['flagged','tags']
+        if (observed!=public_item or not isinstance(metadata,dict) or metadata.get('coverage')!=['flagged','tags','hierarchy','children']
                 or type(metadata.get('flagged')) is not bool or metadata.get('tags_complete') is not True
-                or not isinstance(metadata.get('tags'),list)
+                or not isinstance(metadata.get('tags'),list) or type(metadata.get('is_subtask')) is not bool
+                or (metadata.get('has_subtasks') is not None and type(metadata['has_subtasks']) is not bool)
+                or (metadata.get('child_ids') is not None and (not isinstance(metadata['child_ids'],list) or any(not isinstance(x,str) for x in metadata['child_ids'])))
+                or metadata.get('hierarchy_complete') is not False or metadata.get('children_complete') is not False
+                or (metadata.get('is_subtask') and not isinstance(metadata.get('parent_id'),str))
+                or (not metadata.get('is_subtask') and metadata.get('parent_id') is not None)
+                or (metadata.get('children_status')=='unavailable') != (metadata.get('has_subtasks') is None)
+                or metadata.get('children_status') not in {'unavailable','provider_reported'}
+                or (metadata.get('children_fetch_status')=='unavailable') != (metadata.get('child_ids') is None)
+                or metadata.get('children_fetch_status') not in {'unavailable','provider_reported'}
+                or (metadata.get('has_subtasks') is False and bool(metadata.get('child_ids')))
                 or any(metadata.get(key)!=public_item.get(key) for key in ('id','source_id','list_id'))):
-            raise SafetyError('Exact optional native flag/tag snapshot is unavailable or changed')
+            raise SafetyError('Exact optional native metadata snapshot is unavailable or changed')
         return metadata
 
     def snapshot(self,item):

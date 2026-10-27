@@ -142,6 +142,36 @@ class NativeReader:
             from .native_note_store import folder_role
             return folder_role(fields['folder_id'],sources)
         result = self._dispatch(request, config)
+        if native_selections:
+            # Older helpers may silently ignore newer selectors. Never return a
+            # successful native read without the requested, scoped coverage.
+            item=result.get('item') if isinstance(result,dict) else None
+            metadata=item.get('native_metadata') if isinstance(item,dict) else None
+            expected=[label for key,label in (('include_native_metadata','flagged'),('include_native_tags','tags'),('include_native_hierarchy','hierarchy'),('include_native_children','children')) if key in native_selections]
+            if (not isinstance(metadata,dict) or metadata.get('coverage')!=expected
+                    or item.get('id')!=request.get('id') or item.get('source_id') not in sources
+                    or not isinstance(item.get('list_id'),str) or not item['list_id']
+                    or any(metadata.get(k)!=item.get(k) for k in ('id','source_id','list_id'))
+                    or ('flagged' in expected and (type(metadata.get('flagged')) is not bool or type(metadata.get('flag_state')) is not int or metadata.get('flag_state') not in (0,1) or metadata['flagged']!=(metadata['flag_state']==1)))
+                    or ('tags' in expected and (not isinstance(metadata.get('tags'),list) or len(metadata['tags'])>200 or metadata.get('tags_complete') is not True or any(not isinstance(t,dict) or not isinstance(t.get('id'),str) or not isinstance(t.get('name'),str) or type(t.get('native_type')) is not int for t in metadata['tags'])))
+                    or ('hierarchy' in expected and (type(metadata.get('is_subtask')) is not bool or 'parent_id' not in metadata or 'has_subtasks' not in metadata or metadata.get('hierarchy_complete') is not False or (metadata.get('has_subtasks') is not None and type(metadata.get('has_subtasks')) is not bool) or not isinstance(metadata.get('children_status'),str) or metadata.get('children_status') not in {'unavailable','provider_reported'} or (metadata.get('children_status')=='unavailable')!=(metadata.get('has_subtasks') is None) or (metadata.get('is_subtask') and not isinstance(metadata.get('parent_id'),str)) or (not metadata.get('is_subtask') and metadata.get('parent_id') is not None)))
+                    or ('children' in expected and (metadata.get('children_complete') is not False or 'child_ids' not in metadata or not isinstance(metadata.get('children_fetch_status'),str) or metadata.get('children_fetch_status') not in {'unavailable','provider_reported'} or (metadata.get('children_fetch_status')=='unavailable')!=(metadata.get('child_ids') is None) or (metadata.get('child_ids') is not None and (not isinstance(metadata.get('child_ids'),list) or len(metadata['child_ids'])>100 or any(not isinstance(x,str) or not x for x in metadata['child_ids']) or len(set(metadata['child_ids']))!=len(metadata['child_ids'])))))):
+                raise SafetyError('Configured helper did not provide the requested scoped native metadata; update or review its compatibility')
+        if flagged is not None:
+            items=result.get('items') if isinstance(result,dict) else None
+            evidence=result.get('native_flag_filter') if isinstance(result,dict) else None
+            if (not isinstance(items,list) or not isinstance(evidence,dict)
+                    or type(evidence.get('scanned')) is not int or not 0<=evidence['scanned']<=limit
+                    or type(evidence.get('matched')) is not int or evidence['matched']!=len(items) or len(items)>evidence['scanned']
+                    or evidence.get('observation_consistency')!='separate_provider_reads' or result.get('pagination_consistency')!='live_offset_may_shift'
+                    or type(result.get('done')) is not bool or type(result.get('next_offset')) is not int
+                    or result['next_offset']!=offset+evidence['scanned'] or (not result['done'] and evidence['scanned']==0)
+                    or any(not isinstance(x,dict) or not isinstance(x.get('native_metadata'),dict)
+                        or not isinstance(x.get('id'),str) or not x['id'] or not isinstance(x.get('list_id'),str) or not x['list_id']
+                        or x.get('source_id') not in sources or (fields.get('list_id') is not None and x.get('list_id')!=fields['list_id'])
+                        or any(x['native_metadata'].get(k)!=x.get(k) for k in ('id','source_id','list_id'))
+                        or x['native_metadata'].get('coverage')!=['flagged'] or x['native_metadata'].get('flagged') is not flagged for x in items)):
+                raise SafetyError('Configured helper did not verify the requested native flag filter; update or review its compatibility')
         if self.name=='notes' and action=='status' and config.get('folder_write_backend')=='notes-shared':
             if not config.get('helper_path'):raise SafetyError('Configure the signed helper for optional native Notes store status')
             if native_config('notes')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode:raise SafetyError('Native access changed before optional store status')

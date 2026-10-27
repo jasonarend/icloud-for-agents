@@ -21,7 +21,7 @@ func fail(_ code:String)->Never {print("error:"+code);exit(0)}
 func respond(_ value:[String:Any])->Never {let data=try! JSONSerialization.data(withJSONObject:value,options:[.sortedKeys]);print(String(data:data,encoding:.utf8)!);exit(0)}
 '''
 def run():
-    source=(ROOT/'src/icloud_for_agents/native/reminders.swift').read_text();start=source.index('    if let flag=req["flagged"]')
+    source=(ROOT/'src/icloud_for_agents/native/reminders.swift').read_text();start=source.index('    if let flag=req["flagged"]',source.index('    let filtered = reminders.filter'))
     code=source[start:source.index('    let page = Array(filtered.dropFirst(offset)',start)]
     with tempfile.TemporaryDirectory(prefix='reminder-flag-filter-') as directory:
         p=Path(directory);(p/'main.swift').write_text(FIXTURE+code+'\nprint("missing filter")\n')
@@ -31,5 +31,12 @@ def run():
         second=json.loads(call('true',1));assert second['items'][0]['id']=='b' and second['items'][0]['native_metadata']['flagged'] is True and second['next_offset']==2 and second['done'] is False
         last=json.loads(call('false',2));assert last['items'][0]['id']=='c' and last['done'] is True and last['next_offset']==3
         assert call('invalid',0)=='error:invalid_request';assert call('unavailable',0)=='error:private_metadata_unavailable'
-    print(json.dumps({'status':'passed','apple_store_opened':False,'checks':['bounded_scan','empty_page_not_done','true_false_matching','invalid_type_and_unavailable_metadata_refused']}))
+        empty_start=source.index('guard !selected.isEmpty else {')
+        empty=source[empty_start:source.index('let dueFilter = req["due_date"]',empty_start)]
+        (p/'empty.swift').write_text(FIXTURE+'\nlet selected:[Int]=[]\nlet requestedList:String?=nil\n'+empty+'\nprint("missing empty result")\n')
+        built=subprocess.run(['/usr/bin/swiftc',str(p/'empty.swift'),'-o',str(p/'empty')],capture_output=True,text=True,timeout=60);assert built.returncode==0,built.stderr
+        empty_result=subprocess.run([str(p/'empty'),'true','0'],capture_output=True,text=True,check=True,timeout=5)
+        value=json.loads(empty_result.stdout);assert value['items']==[] and value['done'] is True and value['next_offset']==0 and value['native_flag_filter']['scanned']==0
+
+    print(json.dumps({'status':'passed','apple_store_opened':False,'checks':['bounded_scan','empty_page_not_done','empty_source_has_filter_evidence','true_false_matching','invalid_type_and_unavailable_metadata_refused']}))
 if __name__=='__main__':run()

@@ -15,21 +15,21 @@ def dispatch(self,request,config):
     if request['action']=='query':
         assert type(request.get('flagged')) is bool and request['limit']==1
         if 'due_date' in request:assert request['due_date']=='2026-10-27' and request['timezone']=='UTC' and request['completed'] is False and request['list_id']=='list'
-        return {'protocol_version':1,'items':[],'done':False,'next_offset':1,'native_flag_filter':{'scanned':1,'matched':0}}
+        return {'protocol_version':1,'items':[],'done':False,'next_offset':1,'pagination_consistency':'live_offset_may_shift','native_flag_filter':{'scanned':1,'matched':0,'observation_consistency':'separate_provider_reads'}}
     item={'id':request.get('id','synthetic-task'),'list_id':'list','source_id':'selected','content_complete':False}
     if request.get('include_native_metadata'):
-        item['native_metadata']={'flagged':True,'flag_state':1,'coverage':['flagged'],'native_metadata_complete':False,'observation_consistency':'separate_provider_reads'}
+        item['native_metadata']={'id':item['id'],'source_id':item['source_id'],'list_id':item['list_id'],'flagged':True,'flag_state':1,'coverage':['flagged'],'native_metadata_complete':False,'observation_consistency':'separate_provider_reads'}
     if request.get('include_native_tags'):
-        metadata=item.setdefault('native_metadata',{'coverage':[],'native_metadata_complete':False})
+        metadata=item.setdefault('native_metadata',{'id':item['id'],'source_id':item['source_id'],'list_id':item['list_id'],'coverage':[],'native_metadata_complete':False})
         metadata.update(tags=[{'id':'tag','name':'Project','native_type':0}],tags_complete=True)
         metadata['coverage'].append('tags')
     if request.get('include_native_hierarchy'):
-        metadata=item.setdefault('native_metadata',{'coverage':[],'native_metadata_complete':False})
+        metadata=item.setdefault('native_metadata',{'id':item['id'],'source_id':item['source_id'],'list_id':item['list_id'],'coverage':[],'native_metadata_complete':False})
         if item['id']=='synthetic-child':metadata.update(is_subtask=True,parent_id='synthetic-parent',has_subtasks=None,hierarchy_complete=False,children_status='unavailable')
         else:metadata.update(is_subtask=False,parent_id=None,has_subtasks=False,hierarchy_complete=False,children_status='provider_reported')
         metadata['coverage'].append('hierarchy')
     if request.get('include_native_children'):
-        metadata=item.setdefault('native_metadata',{'coverage':[],'native_metadata_complete':False})
+        metadata=item.setdefault('native_metadata',{'id':item['id'],'source_id':item['source_id'],'list_id':item['list_id'],'coverage':[],'native_metadata_complete':False})
         metadata.update(child_ids=None if item['id']=='synthetic-child' else ['synthetic-child'],children_complete=False,children_fetch_status='unavailable' if item['id']=='synthetic-child' else 'provider_reported')
         metadata['coverage'].append('children')
     return {'protocol_version':1,'item':item}
