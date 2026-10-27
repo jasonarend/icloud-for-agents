@@ -88,3 +88,28 @@ class NativeCorrectionTests(unittest.TestCase):
         correction=self.correction()
         with self.assertRaises(FileNotFoundError):self.engine.reconcile_correction(correction['plan_id'])
         self.assertFalse(self.store._reconciliation_completed(self.original))
+
+    def test_reviewed_before_state_rollback_is_distinct_from_original_success(self):
+        os.environ['ICLOUD_MAIL_ACCESS']='read-only'
+        os.environ['ICLOUD_NATIVE_CONFIG']=json.dumps({'reminders':{'access_mode':'read-only','source_ids':['selected']}})
+        before=dict(os.environ);proposal=self.engine.prepare_update_correction(self.original,'before')
+        self.assertEqual(proposal['review']['payload']['correction_target'],'before')
+        self.assertEqual(self.engine.execute(proposal['plan_id'])['status'],'applied')
+        status=self.engine.reconcile_correction(proposal['plan_id'])
+        self.assertEqual(status['status'],'restored_before_after_explicit_correction');self.assertFalse(status['original_request_succeeded'])
+        self.assertIsNone(self.adapter.reader.item['due']);self.assertIsNone(self.adapter.reader.item['start'])
+        self.assertEqual(self.store.read(self.store.path(self.original,'.result')),self.failure)
+        self.assertEqual(dict(os.environ),before)
+        with self.assertRaises(SafetyError):self.engine.execute(self.original)
+    def test_rollback_cannot_overwrite_unrequested_external_content(self):
+        self.adapter.reader.item['notes']='External content'
+        with self.assertRaises(SafetyError):self.engine.prepare_update_correction(self.original,'before')
+        self.assertFalse(self.store.path(self.original,'.native-correction').exists())
+    def test_unknown_correction_target_is_refused(self):
+        with self.assertRaises(SafetyError):self.engine.prepare_update_correction(self.original,'anything')
+        self.assertFalse(self.store.path(self.original,'.native-correction').exists())
+    def test_readonly_requested_state_correction_remains_exact_and_replay_protected(self):
+        os.environ['ICLOUD_MAIL_ACCESS']='read-only'
+        proposal=self.correction();self.assertEqual(self.engine.execute(proposal['plan_id'])['status'],'applied')
+        self.assertEqual(self.engine.reconcile_correction(proposal['plan_id'])['status'],'verified_after_explicit_correction')
+        self.assertEqual(os.environ['ICLOUD_MAIL_ACCESS'],'read-only')

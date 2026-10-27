@@ -214,14 +214,14 @@ def register_change_tools(mcp):
 
         @mcp.tool(annotations=WRITE)
         @guard
-        def reminders_prepare_update_correction(plan_id:str)->dict:
-            """Propose one exact correction of a known-ID update after failed readback; ordinary approval required."""
-            require_write('reminders');check_plan_scope('reminders',plan_id)
-            return editor('reminders',write=True).prepare_update_correction(plan_id)
+        def reminders_prepare_update_correction(plan_id:str,target:str="requested")->dict:
+            """Review one exact known-ID correction after failed readback: target requested, or before for an explicit rollback."""
+            check_plan_scope('reminders',plan_id)
+            return editor('reminders').prepare_update_correction(plan_id,target)
 
         @mcp.tool(annotations=WRITE)
         @guard
         def reminders_reconcile_correction(plan_id:str)->dict:
-            """Verify the successful correction and original requested state; never replay or clear unknown effects."""
-            require_write('reminders');check_plan_scope('reminders',plan_id)
-            return editor('reminders',write=True).reconcile_correction(plan_id)
+            """Verify the chosen requested/before state after successful correction; no mutation, replay or generic uncertainty clear."""
+            check_plan_scope('reminders',plan_id)
+            return editor('reminders').reconcile_correction(plan_id)

@@ -301,7 +301,7 @@ class PlanStore:
         proof=self.read(path);correction=self.read(self.path(proof['correction_id'],'.json'))
         result=self.read(self.path(proof['correction_id'],'.result'))
         return (self._native_correction_for(original_id,correction)
-                and proof.get('status')=='original_requested_fields_verified_after_correction'
+                and proof.get('status')==('original_before_state_restored_after_correction' if correction['payload'].get('correction_target')=='before' else 'original_requested_fields_verified_after_correction')
                 and proof.get('correction_result_sha256')==digest(result) and result.get('status')=='applied'
                 and proof.get('original_result_sha256')==digest(self.read(self.path(original_id,'.result'))))
 
@@ -454,6 +454,8 @@ class PlanStore:
         if self._native_recovery_completed(plan_id):
             return {"status":"observed_state_accepted_after_review","original_status":"failed_or_uncertain","identity_provenance":"reviewed association under selected policy, not a returned creation ID or independent human proof","do_not_retry":True}
         if self._native_correction_completed(plan_id):
+            proof=self.read(self.path(plan_id,'.native-correction-result'))
+            if proof.get('status')=='original_before_state_restored_after_correction':return {'status':'restored_before_after_explicit_correction','original_status':'failed_or_uncertain','original_request_succeeded':False,'do_not_retry':True}
             return {"status":"verified_after_explicit_correction","original_status":"failed_or_uncertain","do_not_retry":True}
         if self._native_reconciliation_completed(plan_id):
             return {"status":"applied_after_readback_reconciliation","original_status":"failed_or_uncertain","do_not_retry":True}

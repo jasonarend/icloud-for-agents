@@ -106,16 +106,17 @@ class NativeChanges:
                 if not (self.store._reconciliation_completed(started.stem) or (correction and correction.get('kind')=='notes_move_recovery' and self.store._native_move_recovery_for(started.stem,correction)) or (correction and correction.get('native_recovery_of')==started.stem and self.store._native_recovery_for(started.stem,correction)) or (correction and correction.get('native_correction_of')==started.stem and self.store._native_correction_for(started.stem,correction))):
                     raise SafetyError('Prior write unfinished or uncertain; reconcile before another native write')
 
-    def prepare_update_correction(self,original_id):
+    def prepare_update_correction(self,original_id,target="requested"):
         """Propose one explicit same-object correction; never retry an unknown mutation.
 
         Only one fully identified reminder update that failed readback qualifies.
-        Current state and the original requested final fields remain reviewable.
+        Current state and the chosen requested/before state remain reviewable.
         The ordinary strict/trusted authorization applies to the new plan.
         """
         if self.name!='reminders':raise SafetyError('Correction is limited to known reminder updates')
         import uuid
-        context=self.context()
+        if target not in {'requested','before'}:raise SafetyError('Correction target must be requested or before')
+        context=self.context(True)
         with self.serialized():
             original=self.store.read(self.store.path(original_id,'.json'));result=self.store.read(self.store.path(original_id,'.result'))
             changes=original.get('payload',{}).get('changes',[]);attempts=result.get('attempted',[])
@@ -123,7 +124,8 @@ class NativeChanges:
                     or original['payload'].get('account')!=self.account
                     or original['payload'].get('context',{}).get('source_ids')!=context['source_ids']
                     or result.get('status')!='failed_or_uncertain' or result.get('phase')!='verification'
-                    or len(changes)!=1 or len(attempts)!=1 or changes[0].get('operation')!='update_reminder'):
+                    or len(changes)!=1 or len(attempts)!=1 or changes[0].get('operation')!='update_reminder'
+                    or self.store.read(self.store.path(original_id,'.started')).get('sha256')!=digest(original)):
                 raise SafetyError('Only one complete known-ID reminder update can be corrected')
             item=changes[0];attempt=attempts[0]
             if (attempt.get('index')!=0 or attempt.get('operation')!='update_reminder'
@@ -134,15 +136,23 @@ class NativeChanges:
             current=self.adapter.reader.read('get',id=item['id'])['item']
             for key in ('source_id','list_id','completed','url','has_recurrence','has_alarms'):
                 if current.get(key)!=expected.get(key):raise SafetyError('Unrelated effects or external changes require separate review')
-            fields={key:expected.get(key) for key in ('title','notes','priority','due','start')}
+            desired=item['before']['item'] if target=='before' else expected
+            if target=='before':
+                # Unrequested public fields must retain their original state;
+                # no rollback may erase an external edit or unrelated effect.
+                for key in ('id','source_id','list_id','title','notes','priority','completed','url','location','created','has_recurrence','has_alarms','recurrence_rules','alarms'):
+                    if key not in item['fields'] and current.get(key)!=item['before']['item'].get(key):raise SafetyError('Unrequested state changed; rollback cannot overwrite it')
+            fields={key:desired.get(key) for key in ('title','notes','priority','due','start','url')}
             for key in ('due','start'):
                 if isinstance(fields[key],dict):fields[key]={k:v for k,v in fields[key].items() if k in {'year','month','day','hour','minute','timezone'} and v is not None}
-            repair=self.adapter.prepare({'operation':'update_reminder','source_id':item['source_id'],'id':item['id'],'fields':fields})
+            from .native_once import planning
+            with planning(self.name):repair=self.adapter.prepare({'operation':'update_reminder','source_id':item['source_id'],'id':item['id'],'fields':fields})
             self.check_item(repair,context)
             correction_id=uuid.uuid4().hex
             correction={'plan_id':correction_id,'kind':self.kind,'created':self.store.clock(),'expires':self.store.clock()+1800,
                 'native_correction_of':original_id,'payload':{'account':self.account,'context':context,'changes':[repair],
-                'original_failure_sha256':digest(result),'purpose':'restore the originally requested public fields on the exact returned reminder; no creation or replay'}}
+                'original_failure_sha256':digest(result),'correction_target':target,
+                'purpose':('Restore the exact original public fields; the failed request remains unsuccessful' if target=='before' else 'Restore the originally requested public fields')+' on the exact returned reminder; no creation or replay'}}
             # Reserve once before writing the proposal. A crash may strand repair,
             # but cannot authorize two corrective writes.
             self.store.write_once(self.store.path(original_id,'.native-correction'),
@@ -155,18 +165,22 @@ class NativeChanges:
                     'approval_required':True,'authorization_path':path,'local_receipt_required':receipt}
 
     def reconcile_correction(self,correction_id):
-        """Verify both correction and original requested outcome; preserve both audits."""
-        self.context()
+        """Verify the explicitly chosen requested/before outcome; preserve both audits."""
+        self.context(True)
         with self.serialized():
             correction=self.store.read(self.store.path(correction_id,'.json'));original_id=correction.get('native_correction_of')
             if not original_id or not self.store._native_correction_for(original_id,correction):raise SafetyError('Invalid correction reservation')
-            if correction['payload'].get('account')!=self.account or correction['payload'].get('context')!=self.context():raise SafetyError('Correction scope or backend changed')
+            if correction['payload'].get('account')!=self.account or correction['payload'].get('context')!=self.context(correction['payload'].get('context',{}).get('temporary_elevation')=='exact-batch-once'):raise SafetyError('Correction scope or backend changed')
             result=self.store.read(self.store.path(correction_id,'.result'))
             original=self.store.read(self.store.path(original_id,'.json'));original_result=self.store.read(self.store.path(original_id,'.result'))
-            if (result.get('status')!='applied' or not self.adapter.verify(original['payload']['changes'][0],original_result['attempted'][0]['result'])):
+            intended=original['payload']['changes'][0]
+            rollback=correction['payload'].get('correction_target')=='before'
+            if rollback:
+                intended=dict(intended,fields={key:intended['before']['item'].get(key) for key in ('title','notes','priority','due','start','url')})
+            if (result.get('status')!='applied' or not self.adapter.verify(intended,original_result['attempted'][0]['result'])):
                 raise SafetyError('Original requested state still does not verify; uncertainty retained')
             self.store.write_once(self.store.path(original_id,'.native-correction-result'),
-                {'status':'original_requested_fields_verified_after_correction','correction_id':correction_id,
+                {'status':'original_before_state_restored_after_correction' if rollback else 'original_requested_fields_verified_after_correction','correction_id':correction_id,
                  'correction_result_sha256':digest(result),'original_result_sha256':digest(original_result),'checked_at':self.store.clock()})
             return self.store.status(original_id)
 
