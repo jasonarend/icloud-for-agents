@@ -187,13 +187,28 @@ NSData *ICloudRemindersRecoveryLookup(NSData *data){
         id model=[decoded isKindOfClass:NSDictionary.class]?decoded[@"model"]:nil;
         id values=[model isKindOfClass:NSDictionary.class]?model[@"reminders"]:nil;
         if(error || ![values isKindOfClass:NSArray.class] || [values count]>5000)return EncodeFlag(FlagFailure(@"recovery_read_unavailable"));
-        NSUInteger matches=0;id selectedRoot=nil;
-        for(id value in values){
+        // Traverse only provider-returned nodes; reject cycles, duplicates and overlarge trees.
+        NSMutableArray *queue=[NSMutableArray array];
+        for(id value in values)[queue addObject:@{@"node":value,@"parent":[NSNull null],@"root":[NSNull null],@"depth":@0}];
+        NSMutableSet *visited=[NSMutableSet set];id selectedRoot=nil;id selectedParent=[NSNull null],selectedRecoveryRoot=[NSNull null];
+        NSUInteger matches=0,index=0;
+        while(index<queue.count){
+            if(queue.count>5000)return EncodeFlag(FlagFailure(@"recovery_read_unavailable"));
+            NSDictionary *entry=queue[index++];id value=entry[@"node"];
             id objectID=[value isKindOfClass:NSDictionary.class]?value[@"objectID"]:nil;
-            id uuid=[objectID isKindOfClass:NSDictionary.class]?objectID[@"uuid"]:nil;
+            NSString *uuid=[objectID isKindOfClass:NSDictionary.class]?objectID[@"uuid"]:nil;
             id entity=[objectID isKindOfClass:NSDictionary.class]?objectID[@"entityName"]:nil;
-            if(![uuid isKindOfClass:NSString.class] || ![[NSUUID alloc]initWithUUIDString:uuid] || ![entity isEqual:@"REMCDReminder"])return EncodeFlag(FlagFailure(@"recovery_read_unavailable"));
-            if(UUIDEqual(uuid,identifier)){matches++;selectedRoot=value;}
+            NSUUID *parsed=[uuid isKindOfClass:NSString.class]?[[NSUUID alloc]initWithUUIDString:uuid]:nil;
+            NSString *canonical=parsed.UUIDString;
+            if(!canonical || ![entity isEqual:@"REMCDReminder"] || [visited containsObject:canonical])return EncodeFlag(FlagFailure(@"recovery_read_unavailable"));
+            [visited addObject:canonical];
+            id root=entry[@"root"]==[NSNull null]?canonical:entry[@"root"];
+            if(UUIDEqual(canonical,identifier)){matches++;selectedRoot=value;selectedParent=entry[@"parent"];selectedRecoveryRoot=selectedParent==[NSNull null]?identifier:root;}
+            id descendants=value[@"subtasks"];
+            if(descendants){
+                if(![descendants isKindOfClass:NSArray.class] || [descendants count]>100 || ([descendants count] && [entry[@"depth"] unsignedIntegerValue]>=10))return EncodeFlag(FlagFailure(@"recovery_read_unavailable"));
+                for(id child in descendants)[queue addObject:@{@"node":child,@"parent":canonical,@"root":root,@"depth":@([entry[@"depth"] unsignedIntegerValue]+1)}];
+            }
         }
         if(matches>1)return EncodeFlag(FlagFailure(@"native_identity_mismatch"));
         id children=[NSNull null];NSString *childrenStatus=@"unavailable";
@@ -212,6 +227,6 @@ NSData *ICloudRemindersRecoveryLookup(NSData *data){
             }
             [ids sortUsingSelector:@selector(compare:)];children=ids;childrenStatus=@"provider_reported";
         }
-        return EncodeFlag(@{@"protocol_version":@1,@"source_id":source,@"id":identifier,@"found_as_root":@((BOOL)(matches==1)),@"view":@"provider_recently_deleted",@"reported_child_ids":children,@"children_status":childrenStatus,@"children_complete":@NO,@"observation_consistency":@"separate_provider_reads",@"data_mutated":@NO});
+        return EncodeFlag(@{@"protocol_version":@1,@"source_id":source,@"id":identifier,@"found_in_view":@((BOOL)(matches==1)),@"found_as_root":@((BOOL)(matches==1 && selectedParent==[NSNull null])),@"parent_id":selectedParent,@"recovery_root_id":selectedRecoveryRoot,@"view":@"provider_recently_deleted",@"reported_child_ids":children,@"children_status":childrenStatus,@"children_complete":@NO,@"observation_consistency":@"separate_provider_reads",@"data_mutated":@NO});
     }@catch(NSException *exception){return EncodeFlag(FlagFailure(@"private_read_exception"));}
 }

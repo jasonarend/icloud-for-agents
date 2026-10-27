@@ -158,12 +158,18 @@ class NativeReader:
             if native_config('reminders')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode:
                 raise SafetyError('Reminder access changed during recovery lookup')
             if (not isinstance(result,dict) or result.get('id')!=fields['id'] or result.get('source_id')!=fields['source_id']
-                    or type(result.get('found_as_root')) is not bool or result.get('view')!='provider_recently_deleted'
+                    or type(result.get('found_as_root')) is not bool or type(result.get('found_in_view')) is not bool
+                    or 'parent_id' not in result or 'recovery_root_id' not in result
+                    or (not result['found_in_view'] and (result['found_as_root'] or result['parent_id'] is not None or result['recovery_root_id'] is not None))
+                    or (result['found_in_view'] and (not isinstance(result['recovery_root_id'],str) or not result['recovery_root_id']))
+                    or (result['found_as_root'] and (not result['found_in_view'] or result['parent_id'] is not None or result['recovery_root_id']!=result['id']))
+                    or (result['found_in_view'] and not result['found_as_root'] and (not isinstance(result['parent_id'],str) or not result['parent_id']))
+                    or result.get('view')!='provider_recently_deleted'
                     or result.get('observation_consistency')!='separate_provider_reads' or result.get('data_mutated') is not False
                     or result.get('children_complete') is not False or 'reported_child_ids' not in result
                     or result.get('children_status') not in {'unavailable','provider_reported'}
                     or (result.get('children_status')=='unavailable')!=(result['reported_child_ids'] is None)
-                    or (result.get('found_as_root') is False and result.get('reported_child_ids') is not None)
+                    or (result.get('found_in_view') is False and result.get('reported_child_ids') is not None)
                     or (result.get('reported_child_ids') is not None and (not isinstance(result['reported_child_ids'],list)
                         or len(result['reported_child_ids'])>100 or any(not isinstance(x,str) or not x for x in result['reported_child_ids'])
                         or len(set(result['reported_child_ids']))!=len(result['reported_child_ids'])))):
