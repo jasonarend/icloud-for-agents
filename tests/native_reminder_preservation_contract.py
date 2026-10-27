@@ -23,6 +23,13 @@ func output(_ input:Data,_ tags:Bool)->Data {
 }
 func ICloudRemindersReadFlag(_ input:Data)->Data {output(input,false)}
 func ICloudRemindersReadTags(_ input:Data)->Data {output(input,true)}
+func ICloudRemindersReadHierarchy(_ input:Data)->Data {
+    privateReads+=1
+    var value=try! JSONSerialization.jsonObject(with:input) as! [String:Any]
+    value["backend"]="reminderkit-hierarchy-v1";value["coverage"]=["hierarchy"];value["native_metadata_complete"]=false
+    value["observation_consistency"]="separate_provider_reads";value["is_subtask"]=false;value["has_subtasks"]=false;value["hierarchy_complete"]=false
+    return try! JSONSerialization.data(withJSONObject:["native_metadata":value])
+}
 '''
 CHECKS='''
 let reminder=EKReminder()
@@ -30,6 +37,8 @@ precondition(selectedNativeMetadata(reminder,[:])==nil && privateReads==0)
 let expected=selectedNativeMetadata(reminder,["include_native_metadata":true,"include_native_tags":true])!
 precondition(expected["coverage"] as! [String]==["flagged","tags"])
 precondition(nativeSnapshotMatches(reminder,expected))
+let combined=selectedNativeMetadata(reminder,["include_native_metadata":true,"include_native_tags":true,"include_native_hierarchy":true])!
+precondition(combined["coverage"] as! [String]==["flagged","tags","hierarchy"] && combined["backend"] as! String=="reminderkit-combined-v1" && combined["hierarchy_complete"] as! Bool==false)
 flag=true;precondition(!nativeSnapshotMatches(reminder,expected));flag=false
  tagName="Externally changed";precondition(!nativeSnapshotMatches(reminder,expected));tagName="Project"
 var wrong=expected;wrong["source_id"]="foreign";precondition(!nativeSnapshotMatches(reminder,wrong))

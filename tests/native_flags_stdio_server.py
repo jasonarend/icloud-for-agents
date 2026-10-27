@@ -23,6 +23,10 @@ def dispatch(self,request,config):
         metadata=item.setdefault('native_metadata',{'coverage':[],'native_metadata_complete':False})
         metadata.update(tags=[{'id':'tag','name':'Project','native_type':0}],tags_complete=True)
         metadata['coverage'].append('tags')
+    if request.get('include_native_hierarchy'):
+        metadata=item.setdefault('native_metadata',{'coverage':[],'native_metadata_complete':False})
+        metadata.update(is_subtask=False,parent_id=None,has_subtasks=False,hierarchy_complete=False,children_status='provider_reported')
+        metadata['coverage'].append('hierarchy')
     return {'protocol_version':1,'item':item}
 NativeReader._dispatch=dispatch
 from icloud_for_agents.server import main

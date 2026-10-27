@@ -32,6 +32,9 @@ def run():
                 tags=data(call(dict(args,include_native_tags=True)))['item']['native_metadata'];assert tags['tags'][0]['name']=='Project' and tags['coverage']==['tags'] and tags['tags_complete'] is True
                 combined=data(call(dict(args,include_native_tags=True,include_native_metadata=True)))['item']['native_metadata'];assert combined['coverage']==['flagged','tags']
                 assert call(dict(args,include_native_tags='execute-script')).get('isError')
+                hierarchy_schema=tool['inputSchema']['properties']['include_native_hierarchy'];assert hierarchy_schema['type']=='boolean' and hierarchy_schema['default'] is False
+                hierarchy=data(call(dict(args,include_native_hierarchy=True)))['item']['native_metadata'];assert hierarchy['is_subtask'] is False and hierarchy['hierarchy_complete'] is False and hierarchy['coverage']==['hierarchy']
+                assert call(dict(args,include_native_hierarchy='invalid')).get('isError')
                 query=next(t for t in tools if t['name']=='reminders_query');assert query['annotations']['readOnlyHint'] is True
                 flag_query=data(rpc('tools/call',{'name':'reminders_query','arguments':{'flagged':True,'limit':1}})['result']);assert flag_query['items']==[] and flag_query['done'] is False and flag_query['next_offset']==1
                 assert rpc('tools/call',{'name':'reminders_query','arguments':{'flagged':'invalid'}})['result'].get('isError')

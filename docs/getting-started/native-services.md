@@ -191,6 +191,14 @@ Ordinary preparation requires write-enabled access. Exact one-time plans and act
 Synthetic checks cover native AppKit/CoreGraphics conversion, invalid inputs, snapshot drift, correction boundaries and real stdio approval flows under both policies. Live dedicated-fixture tests pass two different colors and restoration of the original sRGB value, retaining the list identity/title and complete task-membership fingerprint. The scenario grant was revoked, and production settings remained unchanged. A rejected transparency test received a separately reviewed original-color restoration; both the original failure and the successful correction remain in the private audit. This uses Apple's public [EventKit calendar color property](https://developer.apple.com/documentation/eventkit/ekcalendar/cgcolor); no additional dependency or private ReminderKit route is required.
 
 
+**Optional Reminder hierarchy hints (development)**
+
+With the explicitly selected ReminderKit backend, `reminders_get` accepts `include_native_hierarchy: true` for one exact scoped reminder. It reports whether the provider identifies it as a subtask, a verified same-source/same-list parent ID when present, and the provider's `has_subtasks` hint. An unknown interface, missing context, contradictory parent, foreign parent or provider read error is refused rather than represented as an empty hierarchy. Flags, tags and hierarchy can be requested independently; each is a separate provider observation.
+
+This is not a complete subtree inventory. `hierarchy_complete` remains false; child IDs, concealed or unsupported descendants, ordering and cross-device behavior are not verified. Do not use a false `has_subtasks` value as proof that deleting or moving a reminder has no impact on children. Creating or changing parent/child relationships and deleting reminders remain unsupported. The default EventKit path never requests these private metadata reads.
+
+Synthetic tests cover parent identity, foreign/self parents, contradictory state and provider errors. A live read of a dedicated unparented fixture returns the provider's no-children hint without changing public metadata or OS permissions. Live parent/child fixtures remain unverified.
+
 **Read-only Markdown views**
 
 Use `notes_get` with `representation: "markdown"` to request a Markdown view of the same exact selected account/folder/note. The default `"native"` response remains compatible with existing clients. The server retains the original HTML/text and structured exported table cells, adds `item.markdown`, and reports `item.markdown_projection` with text completeness, formatting completeness, observed losses and `round_trip_safe: false`. A locked note or unavailable/over-complex HTML produces an unavailable projection rather than an empty successful export.
