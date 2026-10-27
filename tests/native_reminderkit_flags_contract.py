@@ -149,6 +149,7 @@ int main(){@autoreleasepool{
  NSArray *expected=Tags(request)[@"native_metadata"][@"tags"];NSDictionary *remove=@{@"id":task,@"source_id":source,@"list_id":list,@"tag_id":other,@"expected_tags":expected};int savesBefore=flagSaves;
  NSDictionary *replace=@{@"id":task,@"source_id":source,@"list_id":list,@"tag_id":other,@"tag_name":@"SyntheticNew",@"expected_tags":expected};
  NSCAssert(ReplaceTag(replace,NO)[@"error"] && flagSaves==savesBefore && [context.hashtags count]==2,@"closed gate leaves old tags");
+ saveFails=YES;NSDictionary *uncertain=ReplaceTag(replace,YES);NSCAssert([uncertain[@"mutation_dispatched"] boolValue] && [uncertain[@"error"] isEqual:@"mutation_failed_or_uncertain"] && [context.hashtags count]==2,@"post-dispatch failure remains uncertain");saveFails=NO;
  NSCAssert(ReplaceTag(replace,YES)[@"result"] && [context.hashtags count]==2 && [context.hashtags containsObject:secondTag],@"replace one and preserve other tag");
  NSCAssert(ReplaceTag(replace,YES)[@"error"] && [context.hashtags count]==2,@"stale snapshot refused");context.hashtags=@[tag,secondTag];savesBefore=flagSaves;
  NSDictionary *add=@{@"id":task,@"source_id":source,@"list_id":list,@"tag_name":@"Café東京",@"expected_tags":expected};
