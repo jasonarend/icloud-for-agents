@@ -129,7 +129,18 @@ def register_change_tools(mcp):
         @mcp.tool(annotations=WRITE)
         @guard
         def notes_prepare_changes(changes:list[dict])->dict:
-            """Prepare <=20 exact creations, supported append/prepend/literal body edits or same-source native-object moves; unsupported body rewrites refused."""
+            """Prepare <=20 exact Notes changes; ordinary read-only mode refuses.
+
+            Operations: create_note (folder_id, title/body/format), create_folder
+            (optional parent_folder_id, title), append_note/prepend_note (id,
+            folder_id, body/format), replace_text (id, folder_id, exact find,
+            replacement and integer expected_matches), update_note (id, folder_id,
+            complete title/body/format), move_note (id, folder_id, exact
+            destination_folder_id). All require source_id and fields object.
+            Literal replacement preserves the title; prepend follows the title.
+            Existing native objects and unsupported body rewrites are refused.
+            Use prepare_once or an approved scenario grant for read-only access.
+            """
             return editor('notes',write=True).prepare(changes)
 
         @mcp.tool(annotations=WRITE)
@@ -188,7 +199,23 @@ def register_change_tools(mcp):
         @mcp.tool(annotations=WRITE)
         @guard
         def reminders_prepare_changes(changes:list[dict])->dict:
-            """Prepare <=20 exact creates, list renames, field updates, completion changes or same-source moves; ordinary read-only refuses."""
+            """Prepare <=20 exact Reminders changes; ordinary read-only refuses.
+
+            create_list uses source_id and fields.title; create_reminder also
+            requires list_id. update_reminder/set_completed/move_reminder use
+            exact source_id and id. rename_list uses source_id/list_id/title.
+            Supplied fields for create/update: title, notes, priority (0/1/5/9),
+            due/start (explicit date components, optional hour/minute/timezone),
+            passive url (or null to clear), alarms (complete ordinary time-alarm
+            array; [] clears). Each alarm is exactly {absolute_date: integer Unix
+            seconds} or {relative_offset_seconds: integer seconds}; relative
+            alarms require a timed due date and timezone. Review includes exact
+            trigger times and notification effects. Location-text writes and
+            advanced alarms are unsupported. Existing recurring edits are refused.
+            set_completed uses fields.completed boolean; move_reminder uses
+            fields.list_id. Use prepare_once or an approved scenario grant for
+            read-only application access. No operation opens a reference URL.
+            """
             return editor('reminders',write=True).prepare(changes)
 
         @mcp.tool(annotations=WRITE)
