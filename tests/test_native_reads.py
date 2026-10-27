@@ -32,6 +32,27 @@ class NativeReadTests(unittest.TestCase):
         injected=_confirmed_refusal('notes',request,{'error':'notes_model_refused','category':'untrusted arbitrary content','mutation_dispatched':False})
         self.assertEqual(injected.evidence['reason'],'helper_validation');self.assertNotIn('untrusted arbitrary content',str(injected))
 
+    def test_optional_native_store_status_is_owner_selected_and_read_only(self):
+        config={'notes':{'source_ids':['selected'],'access_mode':'read-only','helper_path':'/synthetic/helper','metadata_backend':'notes-store-readonly','folder_write_backend':'notes-shared'}}
+        calls=[]
+        def dispatch(request,config):
+            calls.append(request['action'])
+            return {'protocol_version':1,'service':'notes','permission_granted':True} if request['action']=='status' else {'protocol_version':1,'store_read_access':'denied_or_unavailable','model_context_opened':False}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',side_effect=dispatch):
+            result=NativeReader('notes').read('status')
+        self.assertEqual(calls,['status','store_status']);self.assertEqual(result['native_store']['store_read_access'],'denied_or_unavailable')
+        calls.clear();config['notes'].pop('folder_write_backend')
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',side_effect=dispatch):NativeReader('notes').read('status')
+        self.assertEqual(calls,['status'])
+    def test_optional_store_status_rechecks_disabled_access_between_steps(self):
+        config={'notes':{'source_ids':['selected'],'helper_path':'/synthetic/helper','metadata_backend':'notes-store-readonly','folder_write_backend':'notes-shared'}}
+        def dispatch(request,config):
+            os.environ['ICLOUD_ENABLE_NOTES']='0'
+            return {'protocol_version':1}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',side_effect=dispatch) as backend:
+            with self.assertRaises(SafetyError):NativeReader('notes').read('status')
+            self.assertEqual(backend.call_count,1)
+
     def test_disabled_unknown_or_unscoped_refused_before_backend(self):
         with self.env(ICLOUD_ENABLE_NOTES='0'), patch('subprocess.run', side_effect=AssertionError('No helper')):
             with self.assertRaises(SafetyError): NativeReader('notes').read('sources')

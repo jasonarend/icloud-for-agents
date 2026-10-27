@@ -27,7 +27,7 @@ func unexpectedRemindersProbe()->EKAuthorizationStatus {
             'NSAppleEventsUsageDescription':'Read-only permission-status isolation test; no native content access.'}))
         native=ROOT/'src/icloud_for_agents/native';model=Path(directory)/'notes-model.o'
         subprocess.run(['/usr/bin/clang','-fobjc-arc','-c',str(native/'notes-model.m'),'-o',str(model)],capture_output=True,check=True,timeout=60)
-        subprocess.run(['/usr/bin/swiftc',str(script),str(model),'-import-objc-header',str(native/'notes-model.h'),'-framework','CoreData','-o',str(binary),'-Xlinker','-sectcreate','-Xlinker','__TEXT','-Xlinker','__info_plist','-Xlinker',str(info)],capture_output=True,check=True,timeout=60)
+        subprocess.run(['/usr/bin/swiftc',str(script),str(model),'-import-objc-header',str(native/'notes-model.h'),'-framework','CoreData','-lsqlite3','-o',str(binary),'-Xlinker','-sectcreate','-Xlinker','__TEXT','-Xlinker','__info_plist','-Xlinker',str(info)],capture_output=True,check=True,timeout=60)
         def call(service):
             request={'protocol_version':1,'service':service,'action':'status'}
             return subprocess.run([str(binary)],input=json.dumps(request),capture_output=True,text=True,timeout=10)

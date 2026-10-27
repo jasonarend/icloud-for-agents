@@ -4,6 +4,9 @@
 #import <objc/message.h>
 #import <objc/runtime.h>
 #import <dlfcn.h>
+#import <sqlite3.h>
+#import <sys/stat.h>
+#import <unistd.h>
 
 static NSData *Encode(NSDictionary *value) {
     return [NSJSONSerialization dataWithJSONObject:value options:0 error:NULL] ?: [NSData data];
@@ -22,6 +25,31 @@ static BOOL ModelAvailable(void) {
 }
 NSData *ICloudNotesModelStatus(void) {
     return Encode(@{@"protocol_version":@1,@"service":@"notes",@"backend":@"notes-shared-folder-v1",@"interface_available":@(ModelAvailable()),@"context_open_requested":@NO,@"data_access":@"unverified",@"application_writes_enabled":@NO});
+}
+// Fixed schema-header read only: no model context, content query or OS grant.
+static NSString *NotesStorePath(void) {
+    return [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Group Containers/group.com.apple.notes/NoteStore.sqlite"];
+}
+NSData *ICloudNotesStoreStatus(void) {
+    NSMutableDictionary *result=[@{@"protocol_version":@1,@"service":@"notes",@"store_read_access":@"unverified",@"model_context_opened":@NO,@"application_writes_enabled":@NO,@"model_write_access":@"unverified",@"settings_path":@"System Settings > Privacy & Security > Files & Folders",@"requester_bundle_id":NSBundle.mainBundle.bundleIdentifier ?: @"unavailable"} mutableCopy];
+    NSInteger major=NSProcessInfo.processInfo.operatingSystemVersion.majorVersion;
+    result[@"os_major"]=@(major);
+    if(major!=27) {result[@"store_read_access"]=@"unsupported_os";return Encode(result);}
+    result[@"automatic_prompt_expected"]=@NO;
+    NSString *path=NotesStorePath();struct stat info;
+    if(lstat(path.fileSystemRepresentation,&info)!=0) {result[@"store_read_access"]=@"denied_or_unavailable";return Encode(result);}
+    if(!S_ISREG(info.st_mode) || info.st_uid!=getuid() || (info.st_mode&0022)!=0) {result[@"store_read_access"]=@"unsafe_store_file";return Encode(result);}
+    sqlite3 *database=NULL;int code=sqlite3_open_v2(path.fileSystemRepresentation,&database,SQLITE_OPEN_READONLY|SQLITE_OPEN_FULLMUTEX,NULL);
+    if(code==SQLITE_OK && sqlite3_db_readonly(database,"main")==1) {
+        sqlite3_busy_timeout(database,1000);sqlite3_stmt *statement=NULL;
+        code=sqlite3_prepare_v2(database,"PRAGMA schema_version",-1,&statement,NULL);
+        if(code==SQLITE_OK)code=sqlite3_step(statement);
+        result[@"store_read_access"]=code==SQLITE_ROW ? @"available":@"denied_or_unavailable";
+        if(statement)sqlite3_finalize(statement);
+    } else {result[@"store_read_access"]=@"denied_or_unavailable";}
+    result[@"sqlite_code"]=@(code);
+    if(database)sqlite3_close(database);
+    return Encode(result);
 }
 static BOOL Flag(id object,NSString *name) {
     SEL selector=NSSelectorFromString(name);

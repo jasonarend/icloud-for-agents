@@ -22,6 +22,7 @@ def main():
             'CFBundleName': 'iCloud for Agents Native', 'CFBundleExecutable': executable.name,
             'CFBundleVersion': '3', 'CFBundlePackageType': 'APPL', 'LSUIElement': True,
             'NSAppleEventsUsageDescription': 'Read the Notes accounts you select for your AI assistant. Changes require separate application authorization.',
+            'NSAppDataUsageDescription': 'Access local Notes app data for explicitly enabled native Notes features. The server limits operations to selected sources and approved changes.',
             'NSRemindersFullAccessUsageDescription': 'Read only the Reminders sources you select for your AI assistant. Application writes require separate authorization.'}
     resources = bundle / 'Contents/Resources'
     resources.mkdir()
@@ -36,7 +37,7 @@ def main():
     native = root / 'src/icloud_for_agents/native'
     model_object = bundle / 'Contents' / 'notes-model.o'
     subprocess.run(['/usr/bin/clang','-fobjc-arc','-arch',architecture,'-mmacosx-version-min=14.0','-c',str(native/'notes-model.m'),'-o',str(model_object)],check=True)
-    subprocess.run(['/usr/bin/swiftc', str(source), str(model_object), '-import-objc-header', str(native/'notes-model.h'), '-framework', 'CoreData', '-target', architecture + '-apple-macos14.0', '-o', str(executable),
+    subprocess.run(['/usr/bin/swiftc', str(source), str(model_object), '-import-objc-header', str(native/'notes-model.h'), '-framework', 'CoreData', '-lsqlite3', '-target', architecture + '-apple-macos14.0', '-o', str(executable),
                     '-Xlinker', '-sectcreate', '-Xlinker', '__TEXT', '-Xlinker', '__info_plist', '-Xlinker', str(plist)], check=True)
     model_object.unlink()
     subprocess.run(['/usr/bin/codesign', '--force', '--sign', '-', '--identifier', info['CFBundleIdentifier'], str(bundle)], check=True)

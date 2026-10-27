@@ -25,7 +25,7 @@ def _confirmed_refusal(name,request,response):
     category=response.get('category',response.get('error'))
     reason=('permission_required' if type(response.get('error_code')) is int and response['error_code'] in {-1743,-1744} else
             category if isinstance(category,str) and category in allowed else 'helper_validation')
-    guidance=' Check native store availability and macOS app-data access for the signed helper; Notes Automation access is separate.' if name=='notes' and reason=='notes_model_store_unavailable' else ''
+    guidance=' Check Notes app-data access for the signed helper in System Settings > Privacy & Security > Files & Folders. macOS 27 does not show an automatic access prompt. Notes Automation access is separate.' if name=='notes' and reason=='notes_model_store_unavailable' else ''
     return NativeOperationRefused('Native '+name+' refused before mutation dispatch ('+reason+'); the consumed plan cannot be replayed.'+guidance,
         evidence={'mutation_dispatched':False,'request_sha256':digest(request),'helper_response_sha256':digest(response),'reason':reason})
 
@@ -124,6 +124,11 @@ class NativeReader:
             from .native_note_store import folder_role
             return folder_role(fields['folder_id'],sources)
         result = self._dispatch(request, config)
+        if self.name=='notes' and action=='status' and config.get('folder_write_backend')=='notes-shared':
+            if not config.get('helper_path'):raise SafetyError('Configure the signed helper for optional native Notes store status')
+            if native_config('notes')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode:raise SafetyError('Native access changed before optional store status')
+            probe={'protocol_version':1,'action':'store_status','source_ids':sources}
+            result['native_store']=self._dispatch(probe,config)
         if self.name == 'notes' and action == 'search':
             from .notes_content import project_html
             candidates=result.pop('table_projection_candidates',[])
@@ -324,7 +329,7 @@ def register_read_tools(mcp):
         @mcp.tool(annotations=annotations)
         @guard
         def notes_status() -> dict:
-            """Check Notes OS grant through the configured helper without requesting consent."""
+            """Check Notes Automation without requesting consent. With the explicitly selected native writer, also probe fixed read-only store metadata; no model context or writes."""
             return NativeReader('notes').read('status')
 
         @mcp.tool(annotations=annotations)

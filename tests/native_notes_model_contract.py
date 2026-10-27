@@ -62,7 +62,7 @@ def run():
     source=source.replace('NSClassFromString(@"ICNoteContext")','NSClassFromString(@"SyntheticContext")')
     with tempfile.TemporaryDirectory(prefix='notes-model-contract-') as directory:
         p=Path(directory);(p/'notes-model.h').write_text((ROOT/'src/icloud_for_agents/native/notes-model.h').read_text());(p/'test.m').write_text(source+'\n'+HARNESS)
-        subprocess.run(['/usr/bin/clang','-fobjc-arc','-framework','Foundation','-framework','CoreData',str(p/'test.m'),'-o',str(p/'test')],check=True,capture_output=True,text=True)
+        subprocess.run(['/usr/bin/clang','-fobjc-arc','-framework','Foundation','-framework','CoreData','-lsqlite3',str(p/'test.m'),'-o',str(p/'test')],check=True,capture_output=True,text=True)
         result=subprocess.run([str(p/'test')],check=True,capture_output=True,text=True,timeout=15)
     print(result.stdout.strip());return {'status':'passed','provider':'in-memory CoreData','live_notes_access':False}
 if __name__=='__main__':run()
