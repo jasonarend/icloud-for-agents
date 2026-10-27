@@ -256,6 +256,7 @@ class NativeReader:
                                or row.get('source_id') not in sources or not isinstance(row.get('folder_id'),str) or not row['folder_id']
                                or (fields.get('folder_id') is not None and row['folder_id']!=fields['folder_id'])
                                or not isinstance(row.get('title'),str) or fields['text'].lower() not in row['title'].lower()
+                               or type(row.get('locked')) is not bool or row.get('content_complete') is not False
                                or row.get('excerpt')!='' for row in result['items'])):
                     raise SafetyError('Configured helper did not verify title-only Notes search')
             if modified:
@@ -285,6 +286,21 @@ class NativeReader:
                 except (ValueError,KeyError,TypeError):
                     result.setdefault('unavailable',[]).append({'category':'table_projection_unavailable'})
             if len(result.get('items',[]))>limit:raise SafetyError('Native search exceeded result limit')
+            if match_scope=='title':
+                unavailable=result.get('unavailable',[])
+                if (not isinstance(unavailable,list) or len(unavailable)>100 or any(not isinstance(row,dict)
+                        or not isinstance(row.get('id'),str) or not row['id']
+                        or row.get('category') not in {'note_read_unavailable','modification_date_unavailable'} for row in unavailable)
+                        or ('pagination_consistency' in result and result['pagination_consistency']!='live_offset_may_shift')
+                        or ('done' in result and type(result['done']) is not bool)
+                        or any(k in result and (type(result[k]) is not int or result[k]<0) for k in ('next_offset','scanned','locked_bodies_excluded','truncated_bodies'))):
+                    raise SafetyError('Configured helper returned invalid title-only search diagnostics')
+                allowed=('id','title','source_id','folder_id','locked','excerpt','content_complete','modified')
+                result['items']=[{key:row[key] for key in allowed if key in row} for row in result['items']]
+                result['unavailable']=[{'id':row['id'],'category':row['category']} for row in unavailable]
+                keys=('items','unavailable','done','next_offset','scanned','locked_bodies_excluded','truncated_bodies','pagination_consistency','match_scope','modified_filter')
+                result={key:result[key] for key in keys if key in result}
+                result['search_coverage']='bounded title only; no note bodies read'
         if self.name == 'notes' and action == 'get' and 'html' in result.get('item', {}):
             from .notes_content import project_html
             try:

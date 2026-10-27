@@ -296,6 +296,10 @@ class NativeReadTests(unittest.TestCase):
         with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=page()) as dispatch:
             value=NativeReader('notes').read('search',text='Title',folder_id='folder',match_scope='title')
             self.assertEqual(value['items'][0]['id'],'note');self.assertEqual(dispatch.call_args.args[0]['match_scope'],'title')
+        leaking={**page(),'private_body':'secret','items':[{**row,'html':'secret'}],'unavailable':[{'id':'note','category':'note_read_unavailable','body':'secret'}]}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=leaking):
+            value=NativeReader('notes').read('search',text='Title',folder_id='folder',match_scope='title')
+            self.assertNotIn('private_body',value);self.assertNotIn('html',value['items'][0]);self.assertNotIn('body',value['unavailable'][0])
         bounded=page(modified_filter={'from':'2026-10-27T12:00:00Z','before':'2026-10-27T13:00:00Z','semantics':'utc_inclusive_from_exclusive_before'})
         bounded['items'][0]['modified']='2026-10-27T12:30:00.000Z'
         with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=bounded):
