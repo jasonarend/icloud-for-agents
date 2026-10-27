@@ -43,7 +43,11 @@ static NSString *target=@"22222222-2222-2222-2222-222222222222";
 -(id)resultFromPerformingSwiftInvocation:(id)inv parametersData:(NSData *)data storages:(id)stores error:(NSError **)error{
  if([scenario isEqual:@"error"]){*error=[NSError errorWithDomain:@"synthetic" code:1 userInfo:nil];return nil;}
  NSDictionary *child=@{@"objectID":@{@"uuid":@"44444444-4444-4444-4444-444444444444",@"entityName":@"REMCDReminder"}};
- NSDictionary *obj=@{@"objectID":@{@"uuid":target,@"entityName":@"REMCDReminder"},@"subtasks":[scenario isEqual:@"bad_children"]?@[child,child]:@[child]};
+ id grandchildren=[scenario isEqual:@"cycle"]?@[@{@"objectID":@{@"uuid":target,@"entityName":@"REMCDReminder"}}]:@[];
+ child=@{@"objectID":child[@"objectID"],@"subtasks":grandchildren};
+ NSMutableArray *tooMany=[NSMutableArray array];for(int i=0;i<101;i++)[tooMany addObject:child];
+ id children=[scenario isEqual:@"bad_children"]?@[child,child]:[scenario isEqual:@"too_many"]?tooMany:@[child];
+ NSDictionary *obj=@{@"objectID":@{@"uuid":target,@"entityName":@"REMCDReminder"},@"subtasks":children};
  id list=[scenario isEqual:@"absent"]?@[]:[scenario isEqual:@"duplicate"]?@[obj,obj]:[scenario isEqual:@"malformed"]?@[@{@"objectID":@{}}]:@[obj];
  FakeResult *result=[FakeResult new];result.resultData=[NSPropertyListSerialization dataWithPropertyList:@{@"model":@{@"reminders":list}} format:NSPropertyListBinaryFormat_v1_0 options:0 error:NULL];return result;
 }
@@ -66,8 +70,8 @@ def run():
         result=subprocess.run(['/usr/bin/clang','-fobjc-arc','-framework','Foundation',str(p/'test.m'),'-o',str(p/'contract')],capture_output=True,text=True,timeout=60);assert result.returncode==0,result.stderr
         def call(s):return json.loads(subprocess.run([str(p/'contract'),s],capture_output=True,text=True,check=True,timeout=5).stdout)
         yes=call('present');assert yes['found_as_root'] is True and yes['data_mutated'] is False and yes['view']=='provider_recently_deleted' and len(yes['reported_child_ids'])==1 and yes['children_complete'] is False
-        child=call('child');assert child['found_in_view'] is True and child['found_as_root'] is False and child['parent_id']==child['recovery_root_id'] and child['children_status']=='unavailable'
+        child=call('child');assert child['found_in_view'] is True and child['found_as_root'] is False and child['parent_id']==child['recovery_root_id'] and child['children_status']=='provider_reported' and child['reported_child_ids']==[]
         missing=call('absent');assert missing['found_in_view'] is False and missing['recovery_root_id'] is None
-        for scenario in ('foreign','duplicate_account','unsupported','error','duplicate','malformed','bad_children'):assert call(scenario)['error']=='private_metadata_unavailable',scenario
+        for scenario in ('foreign','duplicate_account','unsupported','error','duplicate','malformed','bad_children','cycle','too_many'):assert call(scenario)['error']=='private_metadata_unavailable',scenario
     print(json.dumps({'status':'passed','apple_store_opened':False,'checks':['fixed_scoped_provider_view','true_false_boolean','foreign_duplicate_denied_malformed_refused','no_mutation']}))
 if __name__=='__main__':run()
