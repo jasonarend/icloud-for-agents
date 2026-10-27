@@ -310,6 +310,10 @@ class RemindersCreateAdapter:
         return metadata
 
     def snapshot(self,item):
+        # No current backend proves a complete subtree before a cross-list move.
+        # Apply this to fresh plans and rechecks of already approved plans.
+        if item['operation']=='move_reminder':
+            raise SafetyError('Reminder moves are unavailable until complete hierarchy effects can be verified before dispatch')
         if item['operation'] in {'rename_list','set_list_color'}:return self.list_rename_snapshot(item)
         lists=[c for c in self.lists() if c['source_id']==item['source_id']]
         if item['operation'] in {'update_reminder','set_completed','move_reminder','set_recurrence'}:

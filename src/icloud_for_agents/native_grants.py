@@ -94,7 +94,10 @@ class NativeGrants:
                            'destinations':[self.container(rule['source_id'],d) for d in rule['destinations']]})
         return result
     def prepare(self,scope,*,_replaces=None):
-        validate_scope(self.name,scope,self.store.clock());context=self.engine.context(True)
+        validate_scope(self.name,scope,self.store.clock())
+        if self.name=='reminders' and any(rule['operation']=='move_reminder' for rule in scope['rules']):
+            raise SafetyError('Reminder move grants are unavailable until complete hierarchy effects can be verified')
+        context=self.engine.context(True)
         payload={'account':self.account,'context':context,'scope':scope,
              'containers':self.scope_snapshot(scope),'effects':{
                  'authority':'Ongoing exact rule scope; no per-batch receipt within the active grant. Each batch is immutable and consumed once.',

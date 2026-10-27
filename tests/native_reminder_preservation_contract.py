@@ -58,11 +58,17 @@ print("native snapshot drift checks passed; no Apple store opened")
 '''
 def run():
     source=(ROOT/'src/icloud_for_agents/native/reminders.swift').read_text()
+    move_gate=source[source.index('        if operation == "move_reminder" { fail("unsupported_hierarchy_move") }'):].splitlines()[0]
+    assert source.index(move_gate)<source.index('            } else if operation == "move_reminder" {')
     functions=source[source.index('func selectedNativeMetadata('):source.index('if action == "get" {')]
     start=source.index('            if let selectedNative=before["native_metadata"]')
     gate=source[start:source.index('            if operation == "set_completed"',start)]
     with tempfile.TemporaryDirectory(prefix='native-preservation-') as directory:
         p=Path(directory);(p/'main.swift').write_text('import Foundation\n'+FIXTURE+functions+CHECKS)
+        (p/'move.swift').write_text('import Foundation\nlet operation=CommandLine.arguments[1]\nfunc fail(_ code:String)->Never {print("refused:"+code);exit(0)}\n'+move_gate+'\nprint("admitted")\n')
+        move_build=subprocess.run(['/usr/bin/swiftc',str(p/'move.swift'),'-o',str(p/'move')],capture_output=True,text=True,timeout=60);assert move_build.returncode==0,move_build.stderr
+        for operation,expected in [('move_reminder','refused:unsupported_hierarchy_move'),('update_reminder','admitted')]:
+            actual=subprocess.run([str(p/'move'),operation],capture_output=True,text=True,check=True,timeout=5).stdout.strip();assert actual==expected
         result=subprocess.run(['/usr/bin/swiftc',str(p/'main.swift'),'-o',str(p/'contract')],capture_output=True,text=True,timeout=60);assert result.returncode==0,result.stderr
         result=subprocess.run([str(p/'contract')],capture_output=True,text=True,timeout=5);assert result.returncode==0,result.stderr
         # Feed the production envelope into the production pre-dispatch block.

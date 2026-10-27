@@ -488,6 +488,7 @@ if action == "apply" {
     }
     if let item = req["change"] as? [String: Any], let operation = item["operation"] as? String,
        ["update_reminder", "set_completed", "move_reminder", "set_recurrence"].contains(operation) {
+        if operation == "move_reminder" { fail("unsupported_hierarchy_move") }
         guard let sourceID = item["source_id"] as? String, sourceIDs.contains(sourceID),
               let identifier = item["id"] as? String, let fields = item["fields"] as? [String: Any],
               let before = item["before"] as? [String: Any], let previous = before["item"] as? [String: Any],

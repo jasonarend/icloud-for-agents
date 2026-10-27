@@ -218,7 +218,7 @@ def register_change_tools(mcp):
             """Prepare <=20 exact Reminders changes; ordinary read-only refuses.
 
             create_list uses source_id and fields.title; create_reminder also
-            requires list_id. update_reminder/set_completed/move_reminder use
+            requires list_id. update_reminder/set_completed use
             exact source_id and id. rename_list uses source_id/list_id/title.
             set_list_color uses source_id/list_id and fields.color (#RRGGBB or
             explicit sRGB red/green/blue channels from 0 to 1 with alpha=1).
@@ -237,8 +237,8 @@ def register_change_tools(mcp):
             This changes only the exact uncompleted object's rule configuration;
             occurrence edits, completion generation and historical changes are not
             provided by this operation.
-            set_completed uses fields.completed boolean; move_reminder uses
-            fields.list_id. Use prepare_once or an approved scenario grant for
+            set_completed uses fields.completed boolean. Reminder moves are paused until
+            complete hierarchy effects can be verified. Use prepare_once or an approved scenario grant for
             read-only application access. No operation opens a reference URL.
             """
             return editor('reminders',write=True).prepare(changes)
