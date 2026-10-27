@@ -159,6 +159,10 @@ class NativeReadTests(unittest.TestCase):
                 NativeReader('notes').read('model_folder_role',folder_id='folder',source_id='selected')
         with self.env(ICLOUD_NATIVE_CONFIG=json.dumps({'notes':{'source_ids':['selected']}})),patch('platform.system',return_value='Darwin'),self.assertRaises(SafetyError):
             NativeReader('notes').read('model_folder_role',folder_id='folder',source_id='selected')
+        for key in ('metadata_backend','folder_write_backend','helper_path'):
+            incomplete={'notes':{k:v for k,v in config['notes'].items() if k!=key}}
+            with self.subTest(missing=key),self.env(ICLOUD_NATIVE_CONFIG=json.dumps(incomplete)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',side_effect=AssertionError('No model access')),self.assertRaises(SafetyError):
+                NativeReader('notes').read('model_folder_role',folder_id='folder',source_id='selected')
 
     def test_unknown_advanced_backends_are_not_configuration_authority(self):
         for config in ({'notes':{'advanced_backend':'reminderkit'}},{'reminders':{'advanced_backend':'unknown'}},{'reminders':{'advanced_backend':True}}):
@@ -235,7 +239,7 @@ class NativeReadTests(unittest.TestCase):
                 with self.env(ICLOUD_ENABLE_NOTES=str(int(notes)),ICLOUD_ENABLE_REMINDERS=str(int(reminders))):
                     importlib.reload(server)
                     tools = {t.name:t for t in asyncio.run(server.mcp.list_tools())}
-                    self.assertEqual(sum(n.startswith('notes_') for n in tools),36 if notes else 0)
+                    self.assertEqual(sum(n.startswith('notes_') for n in tools),37 if notes else 0)
                     self.assertEqual(sum(n.startswith('reminders_') for n in tools),29 if reminders else 0)
                     if notes:
                         with patch.dict(os.environ, {'ICLOUD_ENABLE_NOTES':'0'}), patch('subprocess.run',side_effect=AssertionError('No helper')):

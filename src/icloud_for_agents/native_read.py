@@ -108,8 +108,9 @@ class NativeReader:
         if action=='model_folder_role':
             if self.name!='notes' or set(fields)!={'folder_id','source_id'} or fields.get('source_id') not in sources:
                 raise SafetyError('Model role lookup requires an exact selected source and folder')
-            if config.get('folder_write_backend')!='notes-shared' or not config.get('helper_path'):
-                raise SafetyError('Model role lookup requires the explicitly selected native Notes backend and signed helper')
+            if (config.get('folder_write_backend')!='notes-shared' or config.get('metadata_backend')!='notes-store-readonly'
+                    or not config.get('helper_path')):
+                raise SafetyError('Model role lookup requires explicitly selected native Notes and read-only store backends and a signed helper')
         if action=='recovery_lookup':
             if self.name!='reminders' or set(fields)!={'id','source_id'} or fields.get('source_id') not in sources:
                 raise SafetyError('Recovery lookup requires one exact selected source and reminder ID')
@@ -557,6 +558,12 @@ def register_read_tools(mcp):
             return inspect_reminder_hierarchy(NativeReader('reminders'),id,max_nodes,max_depth)
 
     if enabled('notes'):
+        @mcp.tool(annotations=annotations)
+        @guard
+        def notes_model_folder_role(folder_id: str, source_id: str) -> dict:
+            """Inspect an exact folder's native ordinary/trash role with explicitly enabled advanced Notes store access; no mutation or permission prompt. An unavailable or unsupported model refuses."""
+            return NativeReader('notes').read('model_folder_role',folder_id=folder_id,source_id=source_id)
+
         @mcp.tool(annotations=annotations)
         @guard
         def notes_folder_role(folder_id:str)->dict:

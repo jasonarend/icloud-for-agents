@@ -50,3 +50,12 @@ class NativeToolTests(unittest.TestCase):
             with patch('subprocess.run',side_effect=AssertionError('No helper')):
                 status=tools['notes_plan_status'].fn(plan_id=plan['plan_id'])
             self.assertEqual(status['status'],'awaiting_local_approval')
+
+    def test_notes_model_role_is_read_only_and_refuses_default_configuration(self):
+        with tempfile.TemporaryDirectory() as directory:
+            tools=self.load(Path(directory)/'runtime')
+            tool=tools['notes_model_folder_role']
+            self.assertTrue(tool.annotations.read_only_hint)
+            with patch('platform.system',return_value='Darwin'),patch('subprocess.run',side_effect=AssertionError('No helper')):
+                with self.assertRaises(ToolError):tool.fn(folder_id='folder',source_id='selected')
+            self.assertFalse((Path(directory)/'runtime').exists())
