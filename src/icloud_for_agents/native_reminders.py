@@ -95,7 +95,8 @@ def public_time_alarms(values):
     if not isinstance(values,list) or len(values)>10:raise SafetyError('Time-alarm metadata is incomplete')
     result=[]
     for value in values:
-        if (not isinstance(value,dict) or type(value.get('type')) is not int or value.get('type')!=0 or type(value.get('proximity')) is not int or value.get('proximity')!=0
+        required={'type','proximity','structured_location','email_address','sound_name','absolute_date','relative_offset_seconds'}
+        if (not isinstance(value,dict) or not required<=set(value) or type(value.get('type')) is not int or value.get('type')!=0 or type(value.get('proximity')) is not int or value.get('proximity')!=0
                 or any(value.get(key) is not None for key in ('structured_location','email_address','sound_name'))):
             raise SafetyError('Location, email, procedure, custom-sound and unknown alarms require a separate fidelity-capable route')
         absolute=value.get('absolute_date');key='absolute_date' if absolute is not None else 'relative_offset_seconds';number=value.get(key)
@@ -109,7 +110,7 @@ def public_supported_alarms(values):
     if not isinstance(values,list) or len(values)>10:raise SafetyError('Complete supported alarm metadata required')
     observed=[]
     for value in values:
-        if not isinstance(value,dict):raise SafetyError('Invalid alarm metadata')
+        if not isinstance(value,dict) or not {'type','proximity','structured_location','email_address','sound_name','absolute_date','relative_offset_seconds'}<=set(value):raise SafetyError('Invalid or incomplete alarm metadata')
         if value.get('structured_location') is None:observed.extend(public_time_alarms([value]));continue
         if (type(value.get('type')) is not int or value['type']!=0 or type(value.get('proximity')) is not int or value['proximity'] not in (1,2) or value.get('absolute_date') is not None
                 or value.get('relative_offset_seconds')!=0 or value.get('email_address') is not None or value.get('sound_name') is not None):raise SafetyError('Unsupported location alarm metadata')

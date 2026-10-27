@@ -269,6 +269,8 @@ class NativeRemindersTests(unittest.TestCase):
                  {**alarm,'structured_location':{**place,'latitude':None}},{**alarm,'structured_location':{**place,'extra':'unknown'}}]
         for value in invalid:
             with self.subTest(value=value),self.assertRaises(SafetyError):public_supported_alarms([value])
+        for key in ('structured_location','proximity','email_address','sound_name','absolute_date','relative_offset_seconds'):
+            with self.subTest(missing=key),self.assertRaises(SafetyError):public_supported_alarms([{k:v for k,v in alarm.items() if k!=key}])
         with self.assertRaises(SafetyError):public_supported_alarms([alarm,alarm])
         with self.assertRaises(SafetyError):self.prepare(fields={'title':'Task','alarms':[{'location':{**place,'latitude':10**1000,'proximity':'enter'}}]})
 
