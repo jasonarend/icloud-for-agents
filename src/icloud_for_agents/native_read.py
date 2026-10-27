@@ -14,7 +14,7 @@ from .services import enabled
 
 
 READ_ACTIONS = {'notes': {'status', 'sources', 'folders', 'folder_get', 'folder_inventory', 'folder_role', 'query', 'get', 'search', 'attachments', 'diagnose_note', 'contains'},
-                'reminders': {'status', 'sources', 'lists', 'query', 'get','list_membership'}}
+                'reminders': {'status', 'sources', 'lists', 'query', 'get','list_membership','recovery_lookup'}}
 MAX_OUTPUT = 2_000_000
 
 
@@ -104,16 +104,22 @@ class NativeReader:
                 if self.name!='reminders' or action!='query' or not isinstance(tag,str) or not tag or len(tag.encode('utf-8'))>512 or any(ord(c)<32 for c in tag):raise ValueError()
             except (ValueError,UnicodeEncodeError):raise SafetyError('Tag filtering requires one exact bounded native tag name') from None
             if config.get('advanced_backend')!='reminderkit' or not config.get('helper_path'):raise SafetyError('Tag filtering requires the explicitly selected ReminderKit backend and signed helper')
+        if 'source_id' in fields and action!='recovery_lookup':raise SafetyError('Source selector is only supported for recovery lookup')
+        if action=='recovery_lookup':
+            if self.name!='reminders' or set(fields)!={'id','source_id'} or fields.get('source_id') not in sources:
+                raise SafetyError('Recovery lookup requires one exact selected source and reminder ID')
+            if config.get('advanced_backend')!='reminderkit' or not config.get('helper_path'):
+                raise SafetyError('Recovery lookup requires the explicitly selected ReminderKit backend and signed helper')
         if 'representation' in fields and (self.name!='notes' or action!='get'):raise SafetyError('Representation selection is supported only for Notes get')
         representation=fields.pop('representation','native')
         if (not isinstance(representation,str) or representation not in {'native','markdown'} or
                 (representation!='native' and (self.name!='notes' or action!='get'))):raise SafetyError('Markdown is a read-only Notes get representation')
-        if set(fields) - {'id', 'folder_id', 'list_id', 'limit', 'offset', 'completed', 'text', 'due_date', 'timezone', 'include_overdue', 'due_from', 'due_through', 'priorities', 'flagged', 'tag'}:
+        if set(fields) - {'id', 'folder_id', 'list_id', 'limit', 'offset', 'completed', 'text', 'due_date', 'timezone', 'include_overdue', 'due_from', 'due_through', 'priorities', 'flagged', 'tag', 'source_id'}:
             raise SafetyError('Unknown native read fields')
         limit, offset = fields.get('limit', 50), fields.get('offset', 0)
         if type(limit) is not int or not 1 <= limit <= 100 or type(offset) is not int or not 0 <= offset <= 100000:
             raise SafetyError('Invalid bounded native page')
-        for key in ('id', 'folder_id', 'list_id', 'text'):
+        for key in ('id', 'folder_id', 'list_id', 'source_id', 'text'):
             value = fields.get(key)
             if value is not None and (not isinstance(value, str) or not 1 <= len(value) <= 1000):
                 raise SafetyError('Invalid native selector')
@@ -148,6 +154,13 @@ class NativeReader:
             from .native_note_store import folder_role
             return folder_role(fields['folder_id'],sources)
         result = self._dispatch(request, config)
+        if action=='recovery_lookup':
+            if native_config('reminders')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode:
+                raise SafetyError('Reminder access changed during recovery lookup')
+            if (not isinstance(result,dict) or result.get('id')!=fields['id'] or result.get('source_id')!=fields['source_id']
+                    or type(result.get('found_as_root')) is not bool or result.get('view')!='provider_recently_deleted'
+                    or result.get('observation_consistency')!='separate_provider_reads' or result.get('data_mutated') is not False):
+                raise SafetyError('Configured helper did not verify the exact recovery view; update or review its compatibility')
         if native_selections:
             # Older helpers may silently ignore newer selectors. Never return a
             # successful native read without the requested, scoped coverage.
@@ -426,6 +439,12 @@ def register_read_tools(mcp):
         def reminders_get(id: str, include_native_metadata: bool=False, include_native_tags: bool=False, include_native_hierarchy: bool=False, include_native_children: bool=False) -> dict:
             """Read one exact scoped reminder. Optional native flags/tags/hierarchy/children require owner-selected ReminderKit; other advanced metadata remains incomplete."""
             return NativeReader('reminders').read('get', id=id, include_native_metadata=include_native_metadata, include_native_tags=include_native_tags, include_native_hierarchy=include_native_hierarchy, include_native_children=include_native_children)
+
+        @mcp.tool(annotations=annotations)
+        @guard
+        def reminders_recovery_lookup(id: str, source_id: str) -> dict:
+            """Check one exact root in the selected account's Recently Deleted view; no deletion or restoration."""
+            return NativeReader('reminders').read('recovery_lookup',id=id,source_id=source_id)
 
         @mcp.tool(annotations=annotations)
         @guard

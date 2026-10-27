@@ -133,6 +133,17 @@ class NativeReadTests(unittest.TestCase):
             with self.subTest(response=response),self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=response),self.assertRaises(SafetyError):
                 NativeReader('reminders').read('query',flagged=True)
 
+    def test_recovery_lookup_rejects_unselected_or_unverified_results(self):
+        config={'reminders':{'source_ids':['selected'],'helper_path':'/synthetic/helper','advanced_backend':'reminderkit'}}
+        response={'id':'task','source_id':'selected','found_as_root':True,'view':'provider_recently_deleted','observation_consistency':'separate_provider_reads','data_mutated':False}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=response):
+            self.assertTrue(NativeReader('reminders').read('recovery_lookup',id='task',source_id='selected')['found_as_root'])
+            with self.assertRaises(SafetyError):NativeReader('reminders').read('recovery_lookup',id='task',source_id='foreign')
+            with self.assertRaises(SafetyError):NativeReader('reminders').read('get',id='task',source_id='selected')
+        for value in ({'items':[]},{**response,'source_id':'foreign'},{**response,'found_as_root':1},{**response,'data_mutated':True}):
+            with self.subTest(value=value),self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=value),self.assertRaises(SafetyError):
+                NativeReader('reminders').read('recovery_lookup',id='task',source_id='selected')
+
     def test_unknown_advanced_backends_are_not_configuration_authority(self):
         for config in ({'notes':{'advanced_backend':'reminderkit'}},{'reminders':{'advanced_backend':'unknown'}},{'reminders':{'advanced_backend':True}}):
             with self.subTest(config=config),self.assertRaises(ValueError):validate_config(config)
@@ -209,7 +220,7 @@ class NativeReadTests(unittest.TestCase):
                     importlib.reload(server)
                     tools = {t.name:t for t in asyncio.run(server.mcp.list_tools())}
                     self.assertEqual(sum(n.startswith('notes_') for n in tools),35 if notes else 0)
-                    self.assertEqual(sum(n.startswith('reminders_') for n in tools),27 if reminders else 0)
+                    self.assertEqual(sum(n.startswith('reminders_') for n in tools),28 if reminders else 0)
                     if notes:
                         with patch.dict(os.environ, {'ICLOUD_ENABLE_NOTES':'0'}), patch('subprocess.run',side_effect=AssertionError('No helper')):
                             with self.assertRaises(ToolError): tools['notes_sources'].fn()

@@ -223,6 +223,12 @@ The response adds `item.native_metadata` with Boolean `flagged`, integer `flag_s
 
 Synthetic native tests cover true/false states, exact entity/source/list relationships and missing, unknown or denied metadata. A live read of a dedicated unflagged fixture passes with matching native/public identities, unchanged public metadata, existing Reminders permission and unchanged production settings. A live flagged subtask also passes exact identity and flag readback; other OS versions remain unverified. Apple can change this private interface; keep the backend off unless evaluating it with approved test data.
 
+**Recovery-view lookup**
+
+`reminders_recovery_lookup` checks one exact reminder ID in one selected source's native Recently Deleted view when the optional ReminderKit backend is selected. It returns only whether that ID appears as a top-level item, without listing other deleted content. The provider view and EventKit are separate observations. A false result does not prove an item was permanently deleted or that a deleted subtask is unrecoverable. This read does not delete or restore anything, and it cannot establish the effects of a future deletion.
+
+The fixed private interface is limited to the tested macOS version and refuses unrecognized interfaces, unselected accounts, ambiguous identities, malformed views and oversized results. A synthetic reminder deleted and restored through the Reminders app was found by exact ID while in Recently Deleted and no longer found after restoration; its original ID and content were verified afterward. Programmatic deletion and restoration still require their own implementation and acceptance tests.
+
 **Bounded hierarchy inspection**
 
 `reminders_inspect_hierarchy` follows provider-reported child IDs from one exact reminder using the optional ReminderKit backend. It verifies each observed child's parent, list and source, and refuses cycles, inconsistent relationships or access changes. `max_nodes` limits reads to 1–20 and `max_depth` limits traversal to 0–5. Unavailable child contexts and children beyond the bounds are reported as unexpanded.

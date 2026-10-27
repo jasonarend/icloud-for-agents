@@ -49,6 +49,7 @@ jobs:
           .venv/bin/python tests/native_notes_store_status_contract.py
           .venv/bin/python tests/native_notes_launch_contract.py
           .venv/bin/python tests/native_dispatch_gate_contract.py
+          .venv/bin/python tests/native_recovery_view_contract.py
           .venv/bin/python tests/native_reminderkit_flags_contract.py
           .venv/bin/python tests/native_reminder_preservation_contract.py
           .venv/bin/python tests/native_flag_filter_contract.py
