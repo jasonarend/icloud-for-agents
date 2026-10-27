@@ -1,6 +1,6 @@
 """Public EventKit creation adapter, used only through exact native change plans."""
 import hashlib
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -33,6 +33,13 @@ def validate_date(value):
     return dict(value)
 
 
+def date_parts_equal(actual,expected):
+    if not isinstance(actual,dict):return False
+    fixed_zero={'UTC','GMT','Etc/UTC','Etc/GMT'}
+    return all((key=='timezone' and value in fixed_zero and actual.get(key) in fixed_zero)
+               or actual.get(key)==value for key,value in expected.items())
+
+
 def validate_link(value):
     if value is None:return None
     from urllib.parse import urlsplit
@@ -49,6 +56,60 @@ def validate_link(value):
         if re.search(r'%(?![0-9a-fA-F]{2})',value) or re.search(r"[^A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%]",value):raise ValueError()
     except ValueError:raise SafetyError('Use a valid HTTP(S) or supported native Notes/Reminders link without credentials') from None
     return value
+
+
+def validate_alarms(values,due=None):
+    if not isinstance(values,list) or len(values)>10:raise SafetyError('Use an explicit complete time-alarm array of at most 10 entries')
+    result=[];seen=set()
+    for value in values:
+        if not isinstance(value,dict) or len(value)!=1:raise SafetyError('Each time alarm requires one absolute_date or relative_offset_seconds')
+        key=next(iter(value));number=value[key]
+        if key not in {'absolute_date','relative_offset_seconds'} or type(number) is not int:raise SafetyError('Use integer Unix seconds or relative seconds, never an inferred date or trigger')
+        if key=='absolute_date':
+            if not 946684800<=number<=4102444799:raise SafetyError('Absolute alarm must be within 2000 through 2099')
+        elif not -31536000<=number<=31536000 or not isinstance(due,dict) or 'hour' not in due or not due.get('timezone'):
+            raise SafetyError('Relative alarm requires a timed due date with a timezone and an offset within one year')
+        identity=(key,number)
+        if identity in seen:raise SafetyError('Duplicate time alarms are ambiguous')
+        seen.add(identity);result.append(dict(value))
+    return result
+
+
+def public_time_alarms(values):
+    if not isinstance(values,list) or len(values)>10:raise SafetyError('Time-alarm metadata is incomplete')
+    result=[]
+    for value in values:
+        if (not isinstance(value,dict) or type(value.get('type')) is not int or value.get('type')!=0 or type(value.get('proximity')) is not int or value.get('proximity')!=0
+                or any(value.get(key) is not None for key in ('structured_location','email_address','sound_name'))):
+            raise SafetyError('Location, email, procedure, custom-sound and unknown alarms require a separate fidelity-capable route')
+        absolute=value.get('absolute_date');key='absolute_date' if absolute is not None else 'relative_offset_seconds';number=value.get(key)
+        import math
+        if type(number) not in (int,float) or not math.isfinite(number) or int(number)!=number:raise SafetyError('Time-alarm precision is not representable by this route')
+        result.append({key:int(number)})
+    return result
+
+
+def alarms_equal(actual,expected):
+    try:
+        observed=public_time_alarms(actual)
+        # Provider ordering does not define notification priority.
+        return sorted((next(iter(x)),next(iter(x.values()))) for x in observed)==sorted((next(iter(x)),next(iter(x.values()))) for x in expected)
+    except (SafetyError,TypeError,ValueError,OverflowError):return False
+
+
+def alarm_effects(alarms,due):
+    import time
+    triggers=[]
+    for alarm in alarms:
+        if 'absolute_date' in alarm:seconds=alarm['absolute_date']
+        else:
+            moment=datetime(due['year'],due['month'],due['day'],due['hour'],due['minute'],tzinfo=ZoneInfo(due['timezone']))
+            seconds=moment.timestamp()+alarm['relative_offset_seconds']
+        triggers.append({'unix_seconds':seconds,'utc':datetime.fromtimestamp(seconds,timezone.utc).isoformat()})
+    return {'action':'replace the complete ordinary time-alarm set; an empty array cancels those alarms',
+            'triggers':triggers,'past_trigger_may_notify_immediately':any(x['unix_seconds']<=time.time() for x in triggers),
+            'devices':'Apple may sync scheduling changes across devices; delivery is unverified',
+            'provider_limits':'Exact count and values must survive readback; provider truncation is a failure'}
 
 
 class RemindersCreateAdapter:
@@ -111,10 +172,13 @@ class RemindersCreateAdapter:
             if set(fields)!={'list_id'} or not isinstance(fields['list_id'],str) or not fields['list_id']:
                 raise SafetyError('Select an exact destination list in the same source')
         else:
-            if set(fields)-{'title','notes','priority','due','start','url'}:
+            if set(fields)-{'title','notes','priority','due','start','url','alarms'}:
                 raise SafetyError('Unsupported reminder update fields')
             # Reuse creation validation without injecting defaults into the patch.
             current=self.reader.read('get',id=change['id'])['item']
+            if 'alarms' in fields and current.get('has_alarms'):
+                if current.get('public_metadata_complete') is not True:raise SafetyError('Complete existing alarm metadata required before replacement')
+                public_time_alarms(current.get('alarms'))
             merged={key:current[key] for key in ('title','notes','priority')}
             for key in ('due','start'):
                 value=current.get(key)
@@ -129,7 +193,11 @@ class RemindersCreateAdapter:
               'fidelity_verified':True,'effects':{'existing_content':'only explicitly listed public EventKit fields change',
               'native_metadata':'advanced native-field preservation requires live acceptance',
               'notifications':'Apple controls sync and notification delivery'}}
+        if 'alarms' in item['fields']:item['effects']['notifications']='Replace the complete exposed ordinary time-alarm set; may schedule, reschedule or cancel notifications on synced devices. Past triggers may notify immediately; delivery remains controlled by Apple.'
         item['before']=self.snapshot(item)
+        if 'alarms' in item['fields']:
+            due=item['fields'].get('due',item['before']['item'].get('due'))
+            item['effects']['time_alarms']=alarm_effects(item['fields']['alarms'],due)
         if item['before']['item'].get('has_recurrence'):
             raise SafetyError('Recurring reminder edits require explicit series/occurrence semantics')
         return item
@@ -143,7 +211,7 @@ class RemindersCreateAdapter:
         source=change.get('source_id');operation=change.get('operation');fields=change.get('fields')
         if operation not in self.operations or source not in planning_access('reminders')['source_ids']:
             raise SafetyError('Unselected Reminders source or operation')
-        allowed={'title'} if operation=='create_list' else {'title','notes','priority','due','start','url'}
+        allowed={'title'} if operation=='create_list' else {'title','notes','priority','due','start','url','alarms'}
         if not isinstance(fields,dict) or set(fields)-allowed:raise SafetyError('Unsupported reminder fields')
         title=fields.get('title')
         if not isinstance(title,str) or not title.strip() or len(title)>1000 or any(ord(c)<32 for c in title):
@@ -155,6 +223,7 @@ class RemindersCreateAdapter:
             if type(priority) is not int or priority not in {0,1,5,9}:raise SafetyError('Use none/high/medium/low priority values 0/1/5/9')
             fields.update(notes=notes,priority=priority)
             if 'url' in fields:fields['url']=validate_link(fields['url'])
+            if 'alarms' in fields:fields['alarms']=validate_alarms(fields['alarms'],fields.get('due'))
             for key in ('due','start'):
                 if key in fields:fields[key]=validate_date(fields[key])
         if fields.get('start') and fields.get('due'):
@@ -170,6 +239,7 @@ class RemindersCreateAdapter:
             if not isinstance(change.get('list_id'),str) or not change['list_id']:raise SafetyError('Select an exact reminder list')
             item['list_id']=change['list_id']
         item['before']=self.snapshot(item)
+        if operation=='create_reminder' and 'alarms' in fields:item['effects']['time_alarms']=alarm_effects(fields['alarms'],fields.get('due'))
         if operation=='create_list' and item['before']['matching_titles']>0:raise SafetyError('List title already exists')
         return item
     def snapshot(self,item):
@@ -207,20 +277,24 @@ class RemindersCreateAdapter:
         if item['operation'] in {'update_reminder','set_completed','move_reminder'}:
             if outcome['id']!=item['id'] or note.get('source_id')!=item['source_id']:return False
             expected=dict(item['before']['item']);expected.update(item['fields'])
+            if 'alarms' in item['fields']:expected['has_alarms']=bool(item['fields']['alarms'])
             for key in ('title','notes','priority','due','start','list_id','completed','url','location','has_recurrence','has_alarms','recurrence_rules','alarms'):
                 if key not in expected:continue
                 actual=note.get(key);wanted=expected.get(key)
-                if key in {'due','start'} and isinstance(wanted,dict):
-                    if not isinstance(actual,dict) or any(actual.get(k)!=v for k,v in wanted.items()):return False
+                if key=='alarms' and 'alarms' in item['fields']:
+                    if not alarms_equal(actual,wanted):return False
+                elif key in {'due','start'} and isinstance(wanted,dict):
+                    if not date_parts_equal(actual,wanted):return False
                 elif actual!=wanted:return False
             return True
         if note.get('source_id')!=item['source_id'] or note.get('list_id')!=item['list_id'] or note.get('completed') is not False:return False
         if any(note.get(k)!=item['fields'][k] for k in ('title','notes','priority')):return False
+        if 'alarms' in item['fields'] and (not alarms_equal(note.get('alarms'),item['fields']['alarms']) or note.get('has_alarms')!=bool(item['fields']['alarms'])):return False
         for key in ('url','location'):
             if note.get(key)!=item['fields'].get(key):return False
         for key in ('due','start'):
             expected=item['fields'].get(key);actual=note.get(key)
             if expected is None:
                 if actual is not None:return False
-            elif not isinstance(actual,dict) or any(actual.get(k)!=v for k,v in expected.items()):return False
+            elif not date_parts_equal(actual,expected):return False
         return True

@@ -5,7 +5,7 @@ ROOT=Path(__file__).resolve().parents[1]
 
 def run():
     source=(ROOT/'src/icloud_for_agents/native/reminders.swift').read_text()
-    start=source.index('func reminderLink(');functions=source[start:source.index('if action == "apply" {',start)]
+    start=source.index('func reminderLink(');functions=source[start:source.index('func ordinaryTimeAlarm(',start)]
     with tempfile.TemporaryDirectory(prefix='native-passive-metadata-') as directory:
         path=Path(directory);script=path/'metadata.swift';binary=path/'metadata'
         script.write_text('import Foundation\nfunc fail(_ reason:String)->Never {exit(3)}\n'+functions+'''

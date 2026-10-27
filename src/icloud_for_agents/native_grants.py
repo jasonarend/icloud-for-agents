@@ -15,7 +15,7 @@ from .native_once import selected_read_access
 FIELDS={
  'notes':{'create_note':{'title','body','format'},'append_note':{'body','format'},'prepend_note':{'body','format'},'replace_text':{'find','replacement','expected_matches'},
           'update_note':{'title','body','format'},'move_note':{'destination_folder_id'},'create_folder':{'title'}},
- 'reminders':{'create_reminder':{'title','notes','priority','due','start','url'},'update_reminder':{'title','notes','priority','due','start','url'},
+ 'reminders':{'create_reminder':{'title','notes','priority','due','start','url','alarms'},'update_reminder':{'title','notes','priority','due','start','url','alarms'},
               'set_completed':{'completed'},'move_reminder':{'list_id'},'create_list':{'title'},'rename_list':{'title'}}}
 
 

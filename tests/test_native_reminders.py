@@ -151,3 +151,35 @@ class NativeRemindersTests(unittest.TestCase):
     def test_link_creation_readback_does_not_ignore_loss(self):
         item=self.prepare(fields={'title':'Task','url':'https://example.com/'})
         self.assertFalse(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
+
+    def time_alarm(self,**values):
+        result={'relative_offset_seconds':0,'absolute_date':None,'type':0,'proximity':0,'structured_location':None,'email_address':None,'sound_name':None};result.update(values);return result
+    def test_absolute_and_relative_time_alarm_sets_have_exact_readback(self):
+        due={'year':2027,'month':1,'day':4,'hour':12,'minute':0,'timezone':'UTC'}
+        fields={'title':'Task','due':due,'alarms':[{'relative_offset_seconds':-900},{'absolute_date':1800000000}]}
+        item=self.prepare(fields=fields);self.reader.item.update(due=due,has_alarms=True,alarms=[self.time_alarm(absolute_date=1800000000),self.time_alarm(relative_offset_seconds=-900)])
+        self.assertTrue(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
+        self.reader.item['alarms'].pop();self.assertFalse(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
+    def test_alarm_input_refuses_implicit_timezone_precision_duplicates_and_other_triggers(self):
+        cases=[None,[{'absolute_date':True}],[{'absolute_date':float('nan')}],[{'absolute_date':1800000000.5}],
+               [{'absolute_date':0}],[{'relative_offset_seconds':-900}],[{'structured_location':{'title':'Place'}}],
+               [{'absolute_date':1800000000}]*2,[{'absolute_date':1800000000+i} for i in range(11)]]
+        for alarms in cases:
+            with self.subTest(alarms=alarms),self.assertRaises(SafetyError):self.prepare(fields={'title':'Task','alarms':alarms})
+    def test_empty_alarm_array_explicitly_clears_only_supported_time_alarms(self):
+        self.reader.item.update(alarms=[self.time_alarm(absolute_date=1800000000)],has_alarms=True,public_metadata_complete=True)
+        item=self.existing(fields={'alarms':[]});self.reader.item.update(alarms=[],has_alarms=False)
+        self.assertTrue(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
+    def test_location_email_custom_sound_or_incomplete_alarm_sets_cannot_be_replaced(self):
+        for extra in ({'proximity':1},{'type':3,'email_address':'synthetic@example.com'},{'sound_name':'Synthetic sound'},{'structured_location':{'title':'Place'}}):
+            self.reader.item.update(alarms=[self.time_alarm(**extra)],has_alarms=True,public_metadata_complete=True)
+            with self.subTest(extra=extra),self.assertRaises(SafetyError):self.existing(fields={'alarms':[]})
+        self.reader.item.update(alarms=[self.time_alarm()],has_alarms=True,public_metadata_complete=False)
+        with self.assertRaises(SafetyError):self.existing(fields={'alarms':[]})
+
+    def test_fixed_zero_timezone_aliases_preserve_exact_wall_time_without_other_zone_substitution(self):
+        from icloud_for_agents.native_reminders import date_parts_equal
+        due={'year':2027,'month':1,'day':4,'hour':12,'minute':0,'timezone':'UTC'}
+        self.assertTrue(date_parts_equal(dict(due,timezone='GMT'),due))
+        self.assertFalse(date_parts_equal(dict(due,timezone='Europe/London'),due))
+        self.assertFalse(date_parts_equal(dict(due,hour=11,timezone='GMT'),due))

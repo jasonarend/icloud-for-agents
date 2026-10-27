@@ -298,6 +298,28 @@ func reminderLink(_ value:Any)->URL? {
     else if (parts.host ?? "").isEmpty && parts.path.isEmpty {fail("invalid_fields")}
     return result
 }
+func ordinaryTimeAlarm(_ alarm:EKAlarm)->Bool {
+    alarm.type == .display && alarm.proximity == .none && alarm.structuredLocation == nil && alarm.emailAddress == nil && alarm.soundName == nil
+}
+func reminderTimeAlarms(_ value:Any,due:DateComponents?)->[EKAlarm] {
+    guard let entries=value as? [[String:Any]],entries.count<=10 else {fail("invalid_fields")}
+    var seen=Set<String>();var result:[EKAlarm]=[]
+    for entry in entries {
+        guard entry.count==1,let key=entry.keys.first,["absolute_date","relative_offset_seconds"].contains(key),
+              let number=entry[key] as? NSNumber,CFGetTypeID(number) != CFBooleanGetTypeID(),
+              number.doubleValue.isFinite,number.doubleValue.rounded()==number.doubleValue else {fail("invalid_fields")}
+        let seconds=number.doubleValue;let identity=key+":"+number.stringValue
+        guard !seen.contains(identity) else {fail("invalid_fields")};seen.insert(identity)
+        if key=="absolute_date" {
+            guard seconds>=946684800 && seconds<=4102444799 else {fail("invalid_fields")}
+            result.append(EKAlarm(absoluteDate:Date(timeIntervalSince1970:seconds)))
+        } else {
+            guard abs(seconds)<=31536000,due?.hour != nil,due?.timeZone != nil else {fail("invalid_fields")}
+            result.append(EKAlarm(relativeOffset:seconds))
+        }
+    }
+    return result
+}
 if action == "apply" {
     if let item=req["change"] as? [String:Any],item["operation"] as? String=="rename_list" {
         guard let source=item["source_id"] as? String,sourceIDs.contains(source),let id=item["list_id"] as? String,
@@ -339,7 +361,10 @@ if action == "apply" {
                       destination.allowsContentModifications else { fail("not_found_in_scope") }
                 reminder.calendar = destination
             } else {
-                guard !fields.isEmpty, Set(fields.keys).isSubset(of: ["title", "notes", "priority", "due", "start", "url"]) else { fail("invalid_fields") }
+                guard !fields.isEmpty, Set(fields.keys).isSubset(of: ["title", "notes", "priority", "due", "start", "url", "alarms"]) else { fail("invalid_fields") }
+                if fields["alarms"] != nil {
+                    guard (reminder.alarms?.count ?? 0)<=10,(reminder.alarms ?? []).allSatisfy(ordinaryTimeAlarm) else {fail("unsupported_edit_target")}
+                }
                 if let title = fields["title"] as? String { reminder.title = title }
                 if let notes = fields["notes"] as? String { reminder.notes = notes }
                 if let priority = fields["priority"] as? Int { reminder.priority = priority }
@@ -358,6 +383,7 @@ if action == "apply" {
                 if let due = fields["due"] { reminder.dueDateComponents = patchDate(due) }
                 if let start = fields["start"] { reminder.startDateComponents = patchDate(start) }
                 else { reminder.startDateComponents = previousStart }
+                if let alarms=fields["alarms"] {reminder.alarms=reminderTimeAlarms(alarms,due:reminder.dueDateComponents)}
             }
             mutationDispatched=true
             do { try store.save(reminder, commit: true) } catch { fail("mutation_failed_or_uncertain") }
@@ -393,7 +419,7 @@ if action == "apply" {
         if let timezone = fields["timezone"] as? String { result.timeZone = TimeZone(identifier: timezone) }
         return result
     }
-    guard Set(fields.keys).isSubset(of:["title","notes","priority","due","start","url"]) else {fail("invalid_fields")}
+    guard Set(fields.keys).isSubset(of:["title","notes","priority","due","start","url","alarms"]) else {fail("invalid_fields")}
     let reminder = EKReminder(eventStore: store)
     reminder.calendar = list; reminder.title = title
     reminder.notes = fields["notes"] as? String ?? ""
@@ -401,6 +427,7 @@ if action == "apply" {
     if let value=fields["url"] {reminder.url=reminderLink(value)}
     reminder.dueDateComponents = components(fields["due"])
     reminder.startDateComponents = components(fields["start"])
+    if let alarms=fields["alarms"] {reminder.alarms=reminderTimeAlarms(alarms,due:reminder.dueDateComponents)}
     mutationDispatched=true
     do { try store.save(reminder, commit: true) } catch { fail("mutation_failed_or_uncertain") }
     respond(["protocol_version": 1, "result": ["id": reminder.calendarItemIdentifier, "list_id": listID,

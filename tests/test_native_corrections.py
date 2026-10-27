@@ -113,3 +113,22 @@ class NativeCorrectionTests(unittest.TestCase):
         proposal=self.correction();self.assertEqual(self.engine.execute(proposal['plan_id'])['status'],'applied')
         self.assertEqual(self.engine.reconcile_correction(proposal['plan_id'])['status'],'verified_after_explicit_correction')
         self.assertEqual(os.environ['ICLOUD_MAIL_ACCESS'],'read-only')
+
+    def test_provider_alarm_truncation_can_restore_reviewed_original_alarm_set(self):
+        # Independent synthetic ledger; no native/provider data or live recovery.
+        adapter=Adapter();adapter.fail=False;adapter.reader.item.update(alarms=[],has_alarms=False,public_metadata_complete=True)
+        engine=NativeChanges('reminders','synthetic@example.com',adapter,PlanStore(Path(self.temp.name)/'alarm-fixture'))
+        truncate=[True]
+        def apply(item):
+            adapter.calls+=1;adapter.reader.item.update(copy.deepcopy(item['fields']))
+            if 'alarms' in item['fields']:
+                wanted=item['fields']['alarms'];actual=wanted[:1] if truncate[0] else wanted
+                adapter.reader.item['alarms']=[{'absolute_date':x.get('absolute_date'),'relative_offset_seconds':x.get('relative_offset_seconds',0),'type':0,'proximity':0,'structured_location':None,'email_address':None,'sound_name':None} for x in actual]
+                adapter.reader.item['has_alarms']=bool(actual)
+            return {'id':'task','source_id':'selected','list_id':'list'}
+        adapter.apply=apply
+        p=engine.prepare_once([{'operation':'update_reminder','source_id':'selected','id':'task','fields':{'alarms':[{'absolute_date':1800000000},{'absolute_date':1800000900}]}}])
+        self.assertEqual(engine.execute(p['plan_id'])['status'],'failed_or_uncertain');truncate[0]=False
+        repair=engine.prepare_update_correction(p['plan_id'],'before');self.assertEqual(engine.execute(repair['plan_id'])['status'],'applied')
+        self.assertEqual(engine.reconcile_correction(repair['plan_id'])['status'],'restored_before_after_explicit_correction')
+        self.assertEqual(adapter.reader.item['alarms'],[]);self.assertFalse(adapter.reader.item['has_alarms'])

@@ -42,6 +42,7 @@ jobs:
           .venv/bin/python tests/native_dispatch_gate_contract.py
           .venv/bin/python tests/native_reminder_metadata_contract.py
           .venv/bin/python tests/native_reminder_links_contract.py
+          .venv/bin/python tests/native_reminder_alarms_contract.py
           .venv/bin/python tests/native_list_metadata_contract.py
           .venv/bin/python tests/native_reminder_dates_contract.py
           .venv/bin/python tests/native_service_isolation_contract.py

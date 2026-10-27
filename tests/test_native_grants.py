@@ -230,3 +230,11 @@ class NativeGrantTests(unittest.TestCase):
         self.manager.match(grant,item)
         with self.assertRaises(SafetyError):self.manager.match(grant,dict(item,operation='update_note'))
         with self.assertRaises(SafetyError):self.manager.match(grant,dict(item,requested_fields=['find','replacement','expected_matches','format']))
+
+    def test_time_alarm_replacement_requires_its_own_field_authority(self):
+        scope=self.scope();scope['rules'][0].update(operation='update_reminder',fields=['notes'])
+        # Use the Reminders engine for its list scope and exact public field rules.
+        self.engine.name='reminders';self.engine.kind='reminders_change';self.manager.name='reminders'
+        identity=self.activate(scope);grant=self.manager.checked(identity)
+        item={'operation':'update_reminder','source_id':'selected','before':{'item':{'list_id':'folder'}},'fields':{'alarms':[]},'requested_fields':['alarms']}
+        with self.assertRaises(SafetyError):self.manager.match(grant,item)

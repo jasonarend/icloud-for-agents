@@ -214,6 +214,13 @@ def register_change_tools(mcp):
 
         @mcp.tool(annotations=WRITE)
         @guard
+        def reminders_reconcile_known_changes(plan_id:str)->dict:
+            """Independently verify complete returned-ID updates, completion, moves or list renames after failed readback; no mutation or replay."""
+            check_plan_scope('reminders',plan_id)
+            return editor('reminders').reconcile_known_changes(plan_id)
+
+        @mcp.tool(annotations=WRITE)
+        @guard
         def reminders_prepare_update_correction(plan_id:str,target:str="requested")->dict:
             """Review one exact known-ID correction after failed readback: target requested, or before for an explicit rollback."""
             check_plan_scope('reminders',plan_id)

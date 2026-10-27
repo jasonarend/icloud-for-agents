@@ -133,6 +133,7 @@ class NativeChanges:
                     or self.store.read(self.store.path(original_id,'.attempt-0'))!={'plan_sha256':digest(original),'attempt':attempt}):
                 raise SafetyError('Exact immutable returned identity required')
             expected=dict(item['before']['item']);expected.update(item['fields'])
+            if 'alarms' in item['fields']:expected['has_alarms']=bool(item['fields']['alarms'])
             current=self.adapter.reader.read('get',id=item['id'])['item']
             for key in ('source_id','list_id','completed','url','has_recurrence','has_alarms'):
                 if current.get(key)!=expected.get(key):raise SafetyError('Unrelated effects or external changes require separate review')
@@ -141,8 +142,11 @@ class NativeChanges:
                 # Unrequested public fields must retain their original state;
                 # no rollback may erase an external edit or unrelated effect.
                 for key in ('id','source_id','list_id','title','notes','priority','completed','url','location','created','has_recurrence','has_alarms','recurrence_rules','alarms'):
-                    if key not in item['fields'] and current.get(key)!=item['before']['item'].get(key):raise SafetyError('Unrequested state changed; rollback cannot overwrite it')
+                    if key not in item['fields'] and not (key=='has_alarms' and 'alarms' in item['fields']) and current.get(key)!=item['before']['item'].get(key):raise SafetyError('Unrequested state changed; rollback cannot overwrite it')
             fields={key:desired.get(key) for key in ('title','notes','priority','due','start','url')}
+            if 'alarms' in item['fields']:
+                from .native_reminders import public_time_alarms
+                fields['alarms']=public_time_alarms(item['before']['item'].get('alarms',[])) if target=='before' else item['fields']['alarms']
             for key in ('due','start'):
                 if isinstance(fields[key],dict):fields[key]={k:v for k,v in fields[key].items() if k in {'year','month','day','hour','minute','timezone'} and v is not None}
             from .native_once import planning
@@ -176,7 +180,11 @@ class NativeChanges:
             intended=original['payload']['changes'][0]
             rollback=correction['payload'].get('correction_target')=='before'
             if rollback:
-                intended=dict(intended,fields={key:intended['before']['item'].get(key) for key in ('title','notes','priority','due','start','url')})
+                fields={key:intended['before']['item'].get(key) for key in ('title','notes','priority','due','start','url')}
+                if 'alarms' in intended['fields']:
+                    from .native_reminders import public_time_alarms
+                    fields['alarms']=public_time_alarms(intended['before']['item'].get('alarms',[]))
+                intended=dict(intended,fields=fields)
             if (result.get('status')!='applied' or not self.adapter.verify(intended,original_result['attempted'][0]['result'])):
                 raise SafetyError('Original requested state still does not verify; uncertainty retained')
             self.store.write_once(self.store.path(original_id,'.native-correction-result'),
@@ -195,7 +203,11 @@ class NativeChanges:
     def reconcile_known_notes(self,plan_id):
         """Read-only verification of complete returned-ID Notes edits and moves."""
         if self.name!='notes':raise SafetyError('Known edit reconciliation is limited to Notes')
-        return self._reconcile_known(plan_id,{'append_note','prepend_note','replace_text','update_note','move_note'})
+        return self.reconcile_known_changes(plan_id)
+
+    def reconcile_known_changes(self,plan_id):
+        allowed=({'append_note','prepend_note','replace_text','update_note','move_note'} if self.name=='notes' else {'update_reminder','set_completed','move_reminder','rename_list'})
+        return self._reconcile_known(plan_id,allowed)
 
     def _reconcile_known(self,plan_id,allowed):
         from .native_access import access_status
@@ -219,7 +231,7 @@ class NativeChanges:
                 entry=self.store.read(self.store.path(plan_id,'.attempt-'+str(index)))
                 if (entry!={'plan_sha256':digest(plan),'attempt':attempt} or attempt.get('index')!=index
                         or attempt.get('operation')!=item['operation']
-                        or (item['operation'] in {'append_note','prepend_note','replace_text','update_note','move_note'} and attempt.get('result',{}).get('id')!=item.get('id'))
+                        or (item['operation'] in {'append_note','prepend_note','replace_text','update_note','move_note','update_reminder','set_completed','move_reminder','rename_list'} and attempt.get('result',{}).get('id')!=item.get('id'))
                         or not self.adapter.verify(item,attempt['result'])):
                     raise SafetyError('Known native object does not verify; uncertainty retained')
                 hashes.append(digest(entry))
