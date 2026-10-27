@@ -305,6 +305,10 @@ class NativeReadTests(unittest.TestCase):
         with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=bounded):
             value=NativeReader('notes').read('search',text='Title',folder_id='folder',match_scope='title',modified_from='2026-10-27T12:00:00Z',modified_before='2026-10-27T13:00:00Z')
             self.assertEqual(value['items'][0]['modified'],'2026-10-27T12:30:00.000Z')
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=page()):
+            self.assertEqual(NativeReader('notes').read('search',text='',folder_id='folder',match_scope='title')['items'][0]['id'],'note')
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',side_effect=AssertionError('No helper')),self.assertRaises(SafetyError):
+            NativeReader('notes').read('search',text='',folder_id='folder')
         for invalid in ({'items':[]}, {**page(),'table_projection_candidates':[{'html':'private'}]}, {**page(),'items':[{**row,'excerpt':'body'}]}, {**page(),'items':[{**row,'folder_id':'other'}]}):
             with self.subTest(invalid=invalid),self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=invalid),self.assertRaises(SafetyError):
                 NativeReader('notes').read('search',text='Title',folder_id='folder',match_scope='title')

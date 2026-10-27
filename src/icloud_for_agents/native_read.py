@@ -140,7 +140,8 @@ class NativeReader:
             raise SafetyError('Invalid bounded native page')
         for key in ('id', 'folder_id', 'list_id', 'source_id', 'text'):
             value = fields.get(key)
-            if value is not None and (not isinstance(value, str) or not 1 <= len(value) <= 1000):
+            minimum=0 if key=='text' and self.name=='notes' and action=='search' and match_scope=='title' else 1
+            if value is not None and (not isinstance(value, str) or not minimum <= len(value) <= 1000):
                 raise SafetyError('Invalid native selector')
         if fields.get('completed') is not None and type(fields['completed']) is not bool:
             raise SafetyError('Invalid completion filter')
@@ -666,7 +667,7 @@ def register_read_tools(mcp):
         def notes_search(text: str, folder_id: str | None = None, limit: int = 50, offset: int = 0,
                          modified_from: str | None = None, modified_before: str | None = None,
                          match_scope: Literal['all','title'] = 'all') -> dict:
-            """Search bounded title, plaintext and exported table text, or titles only without reading bodies. UTC modification bounds are inclusive from and exclusive before; follow next_offset even after empty pages."""
+            """Search bounded title, plaintext and exported table text, or titles only without reading bodies. An empty title-only query lists scoped notes. UTC bounds are inclusive from and exclusive before; follow next_offset even after empty pages."""
             return NativeReader('notes').read('search', text=text, folder_id=folder_id, limit=limit, offset=offset, modified_from=modified_from, modified_before=modified_before,match_scope=match_scope)
 
         @mcp.tool(annotations=annotations)

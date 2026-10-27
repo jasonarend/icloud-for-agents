@@ -87,7 +87,7 @@ function readNotes(app, req) {
         folders.splice(0,folders.length,{object:target,source:source});
     } else selected.forEach(a => walk(a,a.id(),0));
     if (req.action==='search') {
-        if(typeof req.text!=='string' || req.text.length<1 || req.text.length>1000 || !Number.isInteger(req.limit) || req.limit<1 || req.limit>100 || !Number.isInteger(req.offset) || req.offset<0 || req.offset>100000)throw Error('invalid_page');
+        if(typeof req.text!=='string' || (req.text.length<1 && req.match_scope!=='title') || req.text.length>1000 || !Number.isInteger(req.limit) || req.limit<1 || req.limit>100 || !Number.isInteger(req.offset) || req.offset<0 || req.offset>100000)throw Error('invalid_page');
         if(req.match_scope!==undefined && req.match_scope!=='title')throw Error('invalid_fields');
         const titleOnly=req.match_scope==='title';
         const hasModified=req.modified_from!==undefined || req.modified_before!==undefined;
