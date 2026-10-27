@@ -132,6 +132,19 @@ class NativeRemindersTests(unittest.TestCase):
         with self.assertRaises(SafetyError):self.adapter.prepare({**change,'fields':{'tag_name':'bad tag'}})
         with self.assertRaises(SafetyError):self.adapter.prepare({**change,'fields':{'tag_name':'\u0301bad'}})
         self.assertEqual(self.adapter.prepare({**change,'fields':{'tag_name':'café_東京'}})['fields']['tag_name'],'café_東京')
+    def test_exact_tag_replacement_preserves_other_tag_identity(self):
+        old={'id':'11111111-1111-4111-8111-111111111111','name':'Old','native_type':0}
+        other={'id':'22222222-2222-4222-8222-222222222222','name':'Other','native_type':0}
+        new={'id':'33333333-3333-4333-8333-333333333333','name':'New','native_type':0}
+        change={'operation':'replace_tag','source_id':'selected','id':'created','fields':{'tag_id':old['id'],'tag_name':'New'}}
+        with self.assertRaises(SafetyError):self.adapter.prepare(change)
+        metadata=self.native_reader();metadata['tags']=[old,other];item=self.adapter.prepare(change)
+        metadata['tags']=[other,new];self.assertTrue(self.adapter.verify(item,{'id':'created','source_id':'selected','tag_id':new['id']}))
+        metadata['tags']=[new];self.assertFalse(self.adapter.verify(item,{'id':'created','source_id':'selected','tag_id':new['id']}))
+        metadata['tags']=[old,other]
+        with self.assertRaises(SafetyError):self.adapter.prepare({**change,'fields':{'tag_id':old['id'],'tag_name':'other'}})
+        with self.assertRaises(SafetyError):self.adapter.prepare({**change,'fields':{'tag_id':'invalid','tag_name':'New'}})
+
     def test_selected_native_backend_refuses_missing_or_incomplete_native_snapshot(self):
         metadata=self.native_reader();metadata['tags_complete']=False
         with self.assertRaises(SafetyError):self.existing()

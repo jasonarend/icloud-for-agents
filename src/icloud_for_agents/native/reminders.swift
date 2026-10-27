@@ -515,7 +515,7 @@ func reminderRecurrence(_ value:Any,due:DateComponents?)->EKRecurrenceRule? {
     return rule
 }
 if action == "apply" {
-    if let change=req["change"] as? [String:Any],let operation=change["operation"] as? String,["set_flagged","remove_tag","add_tag"].contains(operation) {
+    if let change=req["change"] as? [String:Any],let operation=change["operation"] as? String,["set_flagged","remove_tag","add_tag","replace_tag"].contains(operation) {
         privateReminderGateArmed=true;NativeMutationGate.armDeadline()
     }
     if let item=req["change"] as? [String:Any],let operation=item["operation"] as? String,["rename_list","set_list_color"].contains(operation) {
@@ -540,7 +540,7 @@ if action == "apply" {
         RunLoop.current.run(until:Date(timeIntervalSinceNow:30));fail("mutation_failed_or_uncertain")
     }
     if let item = req["change"] as? [String: Any], let operation = item["operation"] as? String,
-       ["update_reminder", "set_completed", "move_reminder", "set_recurrence", "set_flagged", "remove_tag", "add_tag"].contains(operation) {
+       ["update_reminder", "set_completed", "move_reminder", "set_recurrence", "set_flagged", "remove_tag", "add_tag", "replace_tag"].contains(operation) {
         if operation == "move_reminder" { fail("unsupported_hierarchy_move") }
         guard let sourceID = item["source_id"] as? String, sourceIDs.contains(sourceID),
               let identifier = item["id"] as? String, let fields = item["fields"] as? [String: Any],
@@ -563,6 +563,15 @@ if action == "apply" {
                       let expected=before["native_metadata"] as? [String:Any],let prior=expected["flagged"] as? NSNumber,CFGetTypeID(prior)==CFBooleanGetTypeID(),
                       let payload=try? JSONSerialization.data(withJSONObject:["id":identifier,"source_id":sourceID,"list_id":reminder.calendar.calendarIdentifier,"flagged":flag,"expected_flagged":prior]),
                       let response=(try? JSONSerialization.jsonObject(with:ICloudRemindersSetFlag(payload,{NativeMutationGate.beginMutation()}))) as? [String:Any] else {fail("invalid_mutation")}
+                if response["error"] != nil {fail((response["mutation_dispatched"] as? Bool)==true ? "mutation_failed_or_uncertain" : "unsupported_edit_target")}
+                guard let output=response["result"] as? [String:Any] else {fail("mutation_failed_or_uncertain")}
+                respond(["protocol_version":1,"result":output])
+            }
+            if operation == "replace_tag" {
+                guard Set(fields.keys)==["tag_id","tag_name"],let tag=fields["tag_id"] as? String,let name=fields["tag_name"] as? String,!tag.isEmpty,!name.isEmpty,
+                      let expected=before["native_metadata"] as? [String:Any],let tags=expected["tags"] as? [[String:Any]],
+                      let payload=try? JSONSerialization.data(withJSONObject:["id":identifier,"source_id":sourceID,"list_id":reminder.calendar.calendarIdentifier,"tag_id":tag,"tag_name":name,"expected_tags":tags]),
+                      let response=(try? JSONSerialization.jsonObject(with:ICloudRemindersReplaceTag(payload,{NativeMutationGate.beginMutation()}))) as? [String:Any] else {fail("invalid_mutation")}
                 if response["error"] != nil {fail((response["mutation_dispatched"] as? Bool)==true ? "mutation_failed_or_uncertain" : "unsupported_edit_target")}
                 guard let output=response["result"] as? [String:Any] else {fail("mutation_failed_or_uncertain")}
                 respond(["protocol_version":1,"result":output])

@@ -268,6 +268,7 @@ def register_change_tools(mcp):
             explicitly selected ReminderKit backend. remove_tag uses exact id and
             fields.tag_id for one observed native tag, with the same backend.
             add_tag uses fields.tag_name (letters, digits or underscores).
+            replace_tag requires both tag_id and tag_name and creates a new tag identity.
             Ordinary recurring edits are refused. set_recurrence requires exact id
             and fields.recurrence_scope="exact_native_rule" plus fields.recurrence
             (rule or null). Rules require frequency, interval, and end (null, count

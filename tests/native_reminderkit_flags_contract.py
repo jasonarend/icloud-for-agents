@@ -114,6 +114,7 @@ static NSDictionary *Hierarchy(NSDictionary *request){NSData *data=[NSJSONSerial
 static NSDictionary *Tags(NSDictionary *request){NSData *data=[NSJSONSerialization dataWithJSONObject:request options:0 error:NULL];return [NSJSONSerialization JSONObjectWithData:ICloudRemindersReadTags(data) options:0 error:NULL];}
 static NSDictionary *Call(NSDictionary *request){NSData *data=[NSJSONSerialization dataWithJSONObject:request options:0 error:NULL];return [NSJSONSerialization JSONObjectWithData:ICloudRemindersReadFlag(data) options:0 error:NULL];}
 static NSDictionary *SetFlag(NSDictionary *request,BOOL allow){NSData *data=[NSJSONSerialization dataWithJSONObject:request options:0 error:NULL];return [NSJSONSerialization JSONObjectWithData:ICloudRemindersSetFlag(data,^{return allow;}) options:0 error:NULL];}
+static NSDictionary *ReplaceTag(NSDictionary *request,BOOL allow){NSData *data=[NSJSONSerialization dataWithJSONObject:request options:0 error:NULL];return [NSJSONSerialization JSONObjectWithData:ICloudRemindersReplaceTag(data,^{return allow;}) options:0 error:NULL];}
 static NSDictionary *AddTag(NSDictionary *request,BOOL allow){NSData *data=[NSJSONSerialization dataWithJSONObject:request options:0 error:NULL];return [NSJSONSerialization JSONObjectWithData:ICloudRemindersAddTag(data,^{return allow;}) options:0 error:NULL];}
 static NSDictionary *RemoveTag(NSDictionary *request,BOOL allow){NSData *data=[NSJSONSerialization dataWithJSONObject:request options:0 error:NULL];return [NSJSONSerialization JSONObjectWithData:ICloudRemindersRemoveTag(data,^{return allow;}) options:0 error:NULL];}
 int main(){@autoreleasepool{
@@ -146,6 +147,10 @@ int main(){@autoreleasepool{
  NSDictionary *tagResult=Tags(request);NSCAssert([tagResult[@"native_metadata"][@"tags"][0][@"name"] isEqual:@"Project"],@"native tag exposed");
  FixtureTag *secondTag=[FixtureTag new];secondTag.remObjectID=Identity(@"REMCDHashtag",@"55555555-5555-4555-8555-555555555555");secondTag.accountID=fixture.account.remObjectID;secondTag.reminderID=fixture.remObjectID;secondTag.name=@"Other";secondTag.type=0;context.hashtags=@[tag,secondTag];
  NSArray *expected=Tags(request)[@"native_metadata"][@"tags"];NSDictionary *remove=@{@"id":task,@"source_id":source,@"list_id":list,@"tag_id":other,@"expected_tags":expected};int savesBefore=flagSaves;
+ NSDictionary *replace=@{@"id":task,@"source_id":source,@"list_id":list,@"tag_id":other,@"tag_name":@"SyntheticNew",@"expected_tags":expected};
+ NSCAssert(ReplaceTag(replace,NO)[@"error"] && flagSaves==savesBefore && [context.hashtags count]==2,@"closed gate leaves old tags");
+ NSCAssert(ReplaceTag(replace,YES)[@"result"] && [context.hashtags count]==2 && [context.hashtags containsObject:secondTag],@"replace one and preserve other tag");
+ NSCAssert(ReplaceTag(replace,YES)[@"error"] && [context.hashtags count]==2,@"stale snapshot refused");context.hashtags=@[tag,secondTag];savesBefore=flagSaves;
  NSDictionary *add=@{@"id":task,@"source_id":source,@"list_id":list,@"tag_name":@"Café東京",@"expected_tags":expected};
  NSCAssert(AddTag(add,NO)[@"error"] && flagSaves==savesBefore && [context.hashtags count]==2,@"closed gate leaves native tags untouched");
  NSCAssert(AddTag(add,YES)[@"result"] && [context.hashtags count]==3,@"exact native tag added");
