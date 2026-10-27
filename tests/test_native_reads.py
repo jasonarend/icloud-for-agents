@@ -277,9 +277,14 @@ class NativeReadTests(unittest.TestCase):
         with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=page):
             result=NativeReader('notes').read('search',**fields)
             self.assertEqual(result['items'][0]['modified'],candidate['modified'])
-        for invalid in ({'items':[]}, {**page,'table_projection_candidates':[{**candidate,'modified':'2026-10-27T13:00:00.000Z'}]}, {**page,'items':[{'modified':None}]}):
+        for invalid in ({'items':[]}, {**page,'table_projection_candidates':[{**candidate,'modified':'2026-10-27T13:00:00.000Z'}]}, {**page,'items':[{'modified':None}]}, {**page,'table_projection_candidates':[{**candidate,'source_id':'foreign'}]}):
             with self.subTest(invalid=invalid),self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=invalid),self.assertRaises(SafetyError):
                 NativeReader('notes').read('search',**fields)
+        def drift(*args):
+            os.environ['ICLOUD_MAIL_ACCESS']='disabled'
+            return {**page,'table_projection_candidates':[candidate]}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',side_effect=drift),self.assertRaises(SafetyError):
+            NativeReader('notes').read('search',**fields)
         for invalid in ({'modified_from':'2026-02-30T00:00:00Z'}, {'modified_from':'2026-10-27T12:00:00+00:00'}, {'modified_from':'2026-10-27T13:00:00Z','modified_before':'2026-10-27T12:00:00Z'}):
             with self.subTest(invalid=invalid),self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',side_effect=AssertionError('No helper')),self.assertRaises(SafetyError):
                 NativeReader('notes').read('search',text='table',**invalid)

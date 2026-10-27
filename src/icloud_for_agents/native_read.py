@@ -246,12 +246,16 @@ class NativeReader:
             if not isinstance(candidates,list) or len(candidates)>limit:
                 raise SafetyError('Invalid bounded Notes search projection')
             if modified:
-                if (result.get('modified_filter')!={'from':modified.get('modified_from'),'before':modified.get('modified_before'),'semantics':'utc_inclusive_from_exclusive_before'}
+                if (native_config('notes')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode
+                        or result.get('modified_filter')!={'from':modified.get('modified_from'),'before':modified.get('modified_before'),'semantics':'utc_inclusive_from_exclusive_before'}
                         or not isinstance(result.get('items'),list)):
                     raise SafetyError('Configured helper did not verify the requested Notes modification filter')
                 for row in result['items']+candidates:
                     stamp=row.get('modified') if isinstance(row,dict) else None
                     try:
+                        if (not isinstance(row,dict) or not isinstance(row.get('id'),str) or not row['id']
+                                or row.get('source_id') not in sources or not isinstance(row.get('folder_id'),str) or not row['folder_id']
+                                or (fields.get('folder_id') is not None and row['folder_id']!=fields['folder_id'])):raise ValueError()
                         if not isinstance(stamp,str) or len(stamp)!=24 or datetime.strptime(stamp,'%Y-%m-%dT%H:%M:%S.%fZ') is None:raise ValueError()
                         if (modified.get('modified_from') and stamp<modified['modified_from'][:-1]+'.000Z') or (modified.get('modified_before') and stamp>=modified['modified_before'][:-1]+'.000Z'):raise ValueError()
                     except ValueError:raise SafetyError('Configured helper returned a note outside the requested modification range') from None
