@@ -249,7 +249,7 @@ The fixed private interface is limited to the tested macOS version and refuses u
 
 `reminders_inspect_recovery_hierarchy` resolves the requested deleted reminder to its recovery root, then reads a bounded set of provider-reported descendants. It checks each observed parent and root relationship and refuses changes or duplicate identities during traversal. The default limit is 10 nodes; callers may request 1–20 nodes and depth 0–5. Unavailable or unexpanded branches are listed explicitly, and `hierarchy_complete` remains false. This is read-only inspection, not a restoration proposal or proof that all affected descendants are known.
 
-A local test selected a deleted synthetic subtask and observed its root and both direct children. The parent and both children were subsequently restored through the app and independently verified.
+A local test selected a deleted synthetic subtask and observed its root and both direct children. The parent and both children were subsequently restored through the app and independently verified. In a separate read-only probe of that deleted parent, its native subtask context reported no children even though the recovery view and app both showed two. The recovery view is therefore used for these observations; an empty deleted-object context is not treated as proof of an empty hierarchy.
 
 **Bounded hierarchy inspection**
 
