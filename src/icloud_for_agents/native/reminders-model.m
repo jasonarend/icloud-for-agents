@@ -189,7 +189,7 @@ NSData *ICloudRemindersAddTag(NSData *data,BOOL (^enterMutation)(void)){
         id request=[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
         if(![request isKindOfClass:NSDictionary.class] || [request count]!=5 || !enterMutation)return EncodeFlag(FlagFailure(@"invalid_public_identity"));
         NSString *tagName=request[@"tag_name"];NSArray *expected=request[@"expected_tags"];
-        if(![tagName isKindOfClass:NSString.class] || tagName.length<1 || [tagName lengthOfBytesUsingEncoding:NSUTF8StringEncoding]>512 || ![expected isKindOfClass:NSArray.class] || expected.count>=200)return EncodeFlag(FlagFailure(@"invalid_public_identity"));
+        if(![tagName isKindOfClass:NSString.class] || tagName.length<1 || tagName.length>100 || [tagName rangeOfCharacterFromSet:[[NSCharacterSet characterSetWithCharactersInString:@"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_"] invertedSet]].location!=NSNotFound || ![expected isKindOfClass:NSArray.class] || expected.count>=200)return EncodeFlag(FlagFailure(@"invalid_public_identity"));
         NSDictionary *identity=@{@"id":request[@"id"] ?: [NSNull null],@"source_id":request[@"source_id"] ?: [NSNull null],@"list_id":request[@"list_id"] ?: [NSNull null]};
         NSData *identityData=[NSJSONSerialization dataWithJSONObject:identity options:0 error:NULL];NSDictionary *failure=nil;id store=nil;
         id reminder=SelectedReminderWithStore(identityData,&failure,&store);if(!reminder || !store)return EncodeFlag(failure ?: FlagFailure(@"private_store_unavailable"));
@@ -211,7 +211,7 @@ NSData *ICloudRemindersAddTag(NSData *data,BOOL (^enterMutation)(void)){
                     || !UUIDEqual([accountUUID UUIDString],identity[@"source_id"]) || !UUIDEqual([reminderUUID UUIDString],identity[@"id"]) || !MethodMatches([tag class],@"type",@"q@:",NO))return EncodeFlag(FlagFailure(@"snapshot_changed"));
             NSInteger kind=((NSInteger(*)(id,SEL))objc_msgSend)(tag,NSSelectorFromString(@"type"));
             if(![expected containsObject:@{@"id":identifier,@"name":name,@"native_type":@(kind)}])return EncodeFlag(FlagFailure(@"snapshot_changed"));
-            [seen addObject:identifier];if([name isEqual:tagName])return EncodeFlag(FlagFailure(@"snapshot_changed"));
+            [seen addObject:identifier];if([name caseInsensitiveCompare:tagName]==NSOrderedSame)return EncodeFlag(FlagFailure(@"snapshot_changed"));
         }
         id added=((id(*)(id,SEL,NSInteger,id))objc_msgSend)(context,NSSelectorFromString(@"addHashtagWithType:name:"),0,tagName);
         NSString *addedID=ObjectUUID(added,@"REMCDHashtag");id accountID=ObjectValue(added,@"accountID"),reminderID=ObjectValue(added,@"reminderID");

@@ -118,6 +118,18 @@ class NativeRemindersTests(unittest.TestCase):
         metadata['flagged']=True;metadata['flag_state']=1;self.assertFalse(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
         metadata['flagged']=False;metadata['flag_state']=0
         with self.assertRaises(SafetyError):self.adapter.prepare(change)
+    def test_exact_native_tag_addition_requires_opt_in_and_preserves_observed_metadata(self):
+        change={'operation':'add_tag','source_id':'selected','id':'created','fields':{'tag_name':'SyntheticNew'}}
+        with self.assertRaises(SafetyError):self.adapter.prepare(change)
+        metadata=self.native_reader();original={'id':'11111111-1111-4111-8111-111111111111','name':'Existing','native_type':0};metadata['tags']=[original]
+        item=self.adapter.prepare(change);added={'id':'22222222-2222-4222-8222-222222222222','name':'SyntheticNew','native_type':0}
+        metadata['tags']=[original,added]
+        self.assertTrue(self.adapter.verify(item,{'id':'created','source_id':'selected','tag_id':added['id']}))
+        self.assertFalse(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
+        metadata['flagged']=True;self.assertFalse(self.adapter.verify(item,{'id':'created','source_id':'selected','tag_id':added['id']}))
+        metadata['flagged']=False
+        with self.assertRaises(SafetyError):self.adapter.prepare(change)
+        with self.assertRaises(SafetyError):self.adapter.prepare({**change,'fields':{'tag_name':'bad tag'}})
     def test_selected_native_backend_refuses_missing_or_incomplete_native_snapshot(self):
         metadata=self.native_reader();metadata['tags_complete']=False
         with self.assertRaises(SafetyError):self.existing()

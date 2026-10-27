@@ -16,7 +16,7 @@ FIELDS={
  'notes':{'create_note':{'title','body','format'},'append_note':{'body','format'},'prepend_note':{'body','format'},'replace_text':{'find','replacement','expected_matches'},
           'update_note':{'title','body','format'},'move_note':{'destination_folder_id'},'create_folder':{'title'},'rename_folder':{'title'}},
  'reminders':{'create_reminder':{'title','notes','priority','due','start','url','alarms','location_alarms','recurrence'},'update_reminder':{'title','notes','priority','due','start','url','alarms','location_alarms'},
-              'set_completed':{'completed'},'set_flagged':{'flagged'},'remove_tag':{'tag_id'},'move_reminder':{'list_id'},'create_list':{'title'},'rename_list':{'title'},'set_list_color':{'color'},'set_recurrence':{'recurrence','recurrence_scope'}}}
+              'set_completed':{'completed'},'set_flagged':{'flagged'},'remove_tag':{'tag_id'},'add_tag':{'tag_name'},'move_reminder':{'list_id'},'create_list':{'title'},'rename_list':{'title'},'set_list_color':{'color'},'set_recurrence':{'recurrence','recurrence_scope'}}}
 
 
 def exact(value,limit=1000):
