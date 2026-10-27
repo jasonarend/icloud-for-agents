@@ -231,7 +231,7 @@ Local checks located the dedicated synthetic note in both its regular test folde
 
 **Notes special-folder role check under development**
 
-The optional native Notes model now has an internal, read-only check for one exact selected-account folder and its ancestors. It refuses system, smart, shared, deleted, unknown and dirty-context states; it does not read note bodies or save changes. This check requires the explicitly selected native Notes backend and existing macOS data access. It does not request access or fall back to a less precise check.
+The optional native Notes model now has an internal, read-only check for one exact selected-account folder and its ancestors. It distinguishes an ordinary non-system folder from a system folder that the model identifies as Trash, and refuses other system, smart, shared, deleted, contradictory, unknown and dirty-context states. It does not read note bodies or save changes. This check requires the explicitly selected native Notes backend and existing macOS data access. It does not request access or fall back to a less precise check.
 
 Synthetic in-memory model checks pass. On the development Mac, the helper reported that the native store was unavailable, so real folder classification and the use of this check to re-enable moves remain unverified. Ordinary Notes moves stay paused.
 

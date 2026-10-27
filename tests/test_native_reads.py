@@ -150,6 +150,9 @@ class NativeReadTests(unittest.TestCase):
         with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=result) as dispatch:
             NativeReader('notes').read('model_folder_role',folder_id='folder',source_id='selected')
             self.assertEqual(dispatch.call_args.args[0]['source_ids'],['selected'])
+            dispatch.return_value={**result,'role':'system_trash'}
+            self.assertEqual(NativeReader('notes').read('model_folder_role',folder_id='folder',source_id='selected')['role'],'system_trash')
+            dispatch.return_value=result
             with self.assertRaises(SafetyError):NativeReader('notes').read('model_folder_role',folder_id='folder',source_id='foreign')
         for invalid in ({**result,'role':'special'},{**result,'data_mutated':True},{**result,'source_id':'other'},{**result,'ancestor_count':True}):
             with self.subTest(invalid=invalid),self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=invalid),self.assertRaises(SafetyError):

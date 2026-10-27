@@ -3,11 +3,12 @@ import json,subprocess,tempfile
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 HARNESS=r'''
-static BOOL special=NO,shared=NO,smart=NO;
+static BOOL special=NO,shared=NO,smart=NO,trash=NO;
 @interface SyntheticFolder:NSManagedObject
 @end
 @implementation SyntheticFolder
 -(BOOL)isSystemFolder{return special;}
+-(BOOL)isTrashFolder{return trash;}
 -(BOOL)isSmartFolder{return smart;}
 -(BOOL)isSharedViaICloud{return shared;}
 @end
@@ -36,6 +37,8 @@ int main(){@autoreleasepool{
  NSDictionary *role=[NSJSONSerialization JSONObjectWithData:ICloudNotesModelFolderRole(roleData) options:0 error:NULL];
  NSCAssert([role[@"role"] isEqual:@"ordinary_non_system"] && ![role[@"data_mutated"] boolValue],@"ordinary role read");
  special=YES;role=[NSJSONSerialization JSONObjectWithData:ICloudNotesModelFolderRole(roleData) options:0 error:NULL];NSCAssert([role[@"category"] isEqual:@"unsupported_edit_target"],@"system folder refused");special=NO;
+ special=YES;trash=YES;role=[NSJSONSerialization JSONObjectWithData:ICloudNotesModelFolderRole(roleData) options:0 error:NULL];NSCAssert([role[@"role"] isEqual:@"system_trash"] && ![role[@"data_mutated"] boolValue],@"trash role identified read-only");special=NO;trash=NO;
+ trash=YES;role=[NSJSONSerialization JSONObjectWithData:ICloudNotesModelFolderRole(roleData) options:0 error:NULL];NSCAssert([role[@"category"] isEqual:@"unsupported_edit_target"],@"contradictory trash role refused");trash=NO;
  shared=YES;role=[NSJSONSerialization JSONObjectWithData:ICloudNotesModelFolderRole(roleData) options:0 error:NULL];NSCAssert([role[@"category"] isEqual:@"unsupported_edit_target"],@"shared folder refused");shared=NO;
  smart=YES;role=[NSJSONSerialization JSONObjectWithData:ICloudNotesModelFolderRole(roleData) options:0 error:NULL];NSCAssert([role[@"category"] isEqual:@"unsupported_edit_target"],@"smart folder refused");smart=NO;
  [fixture performBlockAndWait:^{[root setValue:@"pending" forKey:@"title"];}];role=[NSJSONSerialization JSONObjectWithData:ICloudNotesModelFolderRole(roleData) options:0 error:NULL];NSCAssert([role[@"category"] isEqual:@"notes_model_has_unrelated_changes"],@"dirty role refused");[fixture performBlockAndWait:^{[fixture rollback];}];

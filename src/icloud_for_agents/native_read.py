@@ -163,7 +163,7 @@ class NativeReader:
         if action=='model_folder_role':
             if (native_config('notes')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode
                     or not isinstance(result,dict) or result.get('folder_id')!=fields['folder_id'] or result.get('source_id')!=fields['source_id']
-                    or result.get('role')!='ordinary_non_system' or result.get('backend')!='notes-shared-folder-role-v1'
+                    or result.get('role') not in {'ordinary_non_system','system_trash'} or result.get('backend')!='notes-shared-folder-role-v1'
                     or result.get('data_mutated') is not False or type(result.get('ancestor_count')) is not int or not 0<=result['ancestor_count']<32):
                 raise SafetyError('Configured helper did not verify the exact Notes folder role')
         if action=='recovery_lookup':

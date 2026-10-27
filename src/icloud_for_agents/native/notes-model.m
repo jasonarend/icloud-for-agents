@@ -212,14 +212,21 @@ NSData *ICloudNotesModelFolderRole(NSData *data) {
             NSURL *url=[NSURL URLWithString:identity];NSManagedObjectID *oid=url?[moc.persistentStoreCoordinator managedObjectIDForURIRepresentation:url]:nil;
             NSManagedObject *folder=oid?[moc existingObjectWithID:oid error:NULL]:nil;
             if(!folder || ![Identity(folder) isEqual:identity]){answer=Failure(moc.persistentStoreCoordinator.persistentStores.count?@"not_found_in_scope":@"notes_model_store_unavailable",NO,@"resolve_exact_folder");return;}
-            NSMutableSet *seen=[NSMutableSet set];NSManagedObject *current=folder;NSUInteger depth=0;
+            NSMutableSet *seen=[NSMutableSet set];NSManagedObject *current=folder;NSUInteger depth=0;NSString *role=nil;
             while(current){
-                if(depth++>=32 || [seen containsObject:current.objectID] || !FolderAllowed(current,sources[0],YES)){
+                if(depth>=32 || [seen containsObject:current.objectID] || !FolderAllowed(current,sources[0],NO) || !BoolInterface(current,@"isTrashFolder")){
                     answer=Failure(@"unsupported_edit_target",NO,@"validate_folder_role");return;
                 }
-                [seen addObject:current.objectID];current=[current valueForKey:@"parent"];
+                BOOL isTrash=Flag(current,@"isTrashFolder"),isSystem=Flag(current,@"isSystemFolder");
+                if(depth==0) {
+                    if(isTrash && isSystem)role=@"system_trash";
+                    else if(isTrash) {answer=Failure(@"unsupported_edit_target",NO,@"validate_folder_role");return;}
+                    else if(!isSystem)role=@"ordinary_non_system";
+                    else {answer=Failure(@"unsupported_edit_target",NO,@"validate_folder_role");return;}
+                } else if(isTrash || isSystem) {answer=Failure(@"unsupported_edit_target",NO,@"validate_folder_role");return;}
+                depth++;[seen addObject:current.objectID];current=[current valueForKey:@"parent"];
             }
-            answer=@{@"protocol_version":@1,@"folder_id":identity,@"source_id":sources[0],@"role":@"ordinary_non_system",@"ancestor_count":@(depth-1),@"data_mutated":@NO,@"backend":@"notes-shared-folder-role-v1"};
+            answer=@{@"protocol_version":@1,@"folder_id":identity,@"source_id":sources[0],@"role":role,@"ancestor_count":@(depth-1),@"data_mutated":@NO,@"backend":@"notes-shared-folder-role-v1"};
         }@catch(NSException *exception){answer=Failure(@"notes_model_exception",NO,@"validate_folder_role");}}];
         return Encode(answer ?: Failure(@"notes_model_unavailable",NO,@"resolve_exact_folder"));
     }@catch(NSException *exception){return Encode(Failure(@"notes_model_exception",NO,@"request_validation"));}
