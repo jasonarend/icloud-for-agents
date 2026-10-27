@@ -203,7 +203,7 @@ Synthetic tests cover parent identity, foreign/self parents, contradictory state
 
 With the owner-selected ReminderKit backend, `reminders_get` accepts `include_native_children: true` for one exact reminder. It returns up to 100 provider-reported direct child IDs, verifying each child's identity, parent, list and account. A foreign, duplicate or inconsistent child, provider error, unknown collection or more than 100 results refuses the read. When the provider supplies no child context, `child_ids` is `null` and `children_fetch_status` is `"unavailable"`; it is never presented as a verified empty list.
 
-`children_complete` remains false. Concealed, unsupported, completed or nested descendants and ordering are not proven by this provider view, so it is not sufficient to authorize deleting or moving a subtree. Fetch each accessible child's details separately within the selected source. Synthetic scope, bounds and error tests pass; a live read of the dedicated parent/child fixtures returned the exact child ID and reported the leaf's unavailable context without changing data or permissions.
+`children_complete` remains false. Concealed, unsupported, completed or nested descendants and ordering are not proven by this provider view, so it is not sufficient to authorize deleting or moving a subtree. Fetch each accessible child's details separately within the selected source. Synthetic scope, bounds and error tests pass; live reads of dedicated fixtures returned both an incomplete and a completed direct child, and reported a leaf's unavailable context. The temporarily completed fixture was restored and verified; no permissions were changed.
 
 **Read-only Markdown views**
 
