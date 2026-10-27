@@ -119,6 +119,26 @@ class NativeRemindersTests(unittest.TestCase):
         self.assertFalse(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
         with self.assertRaises(SafetyError):self.adapter.prepare({'operation':'set_flagged','source_id':'selected','id':'created','fields':{'flagged':1}})
 
+    def test_subtask_creation_binds_parent_and_preassigned_child_identity(self):
+        change={'operation':'create_subtask','source_id':'selected','id':'created','fields':{'title':'Synthetic subtask'}}
+        with self.assertRaises(SafetyError):self.adapter.prepare(change)
+        metadata=self.native_reader();metadata['has_subtasks']=True;metadata['child_ids']=['11111111-1111-4111-8111-111111111111']
+        item=self.adapter.prepare(change);self.assertNotEqual(item['child_id'],item['id']);self.assertEqual(item['before']['native_metadata']['child_ids'],metadata['child_ids'])
+        from icloud_for_agents.native_protocol import mutation_request
+        self.assertEqual(mutation_request('reminders',item)['change']['child_id'],item['child_id'])
+        read=self.reader.read
+        def enriched(action,**fields):
+            if action=='get' and fields.get('id')==item['child_id']:
+                return {'item':{'id':item['child_id'],'source_id':'selected','list_id':'list','title':'Synthetic subtask','completed':False,'priority':0,'notes':'','due':None,'start':None,'has_alarms':False,'has_recurrence':False,'alarms':[],'recurrence_rules':[],'url':None,'location':None,'public_metadata_complete':True,'native_metadata':{'is_subtask':True,'parent_id':'created','flagged':False,'urgent':False,'tags_complete':True,'tags':[]}}}
+            return read(action,**fields)
+        self.reader.read=enriched;metadata['child_ids'].append(item['child_id']);metadata['child_ids'].sort()
+        outcome={'id':item['child_id'],'source_id':'selected','parent_id':'created'};self.assertTrue(self.adapter.verify(item,outcome))
+        metadata['child_ids'].remove('11111111-1111-4111-8111-111111111111');self.assertFalse(self.adapter.verify(item,outcome))
+        metadata['child_ids']=None
+        with self.assertRaises(SafetyError):self.adapter.prepare(change)
+        metadata['child_ids']=[];self.reader.item['completed']=True
+        with self.assertRaises(SafetyError):self.adapter.prepare(change)
+
     def test_urgent_write_requires_separate_exact_state_and_preserves_metadata(self):
         change={'operation':'set_urgent','source_id':'selected','id':'created','fields':{'urgent':True}}
         with self.assertRaises(SafetyError):self.adapter.prepare(change)

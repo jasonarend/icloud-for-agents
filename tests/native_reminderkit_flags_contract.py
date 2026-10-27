@@ -73,11 +73,13 @@ FIXTURE=r'''
 @implementation FixtureReminder
 @end
 static FixtureReminder *fixture;
-static BOOL denied=NO;
+static BOOL denied=NO;static BOOL childCollision=NO;static BOOL childLookupError=NO;
 @interface FixtureStore:NSObject
 -(id)fetchReminderWithObjectID:(id)objectID error:(NSError **)error;
+-(id)fetchReminderIncludingMarkedForDeleteWithObjectID:(id)objectID error:(NSError **)error;
 @end
 @implementation FixtureStore
+-(id)fetchReminderIncludingMarkedForDeleteWithObjectID:(id)objectID error:(NSError **)error{if(childLookupError){*error=[NSError errorWithDomain:@"synthetic" code:9 userInfo:nil];return nil;}return childCollision?fixture:nil;}
 -(id)fetchReminderWithObjectID:(id)objectID error:(NSError **)error{
  if(denied){*error=[NSError errorWithDomain:@"synthetic" code:1 userInfo:@{NSLocalizedDescriptionKey:@"private-content-must-not-leak"}];return nil;}
  NSCAssert([[objectID entityName] isEqual:@"REMCDReminder"],@"native Core Data entity required for lookup");
@@ -110,6 +112,7 @@ static int flagSaves=0;static BOOL saveFails=NO;
 @property FixtureFlagChange *flaggedContext;
 @property FixtureUrgentChange *urgentAlarmContext;
 @property FixtureTagChange *hashtagContext;
+@property id subtaskContext;
 @end
 @implementation FixtureReminderChange
 @end
@@ -117,14 +120,17 @@ static int flagSaves=0;static BOOL saveFails=NO;
 @property FixtureReminderChange *change;
 -(id)initWithStore:(id)store;
 -(id)updateReminder:(id)reminder;
+-(id)addReminderWithTitle:(id)title toReminderSubtaskContextChangeItem:(id)context reminderObjectID:(id)identity;
 -(BOOL)saveSynchronouslyWithError:(NSError **)error;
 @end
 @implementation FixtureSave
 -(id)initWithStore:(id)store{return [super init];}
--(id)updateReminder:(id)reminder{self.change=[FixtureReminderChange new];self.change.flaggedContext=[FixtureFlagChange new];self.change.urgentAlarmContext=[FixtureUrgentChange new];self.change.urgentAlarmContext.enabled=((FixtureUrgent *)fixture.urgentAlarmContext).enabled;self.change.hashtagContext=[FixtureTagChange new];self.change.hashtagContext.hashtags=[NSMutableArray arrayWithArray:((FixtureTags *)fixture.hashtagContext).hashtags ?: @[]];return self.change;}
+-(id)updateReminder:(id)reminder{self.change=[FixtureReminderChange new];self.change.subtaskContext=[NSObject new];self.change.flaggedContext=[FixtureFlagChange new];self.change.urgentAlarmContext=[FixtureUrgentChange new];self.change.urgentAlarmContext.enabled=((FixtureUrgent *)fixture.urgentAlarmContext).enabled;self.change.hashtagContext=[FixtureTagChange new];self.change.hashtagContext.hashtags=[NSMutableArray arrayWithArray:((FixtureTags *)fixture.hashtagContext).hashtags ?: @[]];return self.change;}
+-(id)addReminderWithTitle:(id)title toReminderSubtaskContextChangeItem:(id)context reminderObjectID:(id)identity{return [NSObject new];}
 -(BOOL)saveSynchronouslyWithError:(NSError **)error{flagSaves++;if(saveFails){*error=[NSError errorWithDomain:@"synthetic" code:1 userInfo:nil];return NO;}((FixtureFlag *)fixture.flaggedContext).flagged=self.change.flaggedContext.flagged;if(fixture.hashtagContext)((FixtureTags *)fixture.hashtagContext).hashtags=self.change.hashtagContext.hashtags;if(fixture.urgentAlarmContext)((FixtureUrgent *)fixture.urgentAlarmContext).enabled=self.change.urgentAlarmContext.enabled;return YES;}
 @end
 static FixtureID *Identity(NSString *entity,NSString *value){FixtureID *v=[FixtureID new];v.entityName=entity;v.uuid=[[NSUUID alloc]initWithUUIDString:value];return v;}
+static NSDictionary *CreateSubtask(NSDictionary *request,BOOL allow){NSData *data=[NSJSONSerialization dataWithJSONObject:request options:0 error:NULL];return [NSJSONSerialization JSONObjectWithData:ICloudRemindersCreateSubtask(data,^{return allow;}) options:0 error:NULL];}
 static NSDictionary *SetUrgent(NSDictionary *request,BOOL allow){NSData *data=[NSJSONSerialization dataWithJSONObject:request options:0 error:NULL];return [NSJSONSerialization JSONObjectWithData:ICloudRemindersSetUrgent(data,^{return allow;}) options:0 error:NULL];}
 static NSDictionary *Urgent(NSDictionary *request){NSData *data=[NSJSONSerialization dataWithJSONObject:request options:0 error:NULL];return [NSJSONSerialization JSONObjectWithData:ICloudRemindersReadUrgent(data) options:0 error:NULL];}
 static NSDictionary *Children(NSDictionary *request){NSData *data=[NSJSONSerialization dataWithJSONObject:request options:0 error:NULL];return [NSJSONSerialization JSONObjectWithData:ICloudRemindersReadChildren(data) options:0 error:NULL];}
@@ -212,6 +218,13 @@ int main(){@autoreleasepool{
  child.parentReminder=nil;NSCAssert(Children(request)[@"error"],@"foreign or missing parent refused");child.parentReminder=fixture;
  child.isSubtask=NO;NSCAssert(Children(request)[@"error"],@"non-subtask refused");child.isSubtask=YES;
  child.account=[FixtureAccount new];child.account.remObjectID=Identity(@"REMCDAccount",other);NSCAssert(Children(request)[@"error"],@"foreign account refused");child.account=fixture.account;
+ NSString *newChild=@"66666666-6666-4666-8666-666666666666";NSDictionary *create=@{@"id":task,@"source_id":source,@"list_id":list,@"child_id":newChild,@"title":@"Synthetic child",@"expected_children":@[other]};int subtaskSaves=flagSaves;
+ childCollision=YES;NSCAssert(CreateSubtask(create,YES)[@"error"] && flagSaves==subtaskSaves,@"existing ID refused");childCollision=NO;
+ childLookupError=YES;NSCAssert(CreateSubtask(create,YES)[@"error"] && flagSaves==subtaskSaves,@"unexpected lookup failure refused");childLookupError=NO;
+ NSCAssert(CreateSubtask(create,NO)[@"error"] && flagSaves==subtaskSaves,@"closed gate prevents child save");
+ NSDictionary *created=CreateSubtask(create,YES);NSCAssert([created[@"result"][@"id"] isEqual:newChild] && flagSaves==subtaskSaves+1,@"fixed preassigned identity returned");
+ NSMutableDictionary *stale=[create mutableCopy];stale[@"expected_children"]=@[];NSCAssert(CreateSubtask(stale,YES)[@"error"] && flagSaves==subtaskSaves+1,@"changed children refuse before save");
+ saveFails=YES;NSDictionary *failedCreate=CreateSubtask(create,YES);NSCAssert([failedCreate[@"mutation_dispatched"] boolValue] && [failedCreate[@"error"] isEqual:@"mutation_failed_or_uncertain"],@"post-dispatch child save error remains uncertain");saveFails=NO;
  hierarchy.children=@[child,child];NSCAssert(Children(request)[@"error"],@"duplicate child refused");
  NSMutableArray *over=[NSMutableArray array];for(int i=0;i<101;i++)[over addObject:child];hierarchy.children=over;NSCAssert(Children(request)[@"error"],@"children bound");
  hierarchy.children=nil;NSCAssert(Children(request)[@"error"],@"nil provider result refused");

@@ -318,3 +318,15 @@ class NativeGrantTests(unittest.TestCase):
         grant=self.manager.checked(self.activate(scope));item={'operation':'set_urgent','source_id':'selected','before':{'item':{'list_id':'folder'}},'fields':{'urgent':True},'requested_fields':['urgent']}
         with self.assertRaises(SafetyError):self.manager.match(grant,item)
         scope=self.scope();scope['rules'][0].update(operation='set_urgent',fields=['urgent']);self.manager.match(self.manager.checked(self.activate(scope)),item)
+
+    def test_subtask_scenario_requires_exact_parent_in_selected_list(self):
+        self.engine.name='reminders';self.engine.kind='reminders_change';self.manager.name='reminders'
+        class ParentReader:
+            def read(self,action,**fields):return {'item':{'id':fields['id'],'source_id':'selected','list_id':'folder'}}
+        self.adapter.reader=ParentReader()
+        scope=self.scope();scope['rules'][0].update(operation='create_subtask',fields=['title'],destinations=['parent'])
+        grant=self.manager.checked(self.activate(scope));item={'operation':'create_subtask','id':'parent','source_id':'selected','before':{'item':{'list_id':'folder'}},'fields':{'title':'Synthetic'},'requested_fields':['title']}
+        self.manager.match(grant,item);item['id']='other'
+        with self.assertRaises(SafetyError):self.manager.match(grant,item)
+        scope['rules'][0]['destinations']=[]
+        with self.assertRaises(SafetyError):validate_scope('reminders',scope,self.now)

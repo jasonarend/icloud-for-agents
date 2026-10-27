@@ -16,7 +16,7 @@ from .native_read import native_config
 FIELDS={
  'notes':{'create_note':{'title','body','format'},'append_note':{'body','format'},'prepend_note':{'body','format'},'replace_text':{'find','replacement','expected_matches'},
           'update_note':{'title','body','format'},'move_note':{'destination_folder_id'},'create_folder':{'title'},'rename_folder':{'title'}},
- 'reminders':{'create_reminder':{'title','notes','priority','due','start','url','alarms','location_alarms','recurrence'},'update_reminder':{'title','notes','priority','due','start','url','alarms','location_alarms'},
+ 'reminders':{'create_subtask':{'title'},'create_reminder':{'title','notes','priority','due','start','url','alarms','location_alarms','recurrence'},'update_reminder':{'title','notes','priority','due','start','url','alarms','location_alarms'},
               'set_completed':{'completed'},'set_flagged':{'flagged'},'set_urgent':{'urgent'},'remove_tag':{'tag_id'},'add_tag':{'tag_name'},'replace_tag':{'tag_id','tag_name'},'move_reminder':{'list_id'},'create_list':{'title'},'rename_list':{'title'},'set_list_color':{'color'},'set_recurrence':{'recurrence','recurrence_scope'}}}
 
 
@@ -49,8 +49,8 @@ def validate_scope(name,scope,now):
             raise SafetyError('Native grant field scope must explicitly select supported fields')
         if 'location_alarms' in fields and 'alarms' not in fields:raise SafetyError('Location-alarm authority requires explicit complete alarm-set authority')
         if (not isinstance(dest,list) or len(dest)>20 or any(not exact(d) for d in dest)
-                or len(set(dest))!=len(dest) or bool(dest)!=(op in {'move_note','move_reminder'})):
-            raise SafetyError('Moves require exact destinations; other rules cannot grant them')
+                or len(set(dest))!=len(dest) or bool(dest)!=(op in {'move_note','move_reminder','create_subtask'})):
+            raise SafetyError('Moves require exact destinations and subtask creation requires exact parents; other rules cannot grant them')
         identity=(op,rule['source_id'],rule['container_id'])
         if identity in seen:raise SafetyError('Duplicate native grant selector; combine its field scope explicitly')
         seen.add(identity)
@@ -96,8 +96,14 @@ class NativeGrants:
                 if (role.get('storage_kind')!='regular' or role.get('source_id')!=rule['source_id'] or role.get('folder_id')!=rule['container_id']
                         or len(root)!=1 or root[0].get('is_default') is not False):raise SafetyError('Rename grant requires a verified ordinary nondefault folder')
                 source['storage_role']={k:role[k] for k in ('source_id','folder_id','storage_kind','marked_for_deletion','has_smart_query','schema_sha256')}
-            result.append({'source':source,
-                           'destinations':[self.container(rule['source_id'],d) for d in rule['destinations']]})
+            if rule['operation']=='create_subtask':
+                destinations=[]
+                for parent_id in rule['destinations']:
+                    parent=self.engine.adapter.reader.read('get',id=parent_id)['item']
+                    if parent.get('id')!=parent_id or parent.get('source_id')!=rule['source_id'] or parent.get('list_id')!=rule['container_id']:raise SafetyError('Subtask grant parent is absent or outside its exact source and list')
+                    destinations.append({'id':parent_id,'source_id':rule['source_id'],'list_id':rule['container_id']})
+            else:destinations=[self.container(rule['source_id'],d) for d in rule['destinations']]
+            result.append({'source':source,'destinations':destinations})
         return result
     def prepare(self,scope,*,_replaces=None):
         validate_scope(self.name,scope,self.store.clock())
@@ -245,6 +251,7 @@ class NativeGrants:
                 if requires_location and 'location_alarms' not in rule['fields']:continue
                 dest=item['fields'].get('destination_folder_id' if self.name=='notes' else 'list_id')
                 if op in {'move_note','move_reminder'} and dest not in rule['destinations']:continue
+                if op=='create_subtask' and item['id'] not in rule['destinations']:continue
                 return
         raise SafetyError('Native change exceeds the approved scenario source/container/operation/fields')
     def check_batch(self,plan,grant):

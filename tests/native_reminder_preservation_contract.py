@@ -67,7 +67,7 @@ def run():
     assert source.index(move_gate)<source.index('            } else if operation == "move_reminder" {')
     functions=source[source.index('func selectedNativeMetadata('):source.index('if action == "get" {')]
     start=source.index('            if let selectedNative=before["native_metadata"]')
-    gate=source[start:source.index('            if operation == "set_urgent"',start)]
+    gate=source[start:source.index('            if operation == "create_subtask"',start)]
     with tempfile.TemporaryDirectory(prefix='native-preservation-') as directory:
         p=Path(directory);(p/'main.swift').write_text('import Foundation\n'+FIXTURE+functions+CHECKS)
         (p/'move.swift').write_text('import Foundation\nlet operation=CommandLine.arguments[1]\nfunc fail(_ code:String)->Never {print("refused:"+code);exit(0)}\n'+move_gate+'\nprint("admitted")\n')

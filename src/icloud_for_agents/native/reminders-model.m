@@ -350,6 +350,39 @@ NSData *ICloudRemindersReplaceTag(NSData *data,BOOL (^enterMutation)(void)){
     }@catch(NSException *exception){return EncodeFlag(@{@"protocol_version":@1,@"error":dispatched?@"mutation_failed_or_uncertain":@"private_metadata_unavailable",@"mutation_dispatched":@(dispatched)});}
 }
 
+// Create exactly one child with a preassigned native ID under one scoped parent.
+NSData *ICloudRemindersCreateSubtask(NSData *data,BOOL (^enterMutation)(void)){
+    __block BOOL dispatched=NO;
+    @try{
+        id request=[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
+        if(![request isKindOfClass:NSDictionary.class] || [request count]!=6 || !enterMutation)return EncodeFlag(FlagFailure(@"invalid_public_identity"));
+        NSString *childID=request[@"child_id"],*title=request[@"title"];NSArray *expectedChildren=request[@"expected_children"];
+        if(![expectedChildren isKindOfClass:NSArray.class] || expectedChildren.count>=100 || ![childID isKindOfClass:NSString.class] || ![[NSUUID alloc]initWithUUIDString:childID] || ![title isKindOfClass:NSString.class] || title.length<1 || title.length>1000 || [title lengthOfBytesUsingEncoding:NSUTF8StringEncoding]>4000 || [title rangeOfCharacterFromSet:NSCharacterSet.newlineCharacterSet].location!=NSNotFound)return EncodeFlag(FlagFailure(@"invalid_public_identity"));
+        NSDictionary *identity=@{@"id":request[@"id"] ?: [NSNull null],@"source_id":request[@"source_id"] ?: [NSNull null],@"list_id":request[@"list_id"] ?: [NSNull null]};
+        if(UUIDEqual(childID,identity[@"id"]))return EncodeFlag(FlagFailure(@"invalid_public_identity"));
+        NSData *identityData=[NSJSONSerialization dataWithJSONObject:identity options:0 error:NULL];NSDictionary *failure=nil;id store=nil;
+        id parent=SelectedReminderWithStore(identityData,&failure,&store);if(!parent || !store)return EncodeFlag(failure ?: FlagFailure(@"private_store_unavailable"));
+        NSDictionary *observed=[NSJSONSerialization JSONObjectWithData:ICloudRemindersReadChildren(identityData) options:0 error:NULL];
+        if(![observed[@"native_metadata"][@"child_ids"] isEqual:expectedChildren] || [expectedChildren containsObject:childID])return EncodeFlag(FlagFailure(@"snapshot_changed"));
+        Class cls=NSClassFromString(@"REMSaveRequest"),objectClass=NSClassFromString(@"REMObjectID");
+        if(!MethodMatches(cls,@"initWithStore:",@"@@:@",NO) || !MethodMatches(cls,@"updateReminder:",@"@@:@",NO) || !MethodMatches(cls,@"addReminderWithTitle:toReminderSubtaskContextChangeItem:reminderObjectID:",@"@@:@@@",NO) || !MethodMatches(cls,@"saveSynchronouslyWithError:",@"B@:^@",NO))return EncodeFlag(FlagFailure(@"unsupported_subtask_write"));
+        id objectID=((id(*)(id,SEL,id))objc_msgSend)((id)objectClass,NSSelectorFromString(@"objectIDWithURL:"),[NSURL URLWithString:[@"x-apple-reminderkit://REMCDReminder/" stringByAppendingString:childID]]);
+        id objectUUID=ObjectValue(objectID,@"uuid");if(![objectUUID isKindOfClass:NSUUID.class] || !UUIDEqual([objectUUID UUIDString],childID) || ![ObjectValue(objectID,@"entityName") isEqual:@"REMCDReminder"])return EncodeFlag(FlagFailure(@"invalid_public_identity"));
+        if(!MethodMatches([store class],@"fetchReminderIncludingMarkedForDeleteWithObjectID:error:",@"@@:@^@",NO))return EncodeFlag(FlagFailure(@"unsupported_subtask_write"));
+        NSError *lookupError=nil;id existing=((id(*)(id,SEL,id,NSError **))objc_msgSend)(store,NSSelectorFromString(@"fetchReminderIncludingMarkedForDeleteWithObjectID:error:"),objectID,&lookupError);
+        if(existing || (lookupError && !([lookupError.domain isEqual:@"com.apple.reminderkit"] && lookupError.code==-3000)))return EncodeFlag(FlagFailure(@"snapshot_changed"));
+        id save=((id(*)(id,SEL,id))objc_msgSend)([cls alloc],NSSelectorFromString(@"initWithStore:"),store);
+        id change=((id(*)(id,SEL,id))objc_msgSend)(save,NSSelectorFromString(@"updateReminder:"),parent),context=ObjectValue(change,@"subtaskContext");
+        if(!context)return EncodeFlag(FlagFailure(@"unsupported_subtask_write"));
+        id child=((id(*)(id,SEL,id,id,id))objc_msgSend)(save,NSSelectorFromString(@"addReminderWithTitle:toReminderSubtaskContextChangeItem:reminderObjectID:"),title,context,objectID);
+        if(!child)return EncodeFlag(FlagFailure(@"unsupported_subtask_write"));
+        if(!enterMutation())return EncodeFlag(FlagFailure(@"native_dispatch_cancelled"));
+        dispatched=YES;NSError *error=nil;BOOL saved=((BOOL(*)(id,SEL,NSError **))objc_msgSend)(save,NSSelectorFromString(@"saveSynchronouslyWithError:"),&error);
+        if(!saved || error)return EncodeFlag(@{@"protocol_version":@1,@"error":@"mutation_failed_or_uncertain",@"mutation_dispatched":@YES});
+        return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":childID,@"source_id":identity[@"source_id"],@"list_id":identity[@"list_id"],@"parent_id":identity[@"id"],@"saved_locally":@YES}});
+    }@catch(NSException *exception){return EncodeFlag(@{@"protocol_version":@1,@"error":dispatched?@"mutation_failed_or_uncertain":@"private_metadata_unavailable",@"mutation_dispatched":@(dispatched)});}
+}
+
 // The provider's parent and child-presence hints are not a complete subtree inventory.
 NSData *ICloudRemindersReadHierarchy(NSData *data){
     @try{

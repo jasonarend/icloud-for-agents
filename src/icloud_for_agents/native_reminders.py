@@ -153,7 +153,7 @@ def alarm_effects(alarms,due):
 
 
 class RemindersCreateAdapter:
-    operations={'create_list','create_reminder','update_reminder','set_completed','move_reminder','rename_list','set_recurrence','set_list_color','set_flagged','remove_tag','add_tag','replace_tag','set_urgent'}
+    operations={'create_list','create_reminder','update_reminder','set_completed','move_reminder','rename_list','set_recurrence','set_list_color','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','create_subtask'}
     def __init__(self):self.reader=NativeReader('reminders')
     @property
     def backend_id(self):
@@ -241,7 +241,11 @@ class RemindersCreateAdapter:
         operation=change['operation'];source=change.get('source_id');fields=change.get('fields')
         if source not in planning_access('reminders')['source_ids'] or not isinstance(fields,dict) or not fields:
             raise SafetyError('Select an exact source and nonempty fields')
-        if operation=='set_completed':
+        if operation=='create_subtask':
+            title=fields.get('title')
+            if set(fields)!={'title'} or not isinstance(title,str) or not title.strip() or len(title)>1000 or len(title.encode('utf-8'))>4000 or any(ord(c)<32 for c in title):raise SafetyError('Use one exact bounded subtask title')
+            if native_config('reminders').get('advanced_backend')!='reminderkit':raise SafetyError('Native subtask creation requires the explicitly selected ReminderKit backend')
+        elif operation=='set_completed':
             if set(fields)!={'completed'} or type(fields['completed']) is not bool:
                 raise SafetyError('Use an explicit completion boolean')
         elif operation in {'add_tag','replace_tag'}:
@@ -297,7 +301,14 @@ class RemindersCreateAdapter:
               'notifications':'Apple controls sync and notification delivery'}}
         if native_config('reminders').get('advanced_backend')=='reminderkit':item['effects']['native_metadata']='Observed flags, native tags, urgent state and partial hierarchy metadata must be unchanged before dispatch and during independent readback; complete subtree and other native metadata remain unverified.'
         if 'alarms' in item['fields']:item['effects']['notifications']='Replace the complete supported time/location alarm set; may schedule, reschedule or cancel notifications on synced devices. Past triggers may notify immediately; delivery remains controlled by Apple.'
+        if operation=='create_subtask':
+            import uuid
+            item['child_id']=str(uuid.uuid4()).upper()
+            item['effects']['hierarchy']='Create one native subtask under this exact parent; existing observed child IDs and other metadata must be retained. Provider hierarchy remains incomplete.'
         item['before']=self.snapshot(item)
+        if operation=='create_subtask':
+            metadata=item['before'].get('native_metadata');children=metadata.get('child_ids') if isinstance(metadata,dict) else None
+            if item['before']['item'].get('completed') is not False or not isinstance(children,list) or len(children)>=100 or item['child_id'] in children:raise SafetyError('Subtask creation requires an incomplete parent and a bounded observed child list')
         if operation=='set_urgent':
             if item['before'].get('urgent') is fields['urgent']:raise SafetyError('Reminder already has the requested urgent state')
             item['effects']['urgent']='Change the current user urgent state. Apple controls sync and notifications; urgent notifications may repeat.'
@@ -328,7 +339,7 @@ class RemindersCreateAdapter:
         if isinstance(change,dict) and change.get('operation')=='set_list_color':return self.prepare_list_color(change)
         if isinstance(change,dict) and change.get('operation')=='set_recurrence':return self.prepare_recurrence(change)
         if isinstance(change,dict) and change.get('operation')=='rename_list':return self.prepare_list_rename(change)
-        if isinstance(change,dict) and change.get('operation') in {'update_reminder','set_completed','move_reminder','set_recurrence','set_flagged','remove_tag','add_tag','replace_tag','set_urgent'}:
+        if isinstance(change,dict) and change.get('operation') in {'update_reminder','set_completed','move_reminder','set_recurrence','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','create_subtask'}:
             return self.prepare_existing(change)
         if not isinstance(change,dict) or set(change)-{'operation','source_id','list_id','fields'}:
             raise SafetyError('Unknown Reminders change fields')
@@ -407,7 +418,7 @@ class RemindersCreateAdapter:
             raise SafetyError('Reminder moves are unavailable until complete hierarchy effects can be verified before dispatch')
         if item['operation'] in {'rename_list','set_list_color'}:return self.list_rename_snapshot(item)
         lists=[c for c in self.lists() if c['source_id']==item['source_id']]
-        if item['operation'] in {'update_reminder','set_completed','move_reminder','set_recurrence','set_flagged','remove_tag','add_tag','replace_tag','set_urgent'}:
+        if item['operation'] in {'update_reminder','set_completed','move_reminder','set_recurrence','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','create_subtask'}:
             reminder=self.reader.read('get',id=item['id'])['item']
             if reminder.get('source_id')!=item['source_id']:raise SafetyError('Reminder belongs to another source')
             current=next((c for c in lists if c['id']==reminder['list_id']),None)
@@ -432,6 +443,21 @@ class RemindersCreateAdapter:
         require_write('reminders',item);config=native_config('reminders')
         request=mutation_request('reminders',item)
         return self.reader._dispatch(request,config)['result']
+    def verify_subtask(self,item,outcome):
+        if outcome.get('id')!=item['child_id'] or outcome.get('source_id')!=item['source_id'] or outcome.get('parent_id')!=item['id']:return False
+        child=self.reader.read('get',id=item['child_id'],include_native_metadata=True,include_native_tags=True,include_native_hierarchy=True,include_native_urgent=True)['item'];metadata=child.get('native_metadata')
+        if (child.get('id')!=item['child_id'] or child.get('source_id')!=item['source_id'] or child.get('list_id')!=item['before']['item'].get('list_id')
+                or child.get('title')!=item['fields']['title'] or child.get('completed') is not False or child.get('priority')!=0
+                or child.get('notes') not in ('',None) or child.get('due') is not None or child.get('start') is not None
+                or child.get('has_alarms') is not False or child.get('has_recurrence') is not False or child.get('alarms')!=[] or child.get('recurrence_rules')!=[]
+                or child.get('url') is not None or child.get('location') is not None or child.get('public_metadata_complete') is not True or not isinstance(metadata,dict)
+                or metadata.get('flagged') is not False or metadata.get('urgent') is not False or metadata.get('tags_complete') is not True or metadata.get('tags')!=[]
+                or metadata.get('is_subtask') is not True or metadata.get('parent_id')!=item['id']):return False
+        parent=self.reader.read('get',id=item['id'])['item'];baseline=item['before']['item']
+        if any(parent.get(k)!=baseline.get(k) for k in ('id','source_id','list_id','title','notes','priority','due','start','completed','url','location','alarms','has_alarms','recurrence_rules','has_recurrence')):return False
+        actual=self.native_snapshot(parent);expected=dict(item['before']['native_metadata']);expected['child_ids']=sorted(expected['child_ids']+[item['child_id']]);expected['has_subtasks']=True
+        return actual==expected and self.urgent_snapshot(parent) is item['before']['urgent']
+
     def verify(self,item,outcome):
         if outcome.get('source_id')!=item['source_id'] or not isinstance(outcome.get('id'),str):return False
         if item['operation']=='set_list_color':
@@ -446,8 +472,9 @@ class RemindersCreateAdapter:
             actual=self.list_rename_snapshot(item);expected=dict(item['before']);expected['list']=dict(expected['list'],title=item['fields']['title'])
             return actual==expected
         if item['operation']=='create_list':return any(c['id']==outcome['id'] and c['title']==item['fields']['title'] and c['source_id']==item['source_id'] for c in self.lists())
+        if item['operation']=='create_subtask':return self.verify_subtask(item,outcome)
         note=self.reader.read('get',id=outcome['id'])['item']
-        if item['operation'] in {'update_reminder','set_completed','move_reminder','set_recurrence','set_flagged','remove_tag','add_tag','replace_tag','set_urgent'}:
+        if item['operation'] in {'update_reminder','set_completed','move_reminder','set_recurrence','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','create_subtask'}:
             if outcome['id']!=item['id'] or note.get('source_id')!=item['source_id']:return False
             expected=dict(item['before']['item']);expected.update(item['fields'])
             if 'alarms' in item['fields']:expected['has_alarms']=bool(item['fields']['alarms'])
