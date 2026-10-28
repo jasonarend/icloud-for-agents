@@ -153,7 +153,7 @@ def alarm_effects(alarms,due):
 
 
 class RemindersCreateAdapter:
-    operations={'create_list','create_reminder','update_reminder','set_completed','move_reminder','rename_list','set_recurrence','set_list_color','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','create_subtask'}
+    operations={'create_list','create_reminder','create_section','update_reminder','set_completed','move_reminder','rename_list','set_recurrence','set_list_color','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','create_subtask'}
     def __init__(self):self.reader=NativeReader('reminders')
     @property
     def backend_id(self):
@@ -213,6 +213,27 @@ class RemindersCreateAdapter:
         item['before']=self.list_rename_snapshot(item)
         validate_color(item['before']['list'].get('color'))
         if not allow_noop and colors_equal(item['before']['list']['color'],color):raise SafetyError('List already has the requested color')
+        return item
+
+    def section_snapshot(self,item):
+        base=self.list_rename_snapshot(dict(item,fields={}))
+        sections=self.reader.read('list_sections',list_id=item['list_id'])
+        if sections.get('source_id')!=item['source_id'] or sections.get('list_id')!=item['list_id']:
+            raise SafetyError('Section inventory belongs to another source or list')
+        base['sections']=sections['sections']
+        return base
+
+    def prepare_section(self,change):
+        import uuid
+        if set(change)!={'operation','source_id','list_id','fields'} or change.get('operation')!='create_section':raise SafetyError('Select one exact list and section title')
+        if change['source_id'] not in planning_access('reminders')['source_ids'] or not isinstance(change['list_id'],str) or not 1<=len(change['list_id'])<=1000:raise SafetyError('Select an exact source and list')
+        if native_config('reminders').get('advanced_backend')!='reminderkit':raise SafetyError('Section creation requires the explicitly selected ReminderKit backend')
+        fields=change['fields'];title=fields.get('title') if isinstance(fields,dict) else None
+        if not isinstance(fields,dict) or set(fields)!={'title'} or not isinstance(title,str) or not title.strip() or len(title)>1000 or len(title.encode('utf-8'))>4000 or any(ord(c)<32 for c in title):raise SafetyError('Use one exact bounded section title')
+        item={'operation':'create_section','source_id':change['source_id'],'list_id':change['list_id'],'id':change['list_id'],'section_id':str(uuid.uuid4()).upper(),'fields':{'title':title},'fidelity_verified':True,
+              'effects':{'section':'Create one native section; preserve the observed existing sections and list reminder membership.','ordering':'Apple determines display order; section ordering and reminder membership within sections are not verified.','sharing':'Apple may sync the list change to devices or existing participants; EventKit does not expose participant state.'}}
+        item['before']=self.section_snapshot(item)
+        if len(item['before']['sections'])>=100 or any(s['title']==title for s in item['before']['sections']):raise SafetyError('A matching section exists or section inventory reached its bound')
         return item
 
     def prepare_recurrence(self,change):
@@ -338,6 +359,7 @@ class RemindersCreateAdapter:
         return item
 
     def prepare(self,change):
+        if isinstance(change,dict) and change.get('operation')=='create_section':return self.prepare_section(change)
         if isinstance(change,dict) and change.get('operation')=='set_list_color':return self.prepare_list_color(change)
         if isinstance(change,dict) and change.get('operation')=='set_recurrence':return self.prepare_recurrence(change)
         if isinstance(change,dict) and change.get('operation')=='rename_list':return self.prepare_list_rename(change)
@@ -418,6 +440,7 @@ class RemindersCreateAdapter:
         # Apply this to fresh plans and rechecks of already approved plans.
         if item['operation']=='move_reminder':
             raise SafetyError('Reminder moves are unavailable until complete hierarchy effects can be verified before dispatch')
+        if item['operation']=='create_section':return self.section_snapshot(item)
         if item['operation'] in {'rename_list','set_list_color'}:return self.list_rename_snapshot(item)
         lists=[c for c in self.lists() if c['source_id']==item['source_id']]
         if item['operation'] in {'update_reminder','set_completed','move_reminder','set_recurrence','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','create_subtask'}:
@@ -462,6 +485,10 @@ class RemindersCreateAdapter:
 
     def verify(self,item,outcome):
         if outcome.get('source_id')!=item['source_id'] or not isinstance(outcome.get('id'),str):return False
+        if item['operation']=='create_section':
+            if outcome['id']!=item['section_id'] or outcome.get('list_id')!=item['list_id']:return False
+            observed=self.section_snapshot(item);before=item['before'];expected=sorted(before['sections']+[{'id':item['section_id'],'title':item['fields']['title']}],key=lambda s:s['id'])
+            return observed==dict(before,sections=expected)
         if item['operation']=='set_list_color':
             from .native_colors import colors_equal
             if outcome['id']!=item['list_id']:return False

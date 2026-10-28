@@ -90,10 +90,12 @@ static NSArray *fixtureSections;
 -(id)fetchReminderIncludingMarkedForDeleteWithObjectID:(id)objectID error:(NSError **)error;
 -(id)fetchListWithObjectID:(id)objectID error:(NSError **)error;
 -(id)fetchListSectionsWithListObjectID:(id)objectID error:(NSError **)error;
+-(id)fetchListSectionWithObjectID:(id)objectID error:(NSError **)error;
 @end
 @implementation FixtureStore
 -(id)fetchListWithObjectID:(id)objectID error:(NSError **)error{return [[objectID uuid] isEqual:fixture.list.remObjectID.uuid]?fixture.list:nil;}
 -(id)fetchListSectionsWithListObjectID:(id)objectID error:(NSError **)error{return fixtureSections;}
+-(id)fetchListSectionWithObjectID:(id)objectID error:(NSError **)error{*error=[NSError errorWithDomain:@"com.apple.reminderkit" code:-3000 userInfo:nil];return nil;}
 -(id)fetchReminderIncludingMarkedForDeleteWithObjectID:(id)objectID error:(NSError **)error{if(childLookupError){*error=[NSError errorWithDomain:@"synthetic" code:9 userInfo:nil];return nil;}return childCollision?fixture:nil;}
 -(id)fetchReminderWithObjectID:(id)objectID error:(NSError **)error{
  if(denied){*error=[NSError errorWithDomain:@"synthetic" code:1 userInfo:@{NSLocalizedDescriptionKey:@"private-content-must-not-leak"}];return nil;}
@@ -131,15 +133,25 @@ static int flagSaves=0;static BOOL saveFails=NO;
 @end
 @implementation FixtureReminderChange
 @end
+@interface FixtureListChange:NSObject
+-(id)sectionsContextChangeItem;
+@end
+@implementation FixtureListChange
+-(id)sectionsContextChangeItem{return [NSObject new];}
+@end
 @interface FixtureSave:NSObject
 @property FixtureReminderChange *change;
 -(id)initWithStore:(id)store;
 -(id)updateReminder:(id)reminder;
+-(id)updateList:(id)list;
+-(id)addListSectionWithDisplayName:(id)title toListSectionContextChangeItem:(id)context listSectionObjectID:(id)identity;
 -(id)addReminderWithTitle:(id)title toReminderSubtaskContextChangeItem:(id)context reminderObjectID:(id)identity;
 -(BOOL)saveSynchronouslyWithError:(NSError **)error;
 @end
 @implementation FixtureSave
 -(id)initWithStore:(id)store{return [super init];}
+-(id)updateList:(id)list{return [FixtureListChange new];}
+-(id)addListSectionWithDisplayName:(id)title toListSectionContextChangeItem:(id)context listSectionObjectID:(id)identity{return [NSObject new];}
 -(id)updateReminder:(id)reminder{self.change=[FixtureReminderChange new];self.change.subtaskContext=[NSObject new];self.change.flaggedContext=[FixtureFlagChange new];self.change.urgentAlarmContext=[FixtureUrgentChange new];self.change.urgentAlarmContext.enabled=((FixtureUrgent *)fixture.urgentAlarmContext).enabled;self.change.hashtagContext=[FixtureTagChange new];self.change.hashtagContext.hashtags=[NSMutableArray arrayWithArray:((FixtureTags *)fixture.hashtagContext).hashtags ?: @[]];return self.change;}
 -(id)addReminderWithTitle:(id)title toReminderSubtaskContextChangeItem:(id)context reminderObjectID:(id)identity{return [NSObject new];}
 -(BOOL)saveSynchronouslyWithError:(NSError **)error{flagSaves++;if(saveFails){*error=[NSError errorWithDomain:@"synthetic" code:1 userInfo:nil];return NO;}((FixtureFlag *)fixture.flaggedContext).flagged=self.change.flaggedContext.flagged;if(fixture.hashtagContext)((FixtureTags *)fixture.hashtagContext).hashtags=self.change.hashtagContext.hashtags;if(fixture.urgentAlarmContext)((FixtureUrgent *)fixture.urgentAlarmContext).enabled=self.change.urgentAlarmContext.enabled;return YES;}
@@ -164,6 +176,7 @@ int main(){@autoreleasepool{
  NSCAssert([readSections()[@"sections"] count]==1 && [readSections()[@"sections"][0][@"title"] isEqual:@"Synthetic"],@"exact section read");
  section.storage.accountID=Identity(@"REMCDAccount",other);NSCAssert(readSections()[@"error"],@"foreign account refused");section.storage.accountID=fixture.account.remObjectID;
  fixtureSections=@[section,section];NSCAssert(readSections()[@"error"],@"duplicate sections refused");fixtureSections=@[];NSCAssert([readSections()[@"sections"] count]==0,@"empty list distinct from error");
+ NSDictionary *createSection=@{@"source_id":source,@"list_id":list,@"section_id":other,@"title":@"Synthetic new",@"expected_sections":@[]};NSData *createData=[NSJSONSerialization dataWithJSONObject:createSection options:0 error:NULL];NSDictionary *closed=[NSJSONSerialization JSONObjectWithData:ICloudRemindersCreateSection(createData,^{return NO;}) options:0 error:NULL];NSCAssert(closed[@"error"] && flagSaves==0,@"closed section dispatch gate never saves");
  NSDictionary *request=@{@"id":task,@"source_id":source,@"list_id":list};
  NSDictionary *set=@{@"id":task,@"source_id":source,@"list_id":list,@"expected_flagged":@NO,@"flagged":@YES};
  NSCAssert(SetFlag(set,NO)[@"error"] && flagSaves==0 && flag.flagged==0,@"closed gate never saves");

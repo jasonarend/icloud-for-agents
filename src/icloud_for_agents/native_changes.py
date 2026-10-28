@@ -270,7 +270,7 @@ class NativeChanges:
         No retry, generic uncertainty clear, model-supplied proof or audit rewrite.
         Other failure phases and incomplete batches remain blocked.
         """
-        return self._reconcile_known(plan_id,{'create_note','create_folder','create_reminder','create_list','create_subtask'})
+        return self._reconcile_known(plan_id,{'create_note','create_folder','create_reminder','create_list','create_subtask','create_section'})
 
     def reconcile_known_notes(self,plan_id):
         """Read-only verification of complete returned-ID Notes edits and moves."""

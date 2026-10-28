@@ -3,7 +3,7 @@ import json,os,select,subprocess,sys,tempfile,time
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 
-def run(policy):
+def run(policy,operation='create_subtask'):
     with tempfile.TemporaryDirectory(prefix='native-once-protocol-') as directory:
         home=Path(directory);audit=home/'audit.json';runtime=home/'runtime'
         env={'HOME':str(home),'PATH':os.defpath,'PYTHONPATH':str(ROOT/'src')+os.pathsep+str(ROOT/'tests'),
@@ -38,7 +38,7 @@ def run(policy):
                         receipt=runtime/(plan['plan_id']+'.approved');fd=os.open(receipt,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
                         with os.fdopen(fd,'w') as stream:json.dump({'plan_id':plan['plan_id'],'sha256':plan['sha256']},stream)
                 def change(title,parent='created'):
-                    return {'operation':'create_subtask','source_id':'selected','id':parent,'fields':{'title':title}}
+                    return ({'operation':'create_section','source_id':'selected','list_id':'list','fields':{'title':title}} if operation=='create_section' else {'operation':'create_subtask','source_id':'selected','id':parent,'fields':{'title':title}})
                 assert call('reminders_prepare_changes',{'changes':[change('Synthetic one')]}).get('isError')
                 plan=data(call('reminders_prepare_once',{'changes':[change('Synthetic one')]}));identity=plan['plan_id']
                 if policy=='local-receipt':assert call('reminders_execute_approved',{'plan_id':identity}).get('isError')
@@ -53,7 +53,7 @@ def run(policy):
                 except subprocess.TimeoutExpired:process.terminate();process.wait(timeout=5)
                 process.stdout.close()
         assert process.returncode==0,(home/'stderr.log').read_text();assert json.loads(audit.read_text())==[]
-        return {'status':'passed','transport':'real stdio JSON-RPC','synthetic_providers_only':True,'policy':policy,'services':['reminders'],'settings_remained_read_only':True,'known_subtask_readback_reconciled_without_replay':True,'network_helper_attempts':[]}
+        return {'status':'passed','transport':'real stdio JSON-RPC','synthetic_providers_only':True,'policy':policy,'operation':operation,'services':['reminders'],'settings_remained_read_only':True,'known_creation_readback_reconciled_without_replay':True,'network_helper_attempts':[]}
 
 if __name__=='__main__':
-    results=[run(policy) for policy in ('trusted-client','local-receipt')];path=ROOT/'build/reports/NATIVE-SUBTASK-RECONCILE-STDIO.json';path.parent.mkdir(parents=True,exist_ok=True);path.write_text(json.dumps(results,indent=2)+'\n');print(json.dumps(results,indent=2))
+    results=[run(policy,operation) for operation in ('create_subtask','create_section') for policy in ('trusted-client','local-receipt')];path=ROOT/'build/reports/NATIVE-SUBTASK-RECONCILE-STDIO.json';path.parent.mkdir(parents=True,exist_ok=True);path.write_text(json.dumps(results,indent=2)+'\n');print(json.dumps(results,indent=2))

@@ -54,6 +54,18 @@ def run(policy):
                 assert data(call('reminders_access_status',{}))['effective_access']=='read-only'
                 assert data(call('reminders_revoke_grant',{'grant_id':grant['plan_id']}))['status']=='revoked'
                 assert call('reminders_prepare_with_grant',{'grant_id':grant['plan_id'],'changes':[change('Synthetic three')]}).get('isError')
+                def section(title):return {'operation':'create_section','source_id':'selected','list_id':'list','fields':{'title':title}}
+                plan=data(call('reminders_prepare_once',{'changes':[section('Synthetic one')]}))
+                if policy=='local-receipt':assert call('reminders_execute_approved',{'plan_id':plan['plan_id']}).get('isError')
+                approve(plan);assert data(call('reminders_execute_approved',{'plan_id':plan['plan_id']}))['status']=='applied'
+                assert call('reminders_execute_approved',{'plan_id':plan['plan_id']}).get('isError')
+                scope={'scenario':'Synthetic list sections','rules':[{'operation':'create_section','source_id':'selected','container_id':'list','fields':['title'],'destinations':[]}],'max_batch':1,'max_24h':1,'expires':None}
+                grant=data(call('reminders_prepare_grant',{'scope':scope}));approve(grant);assert data(call('reminders_activate_grant',{'grant_id':grant['plan_id']}))['grant_active'] is True
+                batch=data(call('reminders_prepare_with_grant',{'grant_id':grant['plan_id'],'changes':[section('Synthetic two')]}));assert data(call('reminders_execute_approved',{'plan_id':batch['plan_id']}))['status']=='applied'
+                quota=data(call('reminders_prepare_with_grant',{'grant_id':grant['plan_id'],'changes':[section('Synthetic quota')]}))
+                assert call('reminders_execute_approved',{'plan_id':quota['plan_id']}).get('isError')
+                assert data(call('reminders_revoke_grant',{'grant_id':grant['plan_id']}))['status']=='revoked'
+                assert call('reminders_prepare_with_grant',{'grant_id':grant['plan_id'],'changes':[section('Synthetic three')]}).get('isError')
             finally:
                 process.stdin.close()
                 try:process.wait(timeout=10)

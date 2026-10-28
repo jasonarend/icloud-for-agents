@@ -30,7 +30,11 @@ class Adapter(RemindersCreateAdapter):
             return result
         self.reader.read=enriched
     def apply(self,item):
-        require_write('reminders',item);assert item['operation']=='create_subtask';self.children[item['child_id']]=item['fields']['title']
+        require_write('reminders',item)
+        if item['operation']=='create_section':
+            self.reader.sections.append({'id':item['section_id'],'title':item['fields']['title']});self.reader.sections.sort(key=lambda row:row['id'])
+            return {'id':item['section_id'],'source_id':'selected','list_id':'list'}
+        assert item['operation']=='create_subtask';self.children[item['child_id']]=item['fields']['title']
         return {'id':item['child_id'],'parent_id':item['id'],'source_id':'selected','list_id':'list'}
 adapter=Adapter()
 if os.environ.get('BRIDGE_TEST_VERIFY_FAILURE')=='1':

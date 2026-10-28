@@ -10,11 +10,13 @@ from icloud_for_agents.native_reminders import RemindersCreateAdapter,validate_d
 class Reader:
     def __init__(self):
         self.membership={'list_id':'list','source_id':'selected','count':2,'sha256':'a'*64}
+        self.sections=[]
         self.list={'id':'list','title':'Synthetic','source_id':'selected','writable':True}
         self.item={'id':'created','title':'Task','notes':'','priority':0,'source_id':'selected',
                    'list_id':'list','completed':False,'due':None,'start':None}
     def read(self,action,**fields):
         if action=='list_membership':return dict(self.membership)
+        if action=='list_sections':return {'source_id':'selected','list_id':'list','sections':[dict(s) for s in self.sections]}
         if action=='lists':return {'lists':[dict(self.list)],'done':True}
         if action=='get':return {'item':dict(self.item)}
         raise AssertionError(action)
@@ -34,6 +36,14 @@ class NativeRemindersTests(unittest.TestCase):
         self.assertEqual(validate_date(day),day)
         timed=dict(day,hour=9,minute=30,timezone='America/Chicago')
         self.assertEqual(validate_date(timed),timed)
+    def test_section_creation_requires_opt_in_and_preserves_inventory_and_membership(self):
+        change={'operation':'create_section','source_id':'selected','list_id':'list','fields':{'title':'Synthetic section'}}
+        with self.assertRaises(SafetyError):self.adapter.prepare(change)
+        self.native_reader();item=self.adapter.prepare(change);outcome={'id':item['section_id'],'source_id':'selected','list_id':'list'}
+        self.reader.sections.append({'id':item['section_id'],'title':'Synthetic section'})
+        self.assertTrue(self.adapter.verify(item,outcome))
+        self.reader.membership['count']=3;self.assertFalse(self.adapter.verify(item,outcome));self.reader.membership['count']=2
+        self.reader.sections.append({'id':'extra','title':'Other'});self.assertFalse(self.adapter.verify(item,outcome))
     def test_bad_dates_boolean_components_and_dst_ambiguity_refused(self):
         for value in ({'year':True,'month':1,'day':1},{'year':2026,'month':2,'day':30},
                       {'year':2026,'month':1,'day':1,'hour':12},
