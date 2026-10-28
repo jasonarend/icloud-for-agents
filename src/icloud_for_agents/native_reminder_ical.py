@@ -1,6 +1,7 @@
 """Read-only RFC 5545 VTODO projection of a deliberately narrow public subset."""
 import hashlib
 from datetime import date,datetime,timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from .core import SafetyError
 
 def _text(value):
@@ -18,12 +19,20 @@ def _date(value):
         if value['date_only']:
             if any(value.get(k) is not None for k in ('hour','minute','second')):raise ValueError()
             return 'DATE',f'{day.year:04d}{day.month:02d}{day.day:02d}'
-        if value.get('timezone') not in ('UTC','Etc/UTC','GMT'):raise ValueError()
         for key in ('hour','minute','second'):
             if type(value.get(key)) is not int:raise ValueError()
-        instant=datetime(day.year,day.month,day.day,value['hour'],value['minute'],value['second'],tzinfo=timezone.utc)
-        return 'UTC',f'{day.year:04d}{day.month:02d}{day.day:02d}T{instant.hour:02d}{instant.minute:02d}{instant.second:02d}Z'
-    except (ValueError,OverflowError):raise SafetyError('Only complete date-only or explicit UTC reminder dates can be exported') from None
+        zone_name=value.get('timezone')
+        if not isinstance(zone_name,str) or not 1<=len(zone_name)<=128:raise ValueError()
+        zone=ZoneInfo(zone_name)
+        local=datetime(day.year,day.month,day.day,value['hour'],value['minute'],value['second'])
+        instants=set()
+        for fold in (0,1):
+            candidate=local.replace(tzinfo=zone,fold=fold).astimezone(timezone.utc)
+            if candidate.astimezone(zone).replace(tzinfo=None)==local:instants.add(candidate)
+        if len(instants)!=1:raise ValueError()
+        instant=instants.pop()
+        return 'UTC',f'{instant.year:04d}{instant.month:02d}{instant.day:02d}T{instant.hour:02d}{instant.minute:02d}{instant.second:02d}Z'
+    except (ValueError,OverflowError,ZoneInfoNotFoundError):raise SafetyError('Only complete date-only or unambiguous zoned reminder dates can be exported') from None
 
 def _fold(line):
     # Fold at character boundaries; continuation whitespace counts toward 75 octets.
@@ -63,5 +72,5 @@ def export_ical(reader,identity,now=None):
     if len(content.encode('utf-8'))>1_000_000:raise SafetyError('iCalendar export exceeds one million bytes')
     return {'format':'text/calendar','content':content,'coverage':{'restorable':False,'complete_backup':False,
             'native_metadata_included':False,'limitations':['Native tags, attachments, hierarchy and advanced metadata are omitted.',
-             'URL, location, timestamps and collaboration metadata are omitted.','Only one nonrecurring reminder without alarms and with supported date semantics is represented; clients may interpret date-only due dates differently.',
+             'URL, location, timestamps, original time-zone labels and collaboration metadata are omitted.','Only one nonrecurring reminder without alarms and with supported date semantics is represented; clients may interpret date-only due dates differently.',
              'The generated UID is a pseudonymous identifier for this observation, not a promise of portable identity.']}}

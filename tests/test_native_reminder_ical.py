@@ -32,10 +32,16 @@ class ReminderICalTests(unittest.TestCase):
     def test_complete_utc_fields(self):
         self.item['due']={'year':2026,'month':10,'day':28,'hour':14,'minute':30,'second':0,'timezone':'UTC','date_only':False}
         self.assertIn('DUE:20261028T143000Z\r\n',self.export()['content'])
+    def test_iana_timezone_conversion_and_dst_refusals(self):
+        self.item['due']={'year':2026,'month':10,'day':28,'hour':8,'minute':0,'second':0,'timezone':'America/Chicago','date_only':False}
+        self.assertIn('DUE:20261028T130000Z\r\n',self.export()['content'])
+        for day in ({'year':2026,'month':11,'day':1,'hour':1,'minute':30}, {'year':2026,'month':3,'day':8,'hour':2,'minute':30}):
+            self.item['due']={**day,'second':0,'timezone':'America/Chicago','date_only':False}
+            with self.subTest(day=day),self.assertRaises(SafetyError):self.export()
     def test_refuses_unrepresentable_and_wrong_scope(self):
         invalid=[dict(self.item,source_id='foreign'),dict(self.item,has_recurrence=True),dict(self.item,has_alarms=True),
                  dict(self.item,public_metadata_complete=False),dict(self.item,content_complete=True),dict(self.item,priority=True),
-                 dict(self.item,title='unsafe\x00title'),dict(self.item,due={'year':2026,'month':10,'day':28,'hour':8,'minute':0,'second':0,'timezone':'America/Chicago','date_only':False}),
+                 dict(self.item,title='unsafe\x00title'),dict(self.item,due={'year':2026,'month':10,'day':28,'hour':8,'minute':0,'second':0,'timezone':'Unknown/Zone','date_only':False}),
                  dict(self.item,due={'year':2026,'month':10,'day':28,'hour':8,'minute':0,'timezone':'UTC','date_only':False})]
         for item in invalid:
             self.backend.return_value={'protocol_version':1,'item':item}
