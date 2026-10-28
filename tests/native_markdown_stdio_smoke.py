@@ -60,6 +60,7 @@ def run():
                 assert call(dict(args,id='foreign-note')).get('isError')
                 locked_native=data(call(dict(args,id='synthetic-locked')))['item'];assert locked_native['locked'] is True and 'html' not in locked_native
                 links=data(rpc('tools/call',{'name':'notes_inspect_exported_links','arguments':args})['result']);assert links['links'][0]['target']=='https://example.com/spec' and links['coverage']['targets_opened'] is False
+                refs=data(rpc('tools/call',{'name':'notes_find_html_references','arguments':{'folder_id':'folder','target':'https://example.com/spec'}})['result']);assert refs['matches'][0]['id']=='synthetic-note' and refs['coverage']['native_backlinks_complete'] is False
                 locked_links=data(rpc('tools/call',{'name':'notes_inspect_exported_links','arguments':dict(args,id='synthetic-locked')})['result']);assert locked_links['links'] is None and locked_links['content_available'] is False
                 assert rpc('tools/call',{'name':'notes_inspect_exported_links','arguments':dict(args,expected_modified='different')})['result'].get('isError')
                 exported=data(rpc('tools/call',{'name':'notes_export_observation','arguments':args})['result']);assert exported['item']['html']==native['item']['html'] and exported['coverage']['restorable'] is False and exported['coverage']['attachment_content_included'] is False

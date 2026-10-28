@@ -1356,6 +1356,13 @@ def register_read_tools(mcp):
 
         @mcp.tool(annotations=annotations)
         @guard
+        def notes_find_html_references(folder_id:str,target:str,limit:int=3,offset:int=0)->dict:
+            """Find exact href matches in up to three notes in one selected folder page. No targets are opened; native backlinks and full coverage are unverified."""
+            from .native_note_links import find_references
+            return find_references(NativeReader('notes'),folder_id,target,limit,offset)
+
+        @mcp.tool(annotations=annotations)
+        @guard
         def notes_export_observation(folder_id: str, id: str) -> dict:
             """Export one exact scoped note observation as JSON. Locked content and attachments are not fetched; this is not a restorable backup."""
             from .native_note_export import export_note

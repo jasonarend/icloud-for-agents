@@ -11,6 +11,7 @@ from icloud_for_agents import credentials
 credentials.credentials=lambda:(_ for _ in ()).throw(AssertionError('No credentials'))
 from icloud_for_agents.native_read import NativeReader
 def dispatch(self,request,config):
+    if request['action']=='query':return {'protocol_version':1,'items':[{'id':'synthetic-note','title':'Synthetic','source_id':'selected','folder_id':'folder'}],'done':True,'next_offset':1,'pagination_consistency':'live_offset_may_shift'}
     if request['action']=='default_folder':return {'protocol_version':1,'folder':{'id':'folder','source_id':'selected','parent_id':'selected','title':'Synthetic','shared':False,'role':'default_folder'}}
     if request['action']=='folders':return {'protocol_version':1,'folders':[{'id':'folder','title':'Synthetic','source_id':'selected','parent_id':'selected'}],'done':True,'next_offset':1,'pagination_consistency':'live_offset_may_shift'}
     if request['action']=='contains':return {'protocol_version':1,'exists':True,'folder_id':request['folder_id'],'source_id':'selected'}
