@@ -40,7 +40,7 @@ const fixtureApplication = name=>{
 def run():
     source = (ROOT/'src/icloud_for_agents/native/notes.js').read_text()
     with tempfile.TemporaryDirectory(prefix='icloud-native-fixtures-') as directory:
-        script=Path(directory)/'notes-fixture.js';script.write_text(FIXTURE+'\n'+source+"\nfunction run() { const req=readRequest();fixtureNoWalk=req.synthetic_no_walk===true;if(req.synthetic_long)fixtureNotes[0].plaintext=()=> 'A'.repeat(100005)+'🚀Z';if(req.synthetic_huge)fixtureNotes[0].plaintext=()=> 'A'.repeat(4999999)+'🚀Z';if(req.synthetic_modified)fixtureNotes[0].modificationDate=()=>new Date('2026-10-27T12:00:00.000Z');if(req.synthetic_title_only)fixtureNotes.forEach(n=>{n.body=()=>{throw Error('body_read');};n.plaintext=()=>{throw Error('body_read');};});return readNotes(fixtureApplication('Notes'),req); }\n")
+        script=Path(directory)/'notes-fixture.js';script.write_text(FIXTURE+'\n'+source+"\nfunction run() { const req=readRequest();fixtureNoWalk=req.synthetic_no_walk===true;if(req.synthetic_many)for(let i=0;i<15;i++){let id='test-'+String(i).padStart(2,'0');fixtureNotes.push({id:()=>id,name:()=>id,container:()=>({id:()=> 'folder-1'}),passwordProtected:()=>false,shared:()=>false});}if(req.synthetic_long)fixtureNotes[0].plaintext=()=> 'A'.repeat(100005)+'🚀Z';if(req.synthetic_huge)fixtureNotes[0].plaintext=()=> 'A'.repeat(4999999)+'🚀Z';if(req.synthetic_modified)fixtureNotes[0].modificationDate=()=>new Date('2026-10-27T12:00:00.000Z');if(req.synthetic_title_only)fixtureNotes.forEach(n=>{n.body=()=>{throw Error('body_read');};n.plaintext=()=>{throw Error('body_read');};});return readNotes(fixtureApplication('Notes'),req); }\n")
         def call(action, **fields):
             request={'protocol_version':1,'action':action,'source_ids':['selected'],**fields}
             process=subprocess.run(['/usr/bin/osascript','-l','JavaScript',str(script)],
@@ -120,6 +120,10 @@ print(result)
         assert [x['id'] for x in shared_titles['items']]==['note-2'] and shared_titles['shared_filter'] is True and shared_titles['items'][0]['shared'] is True
         unshared_titles=call('search',text='',folder_id='folder-1',limit=10,offset=0,match_scope='title',shared=False,synthetic_title_only=True)
         assert [x['id'] for x in unshared_titles['items']]==['note-1'] and unshared_titles['shared_filter'] is False
+        bounded_lock=call('search',text='',folder_id='folder-1',limit=100,offset=0,match_scope='title',locked=True,synthetic_title_only=True,synthetic_many=True)
+        assert bounded_lock['scanned']==10 and bounded_lock['next_offset']==10 and bounded_lock['done'] is False and [x['id'] for x in bounded_lock['items']]==['note-2']
+        next_lock=call('search',text='',folder_id='folder-1',limit=100,offset=10,match_scope='title',locked=True,synthetic_title_only=True,synthetic_many=True)
+        assert next_lock['scanned']==7 and next_lock['done'] is True and next_lock['items']==[]
         recent=call('search',text='',folder_id='folder-1',limit=10,offset=0,match_scope='title',synthetic_title_only=True,synthetic_modified=True,modified_from='2026-10-27T12:00:00Z')
         assert [x['id'] for x in recent['items']]==['note-1'] and recent['match_scope']=='title'
         filtered_titles=call('search',text='Synthetic',folder_id='folder-1',limit=10,offset=0,match_scope='title',synthetic_title_only=True,synthetic_modified=True,modified_from='2026-10-27T12:00:00Z',modified_before='2026-10-27T12:00:01Z')

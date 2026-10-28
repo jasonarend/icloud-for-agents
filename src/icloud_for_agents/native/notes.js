@@ -113,9 +113,10 @@ function readNotes(app, req) {
         if(req.folder_id && !folders.some(f=>f.object.id()===req.folder_id))throw Error('not_found_in_scope');
         refs.sort((a,b)=>a.id.localeCompare(b.id));
         const needle=req.text.toLowerCase(), items=[], unavailable=[], projections=[];
+        const scanLimit=(req.locked!==undefined || req.shared!==undefined)?10:100;
         let projectionBytes=0;
         let offset=req.offset, scanned=0, lockedSkipped=0, truncatedBodies=0;
-        while(offset<refs.length && scanned<100 && items.length+projections.length<req.limit) {
+        while(offset<refs.length && scanned<scanLimit && items.length+projections.length<req.limit) {
             const ref=refs[offset++];scanned++;
             try {
                 const note=ref.folder.object.notes.byId(ref.id);
