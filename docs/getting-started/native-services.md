@@ -1,5 +1,7 @@
 # Native Notes and Reminders development setup
 
+For a concise workflow overview, see [Notes and Reminders support](../reference/native-support.md).
+
 Current implementation is a development increment with bounded reads and guarded change plans; full service support is still incomplete. Native Notes and Reminders are independently disabled by default. The shared helper routes the requested service before querying permission state; a Notes request does not query Reminders permissions, and unknown services are refused. Existing Mail/Calendar/Contacts configuration and approval modes are preserved.
 
 **Current capabilities**
