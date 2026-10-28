@@ -52,3 +52,11 @@ class NativeAccessTests(unittest.TestCase):
                 self.assertEqual(status['provider_capabilities'],'not_probed')
                 self.assertEqual(status['os_permission'],'not_checked')
                 reader.assert_not_called()
+
+    def test_notes_move_inventory_requires_explicit_metadata_opt_in(self):
+        env={'ICLOUD_ENABLE_NOTES':'1','ICLOUD_NATIVE_CONFIG':json.dumps({'notes':{'metadata_backend':'notes-store-readonly'}})}
+        with patch.dict(os.environ,env,clear=True):
+            status=access_status('notes')
+            self.assertIn('move_note',status['implemented_write_operations'])
+            self.assertNotIn('move_note',status['unavailable_write_operations'])
+            self.assertEqual(status['provider_capabilities'],'not_probed')

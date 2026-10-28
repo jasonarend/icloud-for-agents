@@ -126,6 +126,17 @@ function run() {
                         'attachments':[{'note_id':'move-id','content_identifier':'cid:asset','name':'synthetic.pdf','id':'asset'}]}}
         result=call(move);assert result.returncode==0,result.stderr
         refusal=json.loads(result.stdout);assert refusal['category']=='unverified_folder_role_move' and refusal['mutation_dispatched'] is False
+        role=lambda identity,title:{'folder_id':identity,'source_id':'selected','title':title,'storage_kind':'regular','native_folder_type':0,'marked_for_deletion':False,'has_smart_query':False,'parent_pk':None}
+        verified=dict(move,folder_guard='verified_store_roles',before=dict(move['before'],roles=[role('folder','Existing'),role('destination','Destination')]))
+        moved_response=json.loads(call(verified).stdout)
+        assert moved_response['result']['id']=='move-id' and moved_response['synthetic_gate_calls']==1
+        for key,value in (('storage_kind','special_smart_or_deleted'),('marked_for_deletion',True),('has_smart_query',True),('source_id','foreign'),('parent_pk',123)):
+            import copy
+            unsafe=copy.deepcopy(verified);unsafe['before']['roles'][1][key]=value
+            refused=json.loads(call(unsafe).stdout);assert refused['mutation_dispatched'] is False and refused['synthetic_gate_calls']==0
+        for options in ({'destination_shared':True},{'ancestor_shared':True},{'nameless':True},{'gate_open':False}):
+            refused=json.loads(call(verified,**options).stdout);assert refused['mutation_dispatched'] is False
+        uncertain=json.loads(call(verified,move_fail=True).stdout);assert uncertain['mutation_dispatched'] is True and uncertain['synthetic_gate_calls']==1
         folder={'operation':'create_folder','source_id':'selected','fields':{'title':'New folder'}}
         nested=dict(folder,parent_folder_id='folder',fields={'title':'New child'})
         assert json.loads(call(nested).stdout)['result']['parent_id']=='folder'

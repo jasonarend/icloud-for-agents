@@ -243,10 +243,34 @@ class NotesCreateAdapter:
             except ValueError:raise SafetyError('Existing Notes HTML cannot be safely edited') from None
         return {'folder':folder,'note':note,'attachments':attachments['attachments']}
 
+    def move_folders(self,item):
+        if native_config('notes').get('metadata_backend')!='notes-store-readonly':
+            raise SafetyError('Notes moves require verification of special folder roles through explicitly selected read-only metadata')
+        from .native_note_store import folder_role
+        source=item['source_id'];destination=item['fields']['destination_folder_id']
+        origin=self.private_folder(item['folder_id'],source);target=self.private_folder(destination,source)
+        roles={}
+        for folder in (origin,target):
+            for node in [folder,*folder.get('private_ancestors',[])]:
+                role=folder_role(node['id'],[source])
+                if (role.get('folder_id')!=node['id'] or role.get('source_id')!=source
+                        or role.get('storage_kind')!='regular' or role.get('marked_for_deletion') is not False
+                        or role.get('has_smart_query') is not False or role.get('native_folder_type')!=0):
+                    raise SafetyError('Move requires verified ordinary nondeleted source, destination and ancestors')
+                roles[node['id']]=role
+        return origin,target,[roles[key] for key in sorted(roles)]
+
     def move_snapshot(self,item):
-        # Notes scripting does not expose a trustworthy special-folder role.
-        # Recheck old plans as well as fresh proposals until a safe route exists.
-        raise SafetyError('Notes moves are unavailable until special folder roles can be verified before dispatch')
+        origin,target,roles=self.move_folders(item);source=item['source_id']
+        note=self.reader.read('get',folder_id=item['folder_id'],id=item['id'])['item']
+        if (note.get('id')!=item['id'] or note.get('folder_id')!=item['folder_id'] or note.get('source_id')!=source
+                or note.get('locked') is not False or note.get('shared') is not False or note.get('truncated') is not False
+                or not isinstance(note.get('html'),str) or not isinstance(note.get('modified'),str)):
+            raise SafetyError('Move requires one exact unlocked, unshared, nontruncated note')
+        attachments=self.reader.read('attachments',folder_id=item['folder_id'],id=item['id'],limit=100,offset=0)
+        if attachments.get('done') is not True:raise SafetyError('Complete bounded attachment inventory is required for a move')
+        return {'folder':origin,'destination':target,'roles':roles,
+                'note':note,'attachments':attachments['attachments']}
 
     def prepare_move(self,change):
         if set(change)-{'operation','source_id','folder_id','id','fields'}:
@@ -269,7 +293,15 @@ class NotesCreateAdapter:
     def verify_move(self,item,outcome):
         destination=item['fields']['destination_folder_id']
         if outcome.get('id')!=item['id'] or outcome.get('folder_id')!=destination:return False
-        self.private_folder(destination,item['source_id'])
+        if 'roles' in item['before']:
+            origin,target,roles=self.move_folders(item)
+            stable=lambda values:[{key:value for key,value in role.items() if key!='revision'} for role in values]
+            if (origin!=item['before']['folder'] or target!=item['before']['destination']
+                    or stable(roles)!=stable(item['before']['roles'])):return False
+        else:
+            # Readback of an already executed historical move does not admit a
+            # new move or prove historical special-folder safety.
+            self.private_folder(destination,item['source_id'])
         note=self.reader.read('get',folder_id=destination,id=item['id'])['item'];before=item['before']['note']
         if note.get('source_id')!=item['source_id'] or note.get('folder_id')!=destination:return False
         if any(note.get(key)!=before.get(key) for key in ('id','title','html','text','created','locked','shared')):return False

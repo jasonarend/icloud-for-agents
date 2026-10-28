@@ -220,6 +220,38 @@ class NativeNotesTests(unittest.TestCase):
         old={'operation':'move_note','source_id':'selected','folder_id':'folder','id':'created','fields':{'destination_folder_id':'destination'}}
         with self.assertRaisesRegex(SafetyError,'special folder roles'):self.adapter.snapshot(old)
 
+    def metadata_move_scope(self):
+        os.environ['ICLOUD_NATIVE_CONFIG']=json.dumps({'notes':{'access_mode':'write-enabled','source_ids':['selected'],'metadata_backend':'notes-store-readonly'}})
+        def role(identity,sources):
+            self.assertEqual(sources,['selected'])
+            folder=self.reader.destination if identity=='destination' else self.reader.parents.get(identity,self.reader.folder)
+            return {'folder_id':identity,'source_id':'selected','title':folder['title'],'storage_kind':'regular',
+                    'native_folder_type':0,'marked_for_deletion':False,'has_smart_query':False,
+                    'revision':1,'parent_pk':None,'schema_sha256':'a'*64}
+        return patch('icloud_for_agents.native_note_store.folder_role',side_effect=role)
+
+    def test_metadata_move_binds_roles_and_preserves_exact_native_content(self):
+        from icloud_for_agents.native_protocol import mutation_request
+        self.reader.note['html']='<div>Spec</div><object><table><tr><td>Rich</td></tr></table></object>'
+        with self.metadata_move_scope():
+            item=self.move();request=mutation_request('notes',item)
+            self.assertEqual(request['change']['folder_guard'],'verified_store_roles')
+            self.assertEqual({r['folder_id'] for r in item['before']['roles']},{'folder','destination'})
+            self.reader.note['folder_id']='destination'
+            self.assertTrue(self.adapter.verify(item,{'id':'created','source_id':'selected','folder_id':'destination'}))
+            self.reader.note['html']='changed'
+            self.assertFalse(self.adapter.verify(item,{'id':'created','source_id':'selected','folder_id':'destination'}))
+
+    def test_metadata_move_checks_ancestors_and_refuses_special_or_deleted_roles(self):
+        self.reader.folder['parent_id']='ancestor'
+        self.reader.parents['ancestor']={'id':'ancestor','title':'Ancestor','source_id':'selected','parent_id':'selected','shared':False}
+        with self.metadata_move_scope() as roles:
+            item=self.move();self.assertEqual({r['folder_id'] for r in item['before']['roles']},{'folder','destination','ancestor'})
+            original=roles.side_effect
+            for change in ({'storage_kind':'special_smart_or_deleted'},{'marked_for_deletion':True},{'has_smart_query':True},{'source_id':'foreign'}):
+                roles.side_effect=lambda identity,sources,change=change:dict(original(identity,sources),**(change if identity=='ancestor' else {}))
+                with self.subTest(change=change),self.assertRaises(SafetyError):self.move()
+
     def test_historical_move_readback_retains_content_checks(self):
         before=self.adapter.note_snapshot({'operation':'move_note','source_id':'selected','folder_id':'folder','id':'created'},rewrite=False)
         before['destination']=self.adapter.private_folder('destination','selected')
