@@ -230,6 +230,7 @@ function readNotes(app, req) {
         // Locked notes must not be read or implicitly unlocked.
         let locked;
         try { locked = n.passwordProtected(); } catch (_) { throw Error('lock_status_unavailable'); }
+        if(typeof locked!=='boolean')throw Error('lock_status_unavailable');
         if (locked) {
             if(req.action==='text_page')return JSON.stringify({protocol_version:1,id:req.id,source_id:folder.source,folder_id:req.folder_id,locked:true,content_available:false,data_mutated:false});
             if(req.action==='attachments')return JSON.stringify(Object.assign({protocol_version:1,attachments:[],source_id:folder.source,folder_id:req.folder_id,note_id:req.id,locked:true,content_available:false,done:true,excluded_locked_note:true},req.include_attachment_metadata===true?{metadata_requested:true}:{}));
