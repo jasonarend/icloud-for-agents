@@ -12,7 +12,7 @@ credentials.credentials=lambda:(_ for _ in ()).throw(AssertionError('No credenti
 from icloud_for_agents.native_read import NativeReader
 def dispatch(self,request,config):
     if request['action']=='default_folder':return {'protocol_version':1,'folder':{'id':'folder','source_id':'selected','parent_id':'selected','title':'Synthetic','shared':False,'role':'default_folder'}}
-    if request['action']=='folders':return {'protocol_version':1,'folders':[{'id':'folder','title':'Synthetic','source_id':'selected'}],'done':True,'next_offset':1}
+    if request['action']=='folders':return {'protocol_version':1,'folders':[{'id':'folder','title':'Synthetic','source_id':'selected','parent_id':'selected'}],'done':True,'next_offset':1,'pagination_consistency':'live_offset_may_shift'}
     if request['action']=='contains':return {'protocol_version':1,'exists':True,'folder_id':request['folder_id'],'source_id':'selected'}
     if request['action']=='attachments':
         meta={'created':{'status':'available','value':'2026-01-01T00:00:00.000Z'},'modified':{'status':'available','value':None},'url':{'status':'unavailable','value':None},'shared':{'status':'available','value':False}}

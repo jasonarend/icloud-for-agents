@@ -410,6 +410,18 @@ class NativeReadTests(unittest.TestCase):
             request=dispatch.call_args.args[0]
             self.assertEqual((request['limit'],request['offset']),(50,0))
 
+    def test_notes_folder_pages_require_selected_scope_and_progress(self):
+        config={'notes':{'source_ids':['selected']}}
+        row={'id':'folder','title':'Synthetic','source_id':'selected','parent_id':'selected','body':'private'}
+        page={'folders':[row],'done':True,'next_offset':1,'pagination_consistency':'live_offset_may_shift','private':'private'}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=page) as backend:
+            result=NativeReader('notes').read('folders',limit=1)
+            self.assertNotIn('body',result['folders'][0]);self.assertNotIn('private',result)
+            for value in ({**page,'folders':[{**row,'source_id':'foreign'}]}, {**page,'next_offset':2},
+                          {**page,'folders':[],'next_offset':0,'done':False}, {**page,'folders':[{**row,'parent_id':None}]}):
+                backend.return_value=value
+                with self.subTest(value=value),self.assertRaises(SafetyError):NativeReader('notes').read('folders',limit=1)
+
     def test_notes_title_page_requires_scope_and_bounded_progress(self):
         config={'notes':{'source_ids':['selected']}}
         row={'id':'note','title':'Synthetic','source_id':'selected','folder_id':'folder','body':'private'}
