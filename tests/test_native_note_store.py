@@ -40,6 +40,27 @@ INSERT INTO ZICNOTEDATA VALUES(X'00010203');''')
             self.alter('UPDATE ZICCLOUDSYNCINGOBJECT SET '+field+'='+value+' WHERE Z_PK=10')
             self.assertEqual(store.folder_role(FOLDER,[SOURCE])['storage_kind'],'special_smart_or_deleted')
             self.alter('UPDATE ZICCLOUDSYNCINGOBJECT SET ZFOLDERTYPE=0,ZMARKEDFORDELETION=0,ZSMARTFOLDERQUERYJSON=NULL WHERE Z_PK=10')
+    def test_recovery_folder_is_exact_unique_physical_system_trash(self):
+        with self.assertRaises(SafetyError):store.recovery_folder(SOURCE)
+        self.alter("INSERT INTO ZICCLOUDSYNCINGOBJECT VALUES(12,2,1,1,NULL,1,0,NULL,'Recently Deleted')")
+        result=store.recovery_folder(SOURCE);self.assertEqual(result['folder_id'],FOLDER.replace('p10','p12'));self.assertEqual(result['role'],'system_trash');self.assertFalse(result['data_mutated'])
+        self.alter("INSERT INTO ZICCLOUDSYNCINGOBJECT VALUES(13,2,1,1,NULL,1,0,NULL,'Duplicate')")
+        with self.assertRaises(SafetyError):store.recovery_folder(SOURCE)
+        with self.assertRaises(SafetyError):store.recovery_folder(SOURCE.replace(UUID,'00000000-0000-0000-0000-000000000002'))
+
+    def test_note_location_binds_entity_store_live_relation_and_selected_folder_account(self):
+        self.alter('ALTER TABLE ZICCLOUDSYNCINGOBJECT ADD COLUMN ZFOLDER INTEGER')
+        self.alter("INSERT INTO Z_PRIMARYKEY VALUES(3,'ICNote')")
+        self.alter('INSERT INTO ZICCLOUDSYNCINGOBJECT(Z_PK,Z_ENT,Z_OPT,ZMARKEDFORDELETION,ZFOLDER) VALUES(20,3,1,0,10)')
+        identity=f'x-coredata://{UUID}/ICNote/p20'
+        result=store.note_location(identity,[SOURCE]);self.assertEqual(result['folder_id'],FOLDER);self.assertEqual(result['source_id'],SOURCE);self.assertFalse(result['content_read'])
+        for change in ['ZFOLDER=11','Z_ENT=2','ZMARKEDFORDELETION=1','ZFOLDER=NULL']:
+            self.alter('UPDATE ZICCLOUDSYNCINGOBJECT SET Z_ENT=3,ZMARKEDFORDELETION=0,ZFOLDER=10 WHERE Z_PK=20')
+            self.alter('UPDATE ZICCLOUDSYNCINGOBJECT SET '+change+' WHERE Z_PK=20')
+            with self.assertRaises(SafetyError):store.note_location(identity,[SOURCE])
+        with self.assertRaises(SafetyError):store.note_location(identity,[])
+        with self.assertRaises(SafetyError):store.note_location(identity.replace(UUID,'00000000-0000-0000-0000-000000000002'),[SOURCE])
+
     def test_write_attach_extension_pragma_and_note_content_queries_are_denied(self):
         with store.readonly_store() as (connection,_):
             for query in ("UPDATE ZICCLOUDSYNCINGOBJECT SET ZTITLE2='changed'",'CREATE TEMP TABLE example(a)',"ATTACH ':memory:' AS other",'PRAGMA user_version=123',"SELECT load_extension('not-a-library')",'SELECT ZDATA FROM ZICNOTEDATA'):
@@ -52,6 +73,20 @@ INSERT INTO ZICNOTEDATA VALUES(X'00010203');''')
         with self.assertRaises(SafetyError):store.folder_role(FOLDER,[SOURCE])
         self.alter('ALTER TABLE ZICCLOUDSYNCINGOBJECT RENAME COLUMN ZACCOUNT8 TO UNKNOWN_ACCOUNT')
         with self.assertRaises(SafetyError):store.folder_role(FOLDER,[SOURCE])
+    def test_recovery_discovery_requires_opt_in_exact_scope_and_rechecks_revocation(self):
+        env={'ICLOUD_ENABLE_NOTES':'1','ICLOUD_MAIL_ACCESS':'read-only','ICLOUD_NATIVE_CONFIG':json.dumps({'notes':{'source_ids':[SOURCE]}})}
+        self.alter("INSERT INTO ZICCLOUDSYNCINGOBJECT VALUES(12,2,1,1,NULL,1,0,NULL,'Recently Deleted')")
+        with patch.dict(os.environ,env,clear=True):
+            with patch.object(store,'recovery_folder',side_effect=AssertionError('No automatic store access')),self.assertRaises(SafetyError):NativeReader('notes').read('recovery_folder',source_id=SOURCE)
+            os.environ['ICLOUD_NATIVE_CONFIG']=json.dumps({'notes':{'source_ids':[SOURCE],'metadata_backend':'notes-store-readonly'}})
+            self.assertEqual(NativeReader('notes').read('recovery_folder',source_id=SOURCE)['role'],'system_trash')
+            for fields in ({'source_id':SOURCE.replace('p1','p2')},{'source_id':SOURCE,'extra':True},{}):
+                with self.assertRaises(SafetyError):NativeReader('notes').read('recovery_folder',**fields)
+            original=store.recovery_folder
+            def revoked(source):
+                result=original(source);os.environ['ICLOUD_MAIL_ACCESS']='disabled';return result
+            with patch.object(store,'recovery_folder',side_effect=revoked),self.assertRaises(SafetyError):NativeReader('notes').read('recovery_folder',source_id=SOURCE)
+
     def test_optional_route_requires_owner_opt_in_and_current_service_read_access(self):
         env={'ICLOUD_ENABLE_NOTES':'1','ICLOUD_MAIL_ACCESS':'read-only','ICLOUD_NATIVE_CONFIG':json.dumps({'notes':{'source_ids':[SOURCE]}})}
         with patch.dict(os.environ,env,clear=True):

@@ -66,3 +66,11 @@ class NativeToolTests(unittest.TestCase):
             self.assertTrue(tool.annotations.read_only_hint)
             with patch('subprocess.run',side_effect=AssertionError('No helper')):
                 with self.assertRaises(ToolError):tool.fn(plan_id='a'*32,folder_id='folder')
+
+    def test_notes_recovery_folder_is_optional_read_only_and_scoped(self):
+        with tempfile.TemporaryDirectory() as directory:
+            tools=self.load(Path(directory)/'runtime');tool=tools['notes_recovery_folder'];self.assertTrue(tool.annotations.read_only_hint)
+            with patch('platform.system',return_value='Darwin'),patch('subprocess.run',side_effect=AssertionError('No helper')):
+                with self.assertRaises(ToolError):tool.fn(source_id='selected')
+            os.environ['ICLOUD_ENABLE_NOTES']='0'
+            with self.assertRaises(ToolError):tool.fn(source_id='selected')

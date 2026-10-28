@@ -267,6 +267,10 @@ class NotesCreateAdapter:
 
     def move_snapshot(self,item):
         origin,target,roles=self.move_folders(item);source=item['source_id']
+        from .native_note_store import note_location
+        location=note_location(item['id'],[source])
+        if location['folder_id']!=item['folder_id'] or location['source_id']!=source:
+            raise SafetyError('Notes scripting and persisted physical folder disagree; no move')
         note=self.reader.read('get',folder_id=item['folder_id'],id=item['id'])['item']
         if (note.get('id')!=item['id'] or note.get('folder_id')!=item['folder_id'] or note.get('source_id')!=source
                 or note.get('locked') is not False or note.get('shared') is not False or note.get('truncated') is not False
@@ -274,7 +278,7 @@ class NotesCreateAdapter:
             raise SafetyError('Move requires one exact unlocked, unshared, nontruncated note')
         attachments=self.reader.read('attachments',folder_id=item['folder_id'],id=item['id'],limit=100,offset=0)
         if attachments.get('done') is not True:raise SafetyError('Complete bounded attachment inventory is required for a move')
-        return {'folder':origin,'destination':target,'roles':roles,
+        return {'folder':origin,'destination':target,'roles':roles,'persisted_location':location,
                 'note':note,'attachments':attachments['attachments']}
 
     def prepare_move(self,change):
@@ -303,6 +307,9 @@ class NotesCreateAdapter:
             stable=lambda values:[{key:value for key,value in role.items() if key!='revision'} for role in values]
             if (origin!=item['before']['folder'] or target!=item['before']['destination']
                     or stable(roles)!=stable(item['before']['roles'])):return False
+            from .native_note_store import note_location
+            location=note_location(item['id'],[item['source_id']])
+            if location['folder_id']!=destination or location['source_id']!=item['source_id']:return False
         else:
             # Readback of an already executed historical move does not admit a
             # new move or prove historical special-folder safety.

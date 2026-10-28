@@ -86,6 +86,7 @@ def application_request(helper, request, timeout=40):
     fd=os.open(request_path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
     with os.fdopen(fd,'wb') as stream:
         stream.write(encoded);stream.flush();os.fsync(stream.fileno())
+    execution=None
     if request.get('service')=='notes' and request.get('action')=='apply':
         from .native_execution import current
         from .core import digest
@@ -120,6 +121,11 @@ def application_request(helper, request, timeout=40):
         result=json.loads(raw)
         if not isinstance(result,dict) or result.get('protocol_version')!=1 or result.get('request_id')!=directory.name:raise ValueError()
         if process.returncode:result['transport_warning']='launcher_nonzero_result_received'
+        if execution:
+            # Keep the exact terminal response before successful transport
+            # cleanup. Independent native readback can still fail afterward.
+            store.write_once(store.path(plan_id,'.native-terminal-'+str(execution['index'])),
+                {'plan_sha256':digest(plan),'request_sha256':digest(original),'request_id':directory.name,'response':result})
         if "error" not in result:shutil.rmtree(directory)
         return result
     except SafetyError:raise
@@ -180,6 +186,36 @@ def completed_exchange_evidence(expected,*,plan_id=None,store=None):
                     or directory.parent not in roots or directory.name!=record.get('request_id')):
                 raise SafetyError('Native exchange does not bind the admitted plan, helper or ledger')
             bound=directory
+            if not directory.exists() and not directory.is_symlink():
+                terminal=store.path(plan_id,'.native-terminal-0')
+                if terminal.exists():
+                    retained=store.read(terminal);response=retained.get('response',{})
+                    if (retained.get('plan_sha256')!=digest(plan) or retained.get('request_sha256')!=digest(expected)
+                            or retained.get('request_id')!=record['request_id'] or response.get('protocol_version')!=1
+                            or response.get('request_id')!=record['request_id']):raise SafetyError('Retained native response does not bind the admitted request')
+                    return {'request_id':record['request_id'],'request_sha256':digest(expected),'helper_response_sha256':digest(response),
+                            'helper_outcome':'error_response' if 'error' in response else 'success_response',
+                            'mutation_dispatched':response.get('mutation_dispatched') if type(response.get('mutation_dispatched')) is bool else 'unverified'}
+                # Older transports discarded successful responses before
+                # readback. A durable returned-ID attempt proves that the
+                # synchronous transport returned; it is not a raw response.
+                result=store.read(store.path(plan_id,'.result'));items=plan.get('payload',{}).get('changes',[])
+                attempts=result.get('attempted',[])
+                if (plan.get('kind')!='notes_change' or len(items)!=1 or items[0].get('operation')!='move_note'
+                        or result.get('status')!='failed_or_uncertain' or result.get('phase')!='verification'
+                        or result.get('completed')!=[] or len(attempts)!=1
+                        or store.read(store.path(plan_id,'.started')).get('sha256')!=digest(plan)):
+                    raise SafetyError('Missing native terminal response and no exact durable returned move attempt')
+                attempt=attempts[0];outcome=attempt.get('result',{});item=items[0]
+                if (attempt.get('index')!=0 or attempt.get('operation')!='move_note'
+                        or outcome.get('id')!=item.get('id') or outcome.get('source_id')!=item.get('source_id')
+                        or outcome.get('folder_id')!=item.get('fields',{}).get('destination_folder_id') or outcome.get('saved_locally') is not True
+                        or store.read(store.path(plan_id,'.attempt-0'))!={'plan_sha256':digest(plan),'attempt':attempt}
+                        or set(store.root.glob(plan_id+'.attempt-*'))!={store.path(plan_id,'.attempt-0')}):
+                    raise SafetyError('Durable move attempt does not match the exact admitted identity and destination')
+                return {'request_id':record['request_id'],'request_sha256':digest(expected),
+                        'evidence_type':'durable_returned_move_attempt','attempt_sha256':digest(attempt),
+                        'helper_outcome':'returned_result','raw_terminal_response_retained':False,'mutation_dispatched':'unverified'}
     for root in roots:
         if not root.exists():continue
         info=root.lstat()

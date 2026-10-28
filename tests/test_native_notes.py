@@ -228,6 +228,8 @@ class NativeNotesTests(unittest.TestCase):
             return {'folder_id':identity,'source_id':'selected','title':folder['title'],'storage_kind':'regular',
                     'native_folder_type':0,'marked_for_deletion':False,'has_smart_query':False,
                     'revision':1,'parent_pk':None,'schema_sha256':'a'*64}
+        context=patch('icloud_for_agents.native_note_store.note_location',side_effect=lambda identity,sources:{'id':identity,'source_id':'selected','folder_id':self.reader.note['folder_id'],'content_read':False,'database_writes':False})
+        context.start();self.addCleanup(context.stop)
         return patch('icloud_for_agents.native_note_store.folder_role',side_effect=role)
 
     def test_metadata_move_binds_roles_and_preserves_exact_native_content(self):
@@ -258,6 +260,14 @@ class NativeNotesTests(unittest.TestCase):
             roles.side_effect=lambda identity,sources:dict(ordinary(identity,sources),storage_kind='special_smart_or_deleted' if identity=='destination' else 'regular')
             with self.assertRaises(SafetyError):self.move()
             reads.assert_not_called()
+
+    def test_metadata_move_refuses_scripting_only_success_and_preexisting_location_drift(self):
+        with self.metadata_move_scope():
+            item=self.move();self.reader.note['folder_id']='destination'
+            with patch('icloud_for_agents.native_note_store.note_location',return_value={'id':'created','source_id':'selected','folder_id':'folder'}):
+                self.assertFalse(self.adapter.verify(item,{'id':'created','source_id':'selected','folder_id':'destination'}))
+            with patch('icloud_for_agents.native_note_store.note_location',return_value={'id':'created','source_id':'selected','folder_id':'unrelated'}):
+                with self.assertRaisesRegex(SafetyError,'persisted physical folder'):self.move()
 
     def test_historical_move_readback_retains_content_checks(self):
         before=self.adapter.note_snapshot({'operation':'move_note','source_id':'selected','folder_id':'folder','id':'created'},rewrite=False)

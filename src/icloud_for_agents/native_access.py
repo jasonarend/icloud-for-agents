@@ -21,7 +21,7 @@ def access_status(name):
     # Describe implementation boundaries separately from configuration or OS
     # grants. A listed operation still needs exact target and approval checks.
     unsupported = ({
-        'delete_note':'Verified Recently Deleted destination and preservation are unavailable.',
+        'delete_note':'Notes scripting deletion has not passed independent persistence verification; no product deletion route is exposed.',
         'restore_note':'Exact native restoration and destination verification are unavailable.',
         'delete_folder':'Complete contents and recoverable deletion effects are unverified.',
         'permanently_delete_note':'No independently verified irreversible deletion route.',

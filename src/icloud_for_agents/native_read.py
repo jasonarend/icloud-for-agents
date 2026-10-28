@@ -13,7 +13,7 @@ from .core import SafetyError, NativeOperationRefused, digest
 from .services import enabled
 
 
-READ_ACTIONS = {'notes': {'status', 'sources', 'folders', 'default_folder', 'folder_get', 'folder_inventory', 'folder_role', 'model_folder_role', 'query', 'get', 'text_page', 'search', 'attachments', 'diagnose_note', 'contains'},
+READ_ACTIONS = {'notes': {'status', 'sources', 'folders', 'default_folder', 'folder_get', 'folder_inventory', 'folder_role', 'recovery_folder', 'model_folder_role', 'query', 'get', 'text_page', 'search', 'attachments', 'diagnose_note', 'contains'},
                 'reminders': {'status', 'sources', 'lists', 'default_list', 'list_sections', 'list_features', 'list_parent', 'group_lists', 'templates', 'template_sections', 'smart_lists', 'query', 'get','list_membership','recovery_lookup','recovery_tree','recovery_list'}}
 MAX_OUTPUT = 2_000_000
 
@@ -123,7 +123,7 @@ class NativeReader:
                 if self.name!='reminders' or action!='query' or not isinstance(tag,str) or not tag or len(tag.encode('utf-8'))>512 or any(ord(c)<32 for c in tag):raise ValueError()
             except (ValueError,UnicodeEncodeError):raise SafetyError('Tag filtering requires one exact bounded native tag name') from None
             if config.get('advanced_backend')!='reminderkit' or not config.get('helper_path'):raise SafetyError('Tag filtering requires the explicitly selected ReminderKit backend and signed helper')
-        if 'source_id' in fields and action not in {'recovery_lookup','recovery_tree','recovery_list','templates','template_sections','smart_lists','group_lists','model_folder_role','default_folder'}:raise SafetyError('Source selector is only supported for exact role or recovery lookup')
+        if 'source_id' in fields and action not in {'recovery_lookup','recovery_tree','recovery_list','recovery_folder','templates','template_sections','smart_lists','group_lists','model_folder_role','default_folder'}:raise SafetyError('Source selector is only supported for exact role or recovery lookup')
         if action in {'list_sections','list_features','list_parent'}:
             if self.name!='reminders' or set(fields)!={'list_id'} or not isinstance(fields.get('list_id'),str) or not fields['list_id']:
                 raise SafetyError('Native list inspection requires one exact list ID')
@@ -244,11 +244,17 @@ class NativeReader:
         request.update(native_selections)
         if action in {'folders','query','search','attachments','lists','text_page'}:
             request.setdefault('limit',limit);request.setdefault('offset',offset)
-        if self.name=='notes' and action=='folder_role':
+        if self.name=='notes' and action in {'folder_role','recovery_folder'}:
             if config.get('metadata_backend','scripting')!='notes-store-readonly':raise SafetyError('Optional Notes store metadata requires explicit owner configuration; no automatic fallback')
-            if set(fields)!={'folder_id'}:raise SafetyError('Folder-role reads require only one exact folder ID')
-            from .native_note_store import folder_role
-            return folder_role(fields['folder_id'],sources)
+            from .native_note_store import folder_role,recovery_folder
+            if action=='folder_role':
+                if set(fields)!={'folder_id'}:raise SafetyError('Folder-role reads require only one exact folder ID')
+                result=folder_role(fields['folder_id'],sources)
+            else:
+                if set(fields)!={'source_id'} or fields.get('source_id') not in sources:raise SafetyError('Recovery-folder lookup requires one exact selected source')
+                result=recovery_folder(fields['source_id'])
+            if native_config('notes')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode:raise SafetyError('Notes access changed during metadata read')
+            return result
         result = self._dispatch(request, config)
         if self.name=='reminders' and action=='lists':
             rows=result.get('lists') if isinstance(result,dict) else None
@@ -1266,6 +1272,12 @@ def register_read_tools(mcp):
         def notes_folder_role(folder_id:str)->dict:
             """Read exact selected-folder storage role through explicitly opted-in read-only metadata; no note bodies or database writes. Default-folder status requires scripting verification."""
             return NativeReader('notes').read('folder_role',folder_id=folder_id)
+
+        @mcp.tool(annotations=annotations)
+        @guard
+        def notes_recovery_folder(source_id:str)->dict:
+            """Discover one selected account's verified system Recently Deleted folder with explicitly enabled read-only metadata, including when empty and hidden from scripting. No deletion or restoration."""
+            return NativeReader('notes').read('recovery_folder',source_id=source_id)
 
         @mcp.tool(annotations=annotations)
         @guard

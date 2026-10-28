@@ -210,3 +210,39 @@ class NativeApplicationTests(unittest.TestCase):
         self.assertFalse(completed_exchange_evidence(request,plan_id=proposal['plan_id'],store=store)['mutation_dispatched'])
         binding=store.path(proposal['plan_id'],'.native-exchange-0');record=store.read(binding);record['backend_id']='different';binding.write_text(json.dumps(record))
         with self.assertRaises(SafetyError):completed_exchange_evidence(request,plan_id=proposal['plan_id'],store=store)
+
+    def returned_move(self):
+        from icloud_for_agents.native_app import bundle_fingerprint
+        from icloud_for_agents.native_execution import capture
+        from icloud_for_agents.approvals import PlanStore
+        from icloud_for_agents.native_protocol import mutation_request
+        from icloud_for_agents.core import digest
+        store=PlanStore(self.root/'ledger')
+        item={'operation':'move_note','source_id':'selected','folder_id':'source','id':'note','fields':{'title':'Synthetic','destination_folder_id':'destination'},'before':{'note':{'title':'Synthetic','html':'<div>Body</div>','modified':'2026-10-28T00:00:00Z'},'attachments':[]}}
+        proposal=store.prepare('notes_change',{'account':'synthetic@example.com','context':{'backend':'notes-creation-v1:'+bundle_fingerprint(self.helper)},'changes':[item]});plan=store.read(store.path(proposal['plan_id'],'.json'));store.write_once(store.path(plan['plan_id'],'.started'),{'sha256':digest(plan)})
+        outcome={'id':'note','source_id':'selected','folder_id':'destination','saved_locally':True}
+        def launch(command,**kwargs):
+            directory=Path(command[-1]);result=directory/'result.json';result.write_text(json.dumps({'protocol_version':1,'request_id':directory.name,'result':outcome}));result.chmod(0o600);return SimpleNamespace(returncode=0)
+        request=mutation_request('notes',item)
+        with capture(store,'notes',plan,0),patch('subprocess.run',side_effect=launch):response=application_request(self.helper,request)
+        attempt={'index':0,'operation':'move_note','result':response['result']};store.write_once(store.path(plan['plan_id'],'.attempt-0'),{'plan_sha256':digest(plan),'attempt':attempt});store.finish(plan['plan_id'],{'status':'failed_or_uncertain','phase':'verification','attempted':[attempt],'completed':[]})
+        return store,plan,request
+
+    def test_successful_mutation_retains_exact_response_before_exchange_cleanup(self):
+        from icloud_for_agents.native_app import completed_exchange_evidence
+        store,plan,request=self.returned_move();terminal=store.read(store.path(plan['plan_id'],'.native-terminal-0'));binding=store.read(store.path(plan['plan_id'],'.native-exchange-0'))
+        self.assertFalse(Path(binding['exchange_directory']).exists());self.assertEqual(terminal['response']['result']['id'],'note')
+        proof=completed_exchange_evidence(request,plan_id=plan['plan_id'],store=store);self.assertEqual(proof['helper_outcome'],'success_response');self.assertNotIn('Synthetic',json.dumps(proof))
+        terminal['response']['request_id']='other';store.path(plan['plan_id'],'.native-terminal-0').write_text(json.dumps(terminal))
+        with self.assertRaises(SafetyError):completed_exchange_evidence(request,plan_id=plan['plan_id'],store=store)
+
+    def test_old_returned_move_attempt_is_distinguished_from_missing_terminal_evidence(self):
+        from icloud_for_agents.native_app import completed_exchange_evidence
+        store,plan,request=self.returned_move();identity=plan['plan_id'];store.path(identity,'.native-terminal-0').unlink() # Synthetic pre-upgrade cleanup.
+        proof=completed_exchange_evidence(request,plan_id=identity,store=store);self.assertEqual(proof['evidence_type'],'durable_returned_move_attempt');self.assertFalse(proof['raw_terminal_response_retained']);self.assertEqual(proof['mutation_dispatched'],'unverified')
+        original=store.read(store.path(identity,'.attempt-0'));changed=json.loads(json.dumps(original));changed['attempt']['result']['folder_id']='foreign'
+        store.path(identity,'.attempt-0').write_text(json.dumps(changed))
+        with self.assertRaises(SafetyError):completed_exchange_evidence(request,plan_id=identity,store=store)
+        store.path(identity,'.attempt-0').write_text(json.dumps(original))
+        binding=store.read(store.path(identity,'.native-exchange-0'));directory=Path(binding['exchange_directory']);directory.mkdir(mode=0o700);store.write_once(directory/'request.json',dict(request,request_id=directory.name))
+        with self.assertRaises(SafetyError):completed_exchange_evidence(request,plan_id=identity,store=store) # Pending directory never borrows an attempt.

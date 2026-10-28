@@ -14,7 +14,7 @@ from .core import SafetyError,digest
 
 REQUIRED={'ZICCLOUDSYNCINGOBJECT':{'Z_PK','Z_ENT','Z_OPT','ZACCOUNT8','ZPARENT','ZFOLDERTYPE','ZMARKEDFORDELETION','ZSMARTFOLDERQUERYJSON','ZTITLE2'},
           'Z_PRIMARYKEY':{'Z_ENT','Z_NAME'},'Z_METADATA':{'Z_UUID'}}
-IDENTITY=re.compile(r'x-coredata://([0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12})/(ICAccount|ICFolder)/p([1-9][0-9]{0,17})\Z')
+IDENTITY=re.compile(r'x-coredata://([0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12})/(ICAccount|ICFolder|ICNote)/p([1-9][0-9]{0,17})\Z')
 
 def parse_identity(value,entity):
     match=IDENTITY.fullmatch(value) if isinstance(value,str) else None
@@ -99,3 +99,36 @@ def folder_role(folder_id,source_ids):
 def backend_suffix():
     import hashlib
     return 'notes-store-role-v1:'+hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+
+
+def recovery_folder(source_id):
+    """Discover the unique physical system Trash, including when scripting hides it."""
+    store,account=parse_identity(source_id,'ICAccount')
+    with readonly_store() as (connection,_):
+        uuids=connection.execute('SELECT Z_UUID FROM Z_METADATA LIMIT 2').fetchall()
+        if len(uuids)!=1 or not isinstance(uuids[0][0],str) or uuids[0][0].lower()!=store:raise SafetyError('Native IDs do not match this Notes store')
+        records=connection.execute("SELECT Z_NAME,Z_ENT FROM Z_PRIMARYKEY WHERE Z_NAME IN ('ICAccount','ICFolder')").fetchall();entities=dict(records)
+        if len(records)!=2 or set(entities)!={'ICAccount','ICFolder'} or any(type(v) is not int for v in entities.values()):raise SafetyError('Native Notes entities cannot be verified')
+        if connection.execute('SELECT Z_ENT FROM ZICCLOUDSYNCINGOBJECT WHERE Z_PK=?',(account,)).fetchone()!=(entities['ICAccount'],):raise SafetyError('Selected native account is unavailable')
+        rows=connection.execute('SELECT Z_PK FROM ZICCLOUDSYNCINGOBJECT WHERE Z_ENT=? AND ZACCOUNT8=? AND ZFOLDERTYPE=1 AND ZMARKEDFORDELETION=0 AND ZSMARTFOLDERQUERYJSON IS NULL AND ZPARENT IS NULL LIMIT 2',(entities['ICFolder'],account)).fetchall()
+        if len(rows)!=1 or type(rows[0][0]) is not int or rows[0][0]<1:raise SafetyError('The selected account has no unique verified system Trash folder')
+        identity='x-coredata://'+source_id.split('/')[2]+'/ICFolder/p'+str(rows[0][0])
+    role=folder_role(identity,[source_id])
+    if role['native_folder_type']!=1 or role['marked_for_deletion'] or role['has_smart_query'] or role['parent_pk'] is not None:raise SafetyError('System Trash role changed during discovery')
+    return dict(role,role='system_trash',data_mutated=False)
+
+
+def note_location(note_id,source_ids):
+    """Resolve only one exact live native note's physical folder, never its content."""
+    store,note=parse_identity(note_id,'ICNote')
+    if not source_ids or any(parse_identity(source,'ICAccount')[0]!=store for source in source_ids):raise SafetyError('Note is outside the selected native store')
+    with readonly_store() as (connection,_):
+        columns={row[1] for row in connection.execute('PRAGMA table_info(ZICCLOUDSYNCINGOBJECT)')}
+        if 'ZFOLDER' not in columns:raise SafetyError('Notes schema lacks the physical note-folder relation')
+        entities=connection.execute("SELECT Z_ENT FROM Z_PRIMARYKEY WHERE Z_NAME='ICNote' LIMIT 2").fetchall()
+        if len(entities)!=1 or type(entities[0][0]) is not int:raise SafetyError('Native note entity cannot be verified')
+        row=connection.execute('SELECT Z_ENT,ZFOLDER,ZMARKEDFORDELETION FROM ZICCLOUDSYNCINGOBJECT WHERE Z_PK=?',(note,)).fetchone()
+        if row is None or row[0]!=entities[0][0] or type(row[1]) is not int or row[1]<1 or row[2]!=0:raise SafetyError('Exact native note has no verified live folder relation')
+        folder='x-coredata://'+note_id.split('/')[2]+'/ICFolder/p'+str(row[1])
+    role=folder_role(folder,source_ids)
+    return {'id':note_id,'folder_id':folder,'source_id':role['source_id'],'content_read':False,'database_writes':False}
