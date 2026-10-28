@@ -46,6 +46,7 @@ def run():
                 assert rpc('tools/call',{'name':'notes_read_text','arguments':dict(args,offset=100000)})['result'].get('isError')
                 assert rpc('tools/call',{'name':'notes_read_text','arguments':dict(args,limit=True)})['result'].get('isError')
                 assert rpc('tools/call',{'name':'notes_read_text','arguments':dict(args,expected_modified='different')})['result'].get('isError')
+                assert rpc('tools/call',{'name':'notes_read_text','arguments':dict(args,id='foreign-note')})['result'].get('isError')
                 locked=data(rpc('tools/call',{'name':'notes_read_text','arguments':dict(args,id='synthetic-locked')})['result']);assert locked['locked'] is True and locked['content_available'] is False and 'text' not in locked
                 assert call(dict(args,representation='execute-script')).get('isError');assert call(dict(args,representation=True)).get('isError')
             finally:
