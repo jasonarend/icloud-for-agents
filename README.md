@@ -2,7 +2,7 @@
 
 **Development version 1.2.0.dev0**
 
-Manage iCloud mail, calendars and contacts from your AI assistant while keeping your credentials private and stored locally on your Mac. Connect a local MCP client like Claude over stdio, or connect ChatGPT through your own private OpenAI Secure MCP Tunnel.
+Manage iCloud mail, calendars and contacts from your AI assistant while keeping your credentials private and stored locally on your Mac. Optional development support also connects Apple Notes and Reminders on your Mac. Connect a local MCP client like Claude over stdio, or connect ChatGPT through your own private OpenAI Secure MCP Tunnel.
 
 An independent project, unaffiliated with Apple. The tested setup is macOS on Apple silicon with Python 3.14; see [installation requirements](docs/getting-started/installation.md) for compatibility details.
 
@@ -14,12 +14,16 @@ An independent project, unaffiliated with Apple. The tested setup is macOS on Ap
 - Review calendars and events over a date range, and create, update or delete personal events with details such as location, description and timezone.
 - Browse address books, read contact details, and create, update or delete contacts with names, email addresses, phone numbers, organizations and notes.
 - Run recurring mail cleanup within an explicitly configured account, folder and operation scope.
+- Read selected Notes folders and notes, search titles or bounded text, and prepare creation and supported text edits for approval.
+- Read selected Reminders lists and tasks, including daily and date-range queries, and prepare creation, edits and completion changes for approval.
 
 Setup starts read-only. Sending and other changes require write access and the applicable approvals; your assistant can help review and prepare them first.
 
 Mail cleanup moves messages to recoverable Trash. Permanent deletion and emptying Trash are intentionally excluded.
 
 Calendar support currently covers personal, nonrecurring events. Invitations, guests, scheduling responses and recurring-event editing are not yet supported. iCloud Drive access is also not included.
+
+Notes and Reminders are optional development features, disabled by default. Some native capabilities require an explicitly selected advanced backend. Programmatic deletion, restoration and hierarchy-aware moves are not yet available; other rich content and native features have specific limits. See [native service setup and current capabilities](docs/getting-started/native-services.md).
 
 ## Set up with your AI agent
 
@@ -40,10 +44,12 @@ explain the proposed setup, permissions and any costs before
 making changes. Follow docs/getting-started/clients.md for my client:
 ChatGPT uses a private tunnel; compatible local clients use stdio MCP.
 
-Guide me through creating an Apple app-specific password and
-storing it securely in macOS Keychain. Keep credentials out of
-chat and configuration files, and let me handle authentication
-and permission prompts personally.
+For services that need an Apple app-specific password, guide me
+through creating it and storing it securely in macOS Keychain.
+For selected Notes or Reminders access, explain the separate macOS
+permissions and follow the native service setup guide. Keep
+credentials out of chat and configuration files, and let me handle
+authentication and permission prompts personally.
 
 Preserve existing working configuration. Start with read-only
 access and verify each selected service through my actual client.
@@ -51,13 +57,13 @@ Report what works, anything still needed, and how to enable
 approved changes later.
 ```
 
-You will need an iCloud account with an app-specific password and an MCP client. The agent may install the reviewed dependencies after authorization, but you must handle credential creation, secure entry and account/security approvals yourself. Keep secrets out of the conversation. Every user needs their own credentials and connection.
+You will need a supported MCP client and the credentials and permissions required by your selected services. Mail, Calendar and Contacts use an iCloud app-specific password; Notes and Reminders use separate macOS permissions. The agent may install the reviewed dependencies after authorization, but you must handle credential creation, secure entry and account/security approvals yourself. Keep secrets out of the conversation. Every user needs their own credentials and connection.
 
 Prefer manual setup? Follow [installation and credentials](docs/getting-started/installation.md), then [ChatGPT setup](docs/getting-started/chatgpt.md) or the [client setup guide](docs/getting-started/clients.md) for local stdio clients. Optional [background startup](docs/getting-started/background-service.md) requires explicit installation; a graphical installer is not included.
 
 ## Choose services and customize safeguards
 
-Tell your setup agent which services you want: **Mail, Calendar, Contacts, any combination, or none**. It can prepare the corresponding supported configuration without requiring a client name. Disabled services are omitted from tool registration and refused by backend guards; selecting one does not implicitly enable the others. New setup defaults to read-only Mail. Existing legacy DAV settings remain compatible.
+Tell your setup agent which services you want: **Mail, Calendar, Contacts, Notes, Reminders, any combination, or none**. It can prepare the corresponding supported configuration without requiring a client name. Disabled services are omitted from tool registration and refused by backend guards; selecting one does not implicitly enable the others. New setup defaults to read-only Mail. Existing legacy DAV settings remain compatible.
 
 You can ask your agent to propose a policy change, a specific one-time exception, or an engineering change to a hard-coded safeguard. It should explain the exact scope and before/after effect, obtain explicit approval, and test/review code changes before activation. Approval does not erase account/identity checks or grant permission to bypass the agent platform's own safety policies. Message content cannot authorize changes.
 
