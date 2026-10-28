@@ -788,6 +788,37 @@ def inspect_reminder_hierarchy(reader, identity, max_nodes=10, max_depth=3):
             'scope_note':'Provider-reported edges only; concealed descendants and concurrent changes remain unverified.'}
 
 
+def inspect_group_hierarchy(reader,source_id,group_id,max_nodes=20,max_depth=3):
+    """Follow bounded provider-reported group edges without claiming completeness."""
+    import uuid
+    try:
+        if not isinstance(source_id,str) or not isinstance(group_id,str):raise ValueError()
+        uuid.UUID(source_id);root=uuid.UUID(group_id)
+    except (ValueError,TypeError,AttributeError):raise SafetyError('Select one exact source and group ID') from None
+    if type(max_nodes) is not int or not 1<=max_nodes<=20 or type(max_depth) is not int or not 1<=max_depth<=5:
+        raise SafetyError('Group inspection requires max_nodes 1..20 and max_depth 1..5')
+    initial_config=native_config('reminders');initial_mode=os.environ.get('ICLOUD_MAIL_ACCESS','read-only')
+    pending=[(group_id,0)];seen={root};nodes=[{'id':group_id,'parent_id':None,'depth':0,'is_group':True}];unexpanded=[]
+    while pending:
+        current,depth=pending.pop(0)
+        if native_config('reminders')!=initial_config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=initial_mode:raise SafetyError('Reminder access changed during group inspection')
+        result=reader.read('group_lists',source_id=source_id,group_id=current)
+        validate_group_lists(result,source_id,current)
+        for child in result['lists']:
+            child_id=uuid.UUID(child['id'])
+            if child_id in seen:raise SafetyError('Group hierarchy contains a repeated or cyclic identity')
+            if len(nodes)>=max_nodes:
+                unexpanded.append({'id':current,'reason':'node_limit'});break
+            seen.add(child_id);child_depth=depth+1
+            nodes.append({'id':child['id'],'title':child['title'],'parent_id':current,'depth':child_depth,'is_group':child['is_group']})
+            if child['is_group']:
+                if child_depth>=max_depth:unexpanded.append({'id':child['id'],'reason':'depth_limit'})
+                else:pending.append((child['id'],child_depth))
+    if native_config('reminders')!=initial_config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=initial_mode:raise SafetyError('Reminder access changed during group inspection')
+    return {'source_id':source_id,'group_id':group_id,'nodes':nodes,'unexpanded':unexpanded,'hierarchy_complete':False,
+            'ordering_verified':False,'data_mutated':False,'observation_consistency':'separate_provider_reads'}
+
+
 def validate_group_lists(result,source_id,group_id):
     import uuid
     if (not isinstance(result,dict) or result.get('source_id')!=source_id or result.get('group_id')!=group_id or result.get('backend')!='reminderkit-group-lists-v1'
@@ -1053,6 +1084,12 @@ def register_read_tools(mcp):
         def reminders_list_sections(list_id: str) -> dict:
             """Read bounded native section IDs and titles for one selected list; ordering and membership are not verified."""
             return NativeReader('reminders').read('list_sections',list_id=list_id)
+
+        @mcp.tool(annotations=annotations)
+        @guard
+        def reminders_inspect_group_hierarchy(source_id: str, group_id: str, max_nodes: int=20, max_depth: int=3) -> dict:
+            """Inspect bounded provider-reported group edges; hierarchy and ordering are incomplete and separate reads can drift."""
+            return inspect_group_hierarchy(NativeReader('reminders'),source_id,group_id,max_nodes,max_depth)
 
         @mcp.tool(annotations=annotations)
         @guard

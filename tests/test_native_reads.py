@@ -413,7 +413,7 @@ class NativeReadTests(unittest.TestCase):
                     importlib.reload(server)
                     tools = {t.name:t for t in asyncio.run(server.mcp.list_tools())}
                     self.assertEqual(sum(n.startswith('notes_') for n in tools),44 if notes else 0)
-                    self.assertEqual(sum(n.startswith('reminders_') for n in tools),39 if reminders else 0)
+                    self.assertEqual(sum(n.startswith('reminders_') for n in tools),40 if reminders else 0)
                     if notes:
                         with patch.dict(os.environ, {'ICLOUD_ENABLE_NOTES':'0'}), patch('subprocess.run',side_effect=AssertionError('No helper')):
                             with self.assertRaises(ToolError): tools['notes_sources'].fn()
@@ -571,6 +571,21 @@ class NativeReadTests(unittest.TestCase):
         for invalid in ({'modified_from':'2026-02-30T00:00:00Z'}, {'modified_from':'2026-10-27T12:00:00+00:00'}, {'modified_from':'2026-10-27T13:00:00Z','modified_before':'2026-10-27T12:00:00Z'}):
             with self.subTest(invalid=invalid),self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',side_effect=AssertionError('No helper')),self.assertRaises(SafetyError):
                 NativeReader('notes').read('search',text='table',**invalid)
+
+    def test_bounded_group_hierarchy_refuses_cycles_and_reports_limits(self):
+        from icloud_for_agents.native_read import inspect_group_hierarchy
+        source='11111111-1111-4111-8111-111111111111';root='22222222-2222-4222-8222-222222222222';child='33333333-3333-4333-8333-333333333333';leaf='44444444-4444-4444-8444-444444444444'
+        def page(group,rows):return {'source_id':source,'group_id':group,'lists':rows,'membership_complete':False,'ordering_verified':False,'data_mutated':False,'backend':'reminderkit-group-lists-v1'}
+        class Reader:
+            def __init__(self):self.pages={root:page(root,[{'id':child,'title':'Group','is_group':True}]),child:page(child,[{'id':leaf,'title':'List','is_group':False}])}
+            def read(self,action,**kwargs):return self.pages[kwargs['group_id']]
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps({'reminders':{'source_ids':[source]}})):
+            reader=Reader();result=inspect_group_hierarchy(reader,source,root);self.assertEqual([n['id'] for n in result['nodes']],[root,child,leaf]);self.assertFalse(result['hierarchy_complete'])
+            depth=inspect_group_hierarchy(reader,source,root,max_depth=1);self.assertEqual(depth['unexpanded'][0]['reason'],'depth_limit')
+            limited=inspect_group_hierarchy(reader,source,root,max_nodes=1);self.assertEqual(limited['unexpanded'][0]['reason'],'node_limit')
+            reader.pages[child]=page(child,[{'id':root,'title':'Cycle','is_group':True}])
+            with self.assertRaises(SafetyError):inspect_group_hierarchy(reader,source,root)
+            with self.assertRaises(SafetyError):inspect_group_hierarchy(reader,source,root,max_nodes=True)
 
     def test_reminder_group_lists_require_scoped_membership(self):
         config={'reminders':{'source_ids':['selected'],'advanced_backend':'reminderkit','helper_path':'/synthetic/helper'}}

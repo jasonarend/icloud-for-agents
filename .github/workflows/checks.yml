@@ -34,6 +34,7 @@ jobs:
           .venv/bin/python tests/native_stdio_smoke.py
           .venv/bin/python tests/native_markdown_stdio_smoke.py
           .venv/bin/python tests/native_flags_stdio_smoke.py
+          .venv/bin/python tests/native_group_inspect_stdio.py
           .venv/bin/python tests/native_flag_write_stdio_smoke.py
           .venv/bin/python tests/native_urgent_write_stdio_smoke.py
           .venv/bin/python tests/native_early_write_stdio_smoke.py
