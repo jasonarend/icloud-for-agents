@@ -41,7 +41,7 @@ def run():
                 args={'folder_id':'folder','id':'synthetic-note'};native=data(call(args));assert 'markdown' not in native['item']
                 projected=data(call(dict(args,representation='markdown')));item=projected['item'];assert item['html']==native['item']['html'];assert 'Priority' in item['markdown'] and '| ---' in item['markdown'];assert item['markdown_projection']['round_trip_safe'] is False
                 text_tool=next(t for t in tools if t['name']=='notes_read_text');assert text_tool['annotations']['readOnlyHint'] is True
-                first=data(rpc('tools/call',{'name':'notes_read_text','arguments':dict(args,limit=10)})['result']);assert first['text']=='Synthetic ' and first['next_offset']==10 and first['done'] is False and 'html' not in first
+                first=data(rpc('tools/call',{'name':'notes_read_text','arguments':dict(args,limit=10)})['result']);assert first['text']=='Synthetic ' and first['next_offset']==10 and first['done'] is False and 'html' not in first and 'request_id' not in first
                 rest=data(rpc('tools/call',{'name':'notes_read_text','arguments':dict(args,offset=first['next_offset'],limit=100,expected_modified=first['modified'])})['result']);assert first['text']+rest['text']=='Synthetic text café 🚀' and rest['done'] is True and rest['modified']==first['modified']
                 assert rpc('tools/call',{'name':'notes_read_text','arguments':dict(args,offset=100000)})['result'].get('isError')
                 assert rpc('tools/call',{'name':'notes_read_text','arguments':dict(args,limit=True)})['result'].get('isError')
