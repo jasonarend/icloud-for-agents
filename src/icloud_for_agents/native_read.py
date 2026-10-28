@@ -448,6 +448,18 @@ class NativeReader:
                 keys=('items','unavailable','done','next_offset','scanned','locked_bodies_excluded','truncated_bodies','pagination_consistency','match_scope','modified_filter')
                 result={key:result[key] for key in keys if key in result}
                 result['search_coverage']='bounded title only; no note bodies read'
+            else:
+                unavailable=result.get('unavailable',[])
+                categories={'note_read_unavailable','modification_date_unavailable','table_projection_budget','table_projection_unavailable'}
+                if (not isinstance(unavailable,list) or len(unavailable)>200 or any(not isinstance(row,dict)
+                        or row.get('category') not in categories or ('id' in row and (not isinstance(row['id'],str) or not row['id'])) for row in unavailable)):
+                    raise SafetyError('Configured helper returned invalid Notes search diagnostics')
+                allowed=('id','title','source_id','folder_id','locked','excerpt','content_complete','modified','match_source','text_projection_complete')
+                result['items']=[{key:row[key] for key in allowed if key in row} for row in result['items']]
+                result['unavailable']=[{key:row[key] for key in ('id','category') if key in row} for row in unavailable]
+                keys=('protocol_version','items','unavailable','done','next_offset','scanned','locked_bodies_excluded','truncated_bodies','pagination_consistency','modified_filter')
+                result={key:result[key] for key in keys if key in result}
+                result['search_coverage']='title, bounded plaintext and exported table text; no native OCR/attachment/semantic index'
         if self.name == 'notes' and action == 'get' and 'html' in result.get('item', {}):
             from .notes_content import project_html
             try:

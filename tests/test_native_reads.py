@@ -416,6 +416,10 @@ class NativeReadTests(unittest.TestCase):
             return {'items':[row]}
         with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',side_effect=drift),self.assertRaises(SafetyError):
             NativeReader('notes').read('search',text='test',folder_id='folder')
+        leaking={'items':[{**row,'html':'private'}], 'unavailable':[{'id':'note','category':'note_read_unavailable','body':'private'}], 'private_body':'private'}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=leaking):
+            result=NativeReader('notes').read('search',text='test',folder_id='folder')
+            self.assertNotIn('html',result['items'][0]);self.assertNotIn('body',result['unavailable'][0]);self.assertNotIn('private_body',result)
 
     def test_notes_modification_filter_rejects_old_helpers_and_out_of_range_rows(self):
         config={'notes':{'source_ids':['selected']}}
