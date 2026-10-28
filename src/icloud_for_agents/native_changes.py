@@ -29,9 +29,9 @@ class NativeChanges:
         if temporary:context.update(temporary_elevation='exact-batch-once',configured_access=status['configured_access'],runtime_access=status['runtime_access'])
         return context
 
-    def prepare_once(self,changes):
+    def prepare_once(self,changes,*,_review_context=None):
         from .native_once import planning
-        with planning(self.name):return self.prepare(changes,_temporary=True)
+        with planning(self.name):return self.prepare(changes,_temporary=True,_review_context=_review_context)
 
     def prepare_with_grant(self,grant_id,changes):
         from .native_grants import NativeGrants
@@ -39,7 +39,7 @@ class NativeChanges:
         manager=NativeGrants(self);grant=manager.checked(grant_id)
         with planning(self.name):return self.prepare(changes,_temporary=True,_grant=grant)
 
-    def prepare(self, changes, *, _temporary=False,_grant=None):
+    def prepare(self, changes, *, _temporary=False,_grant=None,_review_context=None):
         context = self.context(_temporary)
         if not isinstance(changes,list) or not 1 <= len(changes) <= 20:
             raise SafetyError('Prepare 1..20 exact native changes')
@@ -64,6 +64,10 @@ class NativeChanges:
             prepared.append(item)
         payload = {'account':self.account,'context':context,'changes':prepared,
                    'transaction':'per-item; no atomic backend transaction or automatic rollback'}
+        if _review_context is not None:
+            if self.name!='reminders' or not _temporary or _grant is not None or not isinstance(_review_context,dict):
+                raise SafetyError('Invalid scoped copy review')
+            payload['copy_review']=_review_context
         if _grant is not None:
             from .native_grants import NativeGrants
             payload['standing_grant']={'grant_id':_grant['plan_id'],'sha256':digest(_grant)}

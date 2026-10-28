@@ -49,6 +49,16 @@ def run(policy):
                     assert data(call(name+'_cancel_plan',{'plan_id':cancelled['plan_id']}))['status']=='cancelled'
                     assert call(name+'_execute_approved',{'plan_id':cancelled['plan_id']}).get('isError')
                     assert data(call(name+'_plan_status',{'plan_id':cancelled['plan_id']}))['status']=='cancelled'
+                snapshot={'format':'icloud-for-agents-reminders-observation','version':1,'list_id':'original-list','page':{'done':False},'items':[{'id':'old','list_id':'original-list','title':'Synthetic copy','notes':'Text','priority':1,'completed':True}]}
+                assert call('reminders_prepare_observation_copy',{'snapshot':snapshot,'source_id':'selected','list_id':'destination','accept_omissions':False}).get('isError')
+                copied=data(call('reminders_prepare_observation_copy',{'snapshot':snapshot,'source_id':'selected','list_id':'destination','accept_omissions':True}))
+                assert copied['review']['payload']['copy_review']['source_completed_count']==1 and copied['review']['payload']['copy_review']['page_done'] is False
+                if policy=='local-receipt':
+                    assert call('reminders_execute_approved',{'plan_id':copied['plan_id']}).get('isError')
+                    receipt=runtime/(copied['plan_id']+'.approved');fd=os.open(receipt,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+                    with os.fdopen(fd,'w') as stream:json.dump({'plan_id':copied['plan_id'],'sha256':copied['sha256']},stream)
+                assert data(call('reminders_execute_approved',{'plan_id':copied['plan_id']}))['status']=='applied'
+                assert call('reminders_execute_approved',{'plan_id':copied['plan_id']}).get('isError')
             finally:
                 process.stdin.close()
                 try:process.wait(timeout=10)

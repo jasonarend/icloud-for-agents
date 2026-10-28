@@ -245,6 +245,11 @@ def register_change_tools(mcp):
             return NotesCreationRecovery(owner()).finalize(plan_id)
 
     if enabled('reminders'):
+        def prepare_observation_copy(snapshot:dict,source_id:str,list_id:str,accept_omissions:bool,include_dates:bool=False,include_urls:bool=False)->dict:
+            """Review up to 10 lossy copies of a supplied Reminder observation; originals, completion and native metadata are not preserved. One-time approval required."""
+            from .native_reminder_import import prepare_copy
+            return prepare_copy(editor('reminders'),snapshot,source_id,list_id,accept_omissions=accept_omissions,include_dates=include_dates,include_urls=include_urls)
+        mcp.tool(name='reminders_prepare_observation_copy',annotations=WRITE)(guard(prepare_observation_copy))
         @mcp.tool(annotations=WRITE)
         @guard
         def reminders_prepare_changes(changes:list[dict])->dict:
