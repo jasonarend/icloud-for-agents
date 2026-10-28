@@ -46,6 +46,14 @@ static NSArray *sections;
 @implementation FakeStore
 -(id)fetchAccountsWithError:(NSError **)error{return accounts;}
 @end
+@interface FakeSmartView:NSObject
+-(id)initWithStore:(id)store;
+-(id)fetchCustomSmartListsInAccount:(id)account error:(NSError **)error;
+@end
+@implementation FakeSmartView
+-(id)initWithStore:(id)store{return [super init];}
+-(id)fetchCustomSmartListsInAccount:(id)account error:(NSError **)error{return templates;}
+@end
 @interface FakeView:NSObject
 -(id)initWithStore:(id)store;
 -(id)fetchTemplatesInAccount:(id)account error:(NSError **)error;
@@ -64,17 +72,18 @@ int main(int argc,const char **argv){@autoreleasepool{
  FakeTemplate *b=[FakeTemplate new];b.remObjectID=ident(@"REMCDTemplate",@"44444444-4444-4444-8444-444444444444");b.storage=[FakeStorage new];b.storage.accountID=account.remObjectID;b.storage.name=@"Second";
  FakeSection *section=[FakeSection new];section.remObjectID=ident(@"REMCDTemplateSection",@"55555555-5555-4555-8555-555555555555");section.storage=[FakeSectionStorage new];section.storage.accountID=account.remObjectID;section.storage.parentTemplateID=a.remObjectID;section.storage.displayName=@"Synthetic section";sections=@[section];
  if([mode isEqual:@"section_foreign"])section.storage.accountID=ident(@"REMCDAccount",other);if([mode isEqual:@"section_wrong_parent"])section.storage.parentTemplateID=b.remObjectID;if([mode isEqual:@"section_duplicate"])sections=@[section,section];if([mode isEqual:@"section_empty"])sections=@[];
+ if([mode hasPrefix:@"smart_"]){a.remObjectID.entityName=@"REMCDSmartList";b.remObjectID.entityName=@"REMCDSmartList";if([mode isEqual:@"smart_foreign"])a.storage.accountID=ident(@"REMCDAccount",other);}
  templates=@[b,a];if([mode isEqual:@"foreign"])a.storage.accountID=ident(@"REMCDAccount",other);if([mode isEqual:@"duplicate"])templates=@[a,a];if([mode isEqual:@"missing"])accounts=@[];
  NSDictionary *req=@{@"source_id":source,@"limit":@1,@"offset":@([mode isEqual:@"beyond"]?9:0)};
  if([mode hasPrefix:@"section_"])req=@{@"source_id":source,@"id":@"33333333-3333-4333-8333-333333333333"};
- NSData *data=[NSJSONSerialization dataWithJSONObject:req options:0 error:NULL];NSData *result=[mode hasPrefix:@"section_"]?ICloudRemindersTemplateSections(data):ICloudRemindersListTemplates(data);fwrite(result.bytes,1,result.length,stdout);return 0;
+ NSData *data=[NSJSONSerialization dataWithJSONObject:req options:0 error:NULL];NSData *result=[mode hasPrefix:@"section_"]?ICloudRemindersTemplateSections(data):[mode hasPrefix:@"smart_"]?ICloudRemindersListSmartLists(data):ICloudRemindersListTemplates(data);fwrite(result.bytes,1,result.length,stdout);return 0;
 }}
 '''
 def run():
     source=(ROOT/'src/icloud_for_agents/native/reminders-model.m').read_text()
     a=source.index('static BOOL FlagReadInterface(void)');b=source.index('static id ObjectValue',a)
     source=source[:a]+'static BOOL FlagReadInterface(void){return YES;}\n'+source[b:]
-    for real,fake in [('REMStore','FakeStore'),('REMObjectID','FakeID'),('REMTemplatesDataView','FakeView'),('REMTemplateSectionsDataView','FakeSectionsView')]:source=source.replace('NSClassFromString(@"'+real+'")','NSClassFromString(@"'+fake+'")')
+    for real,fake in [('REMStore','FakeStore'),('REMObjectID','FakeID'),('REMTemplatesDataView','FakeView'),('REMSmartListsDataView','FakeSmartView'),('REMTemplateSectionsDataView','FakeSectionsView')]:source=source.replace('NSClassFromString(@"'+real+'")','NSClassFromString(@"'+fake+'")')
     with tempfile.TemporaryDirectory(prefix='reminder-templates-contract-') as d:
         p=Path(d);(p/'reminders-model.h').write_text((ROOT/'src/icloud_for_agents/native/reminders-model.h').read_text());(p/'test.m').write_text(source+'\n'+FIXTURE)
         result=subprocess.run(['/usr/bin/clang','-fobjc-arc','-framework','Foundation',str(p/'test.m'),'-o',str(p/'contract')],capture_output=True,text=True,timeout=60);assert result.returncode==0,result.stderr
@@ -85,5 +94,7 @@ def run():
         sections=call('section_ok');assert sections['sections'][0]['title']=='Synthetic section' and sections['membership_verified'] is False and sections['data_mutated'] is False
         assert call('section_empty')['sections']==[]
         for mode in ('section_foreign','section_wrong_parent','section_duplicate'):assert call(mode).get('error'),mode
+        smart=call('smart_ok');assert smart['smart_lists'][0]['title']=='Synthetic' and smart['filter_rules_complete'] is False and smart['data_mutated'] is False
+        assert call('smart_foreign').get('error')
     print(json.dumps({'status':'passed','apple_store_opened':False,'checks':['scoped_identity','bounded_stable_page','foreign_duplicate_missing_refused','no_mutation']}))
 if __name__=='__main__':run()

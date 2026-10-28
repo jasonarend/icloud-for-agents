@@ -413,7 +413,7 @@ class NativeReadTests(unittest.TestCase):
                     importlib.reload(server)
                     tools = {t.name:t for t in asyncio.run(server.mcp.list_tools())}
                     self.assertEqual(sum(n.startswith('notes_') for n in tools),44 if notes else 0)
-                    self.assertEqual(sum(n.startswith('reminders_') for n in tools),36 if reminders else 0)
+                    self.assertEqual(sum(n.startswith('reminders_') for n in tools),37 if reminders else 0)
                     if notes:
                         with patch.dict(os.environ, {'ICLOUD_ENABLE_NOTES':'0'}), patch('subprocess.run',side_effect=AssertionError('No helper')):
                             with self.assertRaises(ToolError): tools['notes_sources'].fn()
@@ -571,6 +571,18 @@ class NativeReadTests(unittest.TestCase):
         for invalid in ({'modified_from':'2026-02-30T00:00:00Z'}, {'modified_from':'2026-10-27T12:00:00+00:00'}, {'modified_from':'2026-10-27T13:00:00Z','modified_before':'2026-10-27T12:00:00Z'}):
             with self.subTest(invalid=invalid),self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',side_effect=AssertionError('No helper')),self.assertRaises(SafetyError):
                 NativeReader('notes').read('search',text='table',**invalid)
+
+    def test_reminder_smart_lists_require_scoped_bounded_evidence(self):
+        config={'reminders':{'source_ids':['selected'],'advanced_backend':'reminderkit','helper_path':'/synthetic/helper'}}
+        row={'id':'33333333-3333-4333-8333-333333333333','title':'Synthetic'}
+        page={'source_id':'selected','smart_lists':[row],'next_offset':1,'done':True,'pagination_consistency':'live_offset_may_shift','filter_rules_complete':False,'data_mutated':False,'backend':'reminderkit-smart-lists-v1','private':'discard'}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch') as backend:
+            backend.return_value=page
+            self.assertNotIn('private',NativeReader('reminders').read('smart_lists',source_id='selected',limit=1))
+            for bad in ({'source_id':'foreign'},{'smart_lists':[row,row]},{'smart_lists':[{**row,'id':'invalid'}]},{'next_offset':0},{'filter_rules_complete':True},{'data_mutated':True}):
+                backend.return_value={**page,**bad}
+                with self.subTest(bad=bad),self.assertRaises(SafetyError):NativeReader('reminders').read('smart_lists',source_id='selected',limit=1)
+            with self.assertRaises(SafetyError):NativeReader('reminders').read('smart_lists',source_id='foreign',limit=1)
 
     def test_reminder_template_sections_require_exact_scope(self):
         config={'reminders':{'source_ids':['selected'],'advanced_backend':'reminderkit','helper_path':'/synthetic/helper'}}

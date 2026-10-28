@@ -85,6 +85,35 @@ NSData *ICloudRemindersListTemplates(NSData *data){
     }@catch(NSException *exception){return EncodeFlag(FlagFailure(@"private_read_exception"));}
 }
 
+// Enumerate only custom Smart Lists in one already selected account.
+NSData *ICloudRemindersListSmartLists(NSData *data){
+    @try {
+        id req=[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
+        if(![req isKindOfClass:NSDictionary.class] || [req count]!=3)return EncodeFlag(FlagFailure(@"invalid_public_identity"));
+        id source=req[@"source_id"],limit=req[@"limit"],offset=req[@"offset"];
+        if(![source isKindOfClass:NSString.class] || ![[NSUUID alloc]initWithUUIDString:source] || ![limit isKindOfClass:NSNumber.class] || ![offset isKindOfClass:NSNumber.class] || CFGetTypeID((__bridge CFTypeRef)limit)==CFBooleanGetTypeID() || CFGetTypeID((__bridge CFTypeRef)offset)==CFBooleanGetTypeID() || [limit doubleValue]!=[limit integerValue] || [offset doubleValue]!=[offset integerValue] || [limit integerValue]<1 || [limit integerValue]>100 || [offset integerValue]<0 || [offset integerValue]>100000)return EncodeFlag(FlagFailure(@"invalid_public_identity"));
+        if(!FlagReadInterface())return EncodeFlag(FlagFailure(@"unsupported_interface"));
+        Class storeClass=NSClassFromString(@"REMStore"),viewClass=NSClassFromString(@"REMSmartListsDataView");
+        if(!MethodMatches(storeClass,@"fetchAccountsWithError:",@"@@:^@",NO) || !MethodMatches(viewClass,@"initWithStore:",@"@@:@",NO) || !MethodMatches(viewClass,@"fetchCustomSmartListsInAccount:error:",@"@@:@^@",NO))return EncodeFlag(FlagFailure(@"unsupported_smart_list_metadata"));
+        id store=[storeClass new];NSError *error=nil;id accounts=((id(*)(id,SEL,NSError**))objc_msgSend)(store,NSSelectorFromString(@"fetchAccountsWithError:"),&error);
+        if(error || ![accounts isKindOfClass:NSArray.class] || [accounts count]>100)return EncodeFlag(FlagFailure(@"unsupported_smart_list_metadata"));
+        id selected=nil;for(id account in accounts)if(UUIDEqual(ObjectUUID(account,@"REMCDAccount"),source)){if(selected)return EncodeFlag(FlagFailure(@"native_identity_mismatch"));selected=account;}
+        if(!selected)return EncodeFlag(FlagFailure(@"native_identity_mismatch"));
+        id view=((id(*)(id,SEL,id))objc_msgSend)([viewClass alloc],NSSelectorFromString(@"initWithStore:"),store);error=nil;
+        id templates=((id(*)(id,SEL,id,NSError**))objc_msgSend)(view,NSSelectorFromString(@"fetchCustomSmartListsInAccount:error:"),selected,&error);
+        if(error || ![templates isKindOfClass:NSArray.class] || [templates count]>1000)return EncodeFlag(FlagFailure(@"unsupported_smart_list_metadata"));
+        NSMutableArray *out=[NSMutableArray array];NSMutableSet *seen=[NSMutableSet set];
+        for(id template in templates){
+            NSString *identifier=ObjectUUID(template,@"REMCDSmartList");id storage=ObjectValue(template,@"storage"),name=ObjectValue(storage,@"name"),account=ObjectValue(storage,@"accountID"),accountUUID=ObjectValue(account,@"uuid");
+            if(!identifier || [seen containsObject:identifier] || ![name isKindOfClass:NSString.class] || [name length]>1000 || [name lengthOfBytesUsingEncoding:NSUTF8StringEncoding]>4000 || ![ObjectValue(account,@"entityName") isEqual:@"REMCDAccount"] || ![accountUUID isKindOfClass:NSUUID.class] || !UUIDEqual([accountUUID UUIDString],source))return EncodeFlag(FlagFailure(@"native_identity_mismatch"));
+            [seen addObject:identifier];[out addObject:@{@"id":identifier,@"title":name}];
+        }
+        [out sortUsingComparator:^NSComparisonResult(NSDictionary *a,NSDictionary *b){return [a[@"id"] compare:b[@"id"]];}];
+        NSUInteger start=MIN((NSUInteger)[offset integerValue],out.count),end=MIN(start+(NSUInteger)[limit integerValue],out.count);
+        return EncodeFlag(@{@"protocol_version":@1,@"source_id":source,@"smart_lists":[out subarrayWithRange:NSMakeRange(start,end-start)],@"next_offset":@((NSUInteger)[offset integerValue]+end-start),@"done":@((BOOL)(end>=out.count)),@"pagination_consistency":@"live_offset_may_shift",@"filter_rules_complete":@NO,@"data_mutated":@NO,@"backend":@"reminderkit-smart-lists-v1"});
+    }@catch(NSException *exception){return EncodeFlag(FlagFailure(@"private_read_exception"));}
+}
+
 // Observe sections of one exact, selected-account template without materializing it as a live list.
 NSData *ICloudRemindersTemplateSections(NSData *data){
     @try {
