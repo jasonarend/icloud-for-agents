@@ -36,7 +36,9 @@ def run(policy):
                     changes=[{'operation':'update','source_id':'selected','id':'one','fields':{'title':'After'}}]
                     assert call(name+'_prepare_changes',{'changes':changes}).get('isError')
                     plan=data(call(name+'_prepare_once',{'changes':changes}));plan_id=plan['plan_id']
-                    assert data(call(name+'_access_status',{}))['effective_access']=='read-only'
+                    status=data(call(name+'_access_status',{}))
+                    assert status['effective_access']=='read-only' and status['operation_listing_is_authorization'] is False
+                    assert ('move_note' if name=='notes' else 'move_reminder') in status['unavailable_write_operations']
                     if policy=='local-receipt':
                         assert call(name+'_execute_approved',{'plan_id':plan_id}).get('isError')
                         # Test-only independent synthetic owner fixture, never real human consent.

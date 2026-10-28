@@ -18,6 +18,22 @@ def access_status(name):
         raise SafetyError('Invalid approval policy')
     from .native_app import pending_requests
     pending = pending_requests(name)
+    # Describe implementation boundaries separately from configuration or OS
+    # grants. A listed operation still needs exact target and approval checks.
+    unsupported = ({
+        'delete_note':'Verified Recently Deleted destination and preservation are unavailable.',
+        'restore_note':'Exact native restoration and destination verification are unavailable.',
+        'delete_folder':'Complete contents and recoverable deletion effects are unverified.',
+        'permanently_delete_note':'No independently verified irreversible deletion route.',
+        'move_note':'Special folder roles cannot be verified before dispatch.',
+    } if name=='notes' else {
+        'delete_reminder':'Recoverable deletion and native hierarchy effects are unverified.',
+        'restore_reminder':'Exact native restoration and destination verification are unavailable.',
+        'delete_list':'Complete contents and recoverable deletion effects are unverified.',
+        'permanently_delete_reminder':'No independently verified irreversible deletion route.',
+        'move_reminder':'Complete hierarchy effects cannot be verified before dispatch.',
+        'clear_early':'No verified native removal route is exposed.',
+    })
     return {'pending_native_requests':pending,'service': name, 'effective_access': effective, 'configured_access': mode,
             'runtime_access': global_mode, 'approval_policy': policy,
             'source_ids': config.get('source_ids', []),
@@ -26,7 +42,10 @@ def access_status(name):
             'implemented_write_operations':(['create_note','create_folder','append_note','prepend_note','replace_text','update_note','rename_folder'] if name=='notes' else ['create_list','create_reminder','update_reminder','set_completed','rename_list','set_list_color','set_recurrence']+(['set_flagged','remove_tag','add_tag','replace_tag','set_urgent','add_early','create_subtask','create_section','rename_section'] if config.get('advanced_backend')=='reminderkit' else [])),
             'implemented_recovery_operations':(['accept_observed_creation','repair_title_only_candidate','accept_observed_known_move_state','accept_observed_unchanged_edit'] if name=='notes' else ['known_update_correction']),
             'standing_grants_implemented': True,'one_time_elevation_implemented':True,
-            'read_actions': sorted(READ_ACTIONS[name])}
+            'read_actions': sorted(READ_ACTIONS[name]),
+            'unavailable_write_operations':unsupported,
+            'operation_listing_is_authorization':False,
+            'provider_capabilities':'not_probed'}
 
 
 def require_write(name,item=None):

@@ -39,3 +39,16 @@ class NativeAccessTests(unittest.TestCase):
             self.assertEqual(status['effective_access'],'read-only')
             self.assertTrue(status['standing_grants_implemented'])
             self.assertNotIn('helper_path',status)
+
+    def test_status_reports_paused_moves_without_reading_or_authorizing_them(self):
+        for name,move in (('notes','move_note'),('reminders','move_reminder')):
+            env={'ICLOUD_ENABLE_'+name.upper():'1'}
+            with self.subTest(service=name),patch.dict(os.environ,env,clear=True),patch('icloud_for_agents.native_read.NativeReader.read') as reader:
+                status=access_status(name)
+                self.assertIn(move,status['unavailable_write_operations'])
+                self.assertNotIn(move,status['implemented_write_operations'])
+                self.assertIn('restore_note' if name=='notes' else 'restore_reminder',status['unavailable_write_operations'])
+                self.assertFalse(status['operation_listing_is_authorization'])
+                self.assertEqual(status['provider_capabilities'],'not_probed')
+                self.assertEqual(status['os_permission'],'not_checked')
+                reader.assert_not_called()

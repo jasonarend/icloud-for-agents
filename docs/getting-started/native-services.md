@@ -4,6 +4,8 @@ Current implementation is a development increment with bounded reads and guarded
 
 **Current capabilities**
 
+The existing `notes_access_status` and `reminders_access_status` tools report implementation boundaries through `unavailable_write_operations`. Paused moves, deletion and restoration are listed with reasons. `provider_capabilities: "not_probed"` and `operation_listing_is_authorization: false` distinguish this local implementation inventory from OS consent, a verified provider capability or permission to execute a change. Read-only status does not contact either app.
+
 Reminders exposes OS permission status, source/list discovery, bounded task pages, daily and inclusive date-range queries, priority filters and exact reads through public EventKit. Structured public recurrence and alarm metadata is available; native tags, hierarchy, attachments and other advanced metadata remain incomplete. Approved changes cover list/task creation, list renaming and explicit sRGB list colors with membership readback, selected task fields and completion/reopening. Same-source moves are paused until their complete hierarchy effects can be verified before dispatch. Recurring task edits remain gated on explicit occurrence/series handling.
 
 `reminders_query` also accepts `created_from`, `created_before`, `modified_from` and `modified_before` as UTC timestamps, with inclusive lower and exclusive upper bounds. Each filter excludes reminders whose corresponding timestamp is unavailable and reports that exclusion. Follow live-offset pages; concurrent changes can shift them. This is a bounded view of existing items, not a change log, deletion detector or proof of complete synchronization.
