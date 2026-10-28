@@ -189,12 +189,12 @@ class NativeReader:
             if not bounds:continue
             import re
             try:
-                if self.name!='notes' or action!='search':raise ValueError()
+                if not ((self.name=='notes' and action=='search') or (self.name=='reminders' and action=='query' and kind=='modified')):raise ValueError()
                 for value in bounds.values():
                     if not isinstance(value,str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z',value):raise ValueError()
                     datetime.strptime(value,'%Y-%m-%dT%H:%M:%SZ')
                 if len(bounds)==2 and bounds[kind+'_from']>=bounds[kind+'_before']:raise ValueError()
-            except (ValueError,TypeError):raise SafetyError('Notes date bounds require ordered UTC timestamps; the upper bound is exclusive') from None
+            except (ValueError,TypeError):raise SafetyError('Date bounds require a supported search, ordered UTC timestamps and an exclusive upper bound') from None
         completion_bounds={k:fields[k] for k in ('completed_from','completed_before') if fields.get(k) is not None}
         if completion_bounds:
             import re
@@ -371,6 +371,22 @@ class NativeReader:
                         or row.get('completed') is not True or type(row.get('completion_date')) not in (int,float) or not -1_000_000_000_000<=row['completion_date']<=1_000_000_000_000
                         or (lower is not None and row['completion_date']<lower) or (upper is not None and row['completion_date']>=upper) for row in rows)):
                 raise SafetyError('Configured helper did not verify the requested completion range; update or review its compatibility')
+        if self.name=='reminders' and action=='query' and modified:
+            evidence={'from':modified.get('modified_from'),'before':modified.get('modified_before'),
+                      'semantics':'utc_inclusive_from_exclusive_before','unknown_modified_excluded':True}
+            lower=datetime.strptime(modified['modified_from'],'%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc).timestamp() if 'modified_from' in modified else None
+            upper=datetime.strptime(modified['modified_before'],'%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc).timestamp() if 'modified_before' in modified else None
+            rows=result.get('items') if isinstance(result,dict) else None
+            if (native_config('reminders')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode
+                    or not isinstance(result,dict) or result.get('modification_filter')!=evidence
+                    or not isinstance(result.get('modification_filter'),dict) or result['modification_filter'].get('unknown_modified_excluded') is not True
+                    or not isinstance(rows,list) or len(rows)>limit
+                    or any(not isinstance(row,dict) or not isinstance(row.get('id'),str) or not row['id']
+                        or not isinstance(row.get('list_id'),str) or not row['list_id'] or row.get('source_id') not in sources
+                        or (fields.get('list_id') is not None and row.get('list_id')!=fields['list_id'])
+                        or type(row.get('modified')) not in (int,float) or not -1_000_000_000_000<=row['modified']<=1_000_000_000_000
+                        or (lower is not None and row['modified']<lower) or (upper is not None and row['modified']>=upper) for row in rows)):
+                raise SafetyError('Configured helper did not verify the requested modification range; update or review its compatibility')
         if action=='list_features':
             keys={'protocol_version','source_id','list_id','grocery_categorization','grocery_shopping_session','is_group','shared','shared_to_me','can_be_shared','sharing_metadata_complete','list_type_verified','data_mutated','backend'}
             if include_pinned:keys.add('pinned')
@@ -1125,10 +1141,10 @@ def register_read_tools(mcp):
         def reminders_query(limit: int = 50, offset: int = 0, list_id: str | None = None,
                             completed: bool | None = None, text: str | None = None,
                             due_from: str | None = None, due_through: str | None = None,
-                            timezone: str | None = None, priorities: list[int] | None = None, flagged: bool | None = None, tag: str | None = None, urgent: bool | None = None, completed_from: str | None = None, completed_before: str | None = None, has_current_assignment: bool | None = None, has_native_attachments: bool | None = None) -> dict:
-            """Read bounded tasks with due-date, completion, priority, flag, urgent, exact tag, provider current-assignment and native attachment filters; the assignment filter does not identify the assignee. Completion bounds use YYYY-MM-DDTHH:MM:SSZ; completed_from is inclusive and completed_before exclusive, and select completed tasks with known completion dates. Due ranges require an IANA timezone. Follow next_offset even on empty filtered pages."""
+                            timezone: str | None = None, priorities: list[int] | None = None, flagged: bool | None = None, tag: str | None = None, urgent: bool | None = None, completed_from: str | None = None, completed_before: str | None = None, has_current_assignment: bool | None = None, has_native_attachments: bool | None = None, modified_from: str | None = None, modified_before: str | None = None) -> dict:
+            """Read bounded tasks with due-date, completion, modification, priority, flag, urgent, exact tag, provider current-assignment and native attachment filters. Timestamp bounds use UTC YYYY-MM-DDTHH:MM:SSZ, inclusive from and exclusive before. Modification filters exclude unknown timestamps and do not detect deletions or provide a complete change history. Due ranges require an IANA timezone. Follow next_offset even on empty filtered pages."""
             return NativeReader('reminders').read('query',limit=limit,offset=offset,list_id=list_id,
-                completed=completed,text=text,due_from=due_from,due_through=due_through,timezone=timezone,priorities=priorities,flagged=flagged,tag=tag,urgent=urgent,completed_from=completed_from,completed_before=completed_before,has_current_assignment=has_current_assignment,has_native_attachments=has_native_attachments)
+                completed=completed,text=text,due_from=due_from,due_through=due_through,timezone=timezone,priorities=priorities,flagged=flagged,tag=tag,urgent=urgent,completed_from=completed_from,completed_before=completed_before,has_current_assignment=has_current_assignment,has_native_attachments=has_native_attachments,modified_from=modified_from,modified_before=modified_before)
 
         @mcp.tool(annotations=annotations)
         @guard

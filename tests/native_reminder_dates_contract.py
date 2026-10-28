@@ -20,6 +20,7 @@ struct EKReminder {
  var isCompleted=false
  var priority=0
  var completionDate:Date?=nil
+ var lastModifiedDate:Date?=nil
 }
 var zone=TimeZone(identifier:"America/Chicago")
 func components(_ year:Int,_ month:Int,_ day:Int,_ hour:Int?=nil,_ minute:Int?=nil,_ timezone:String?=nil)->DateComponents {
@@ -34,6 +35,8 @@ func components(_ year:Int,_ month:Int,_ day:Int,_ hour:Int?=nil,_ minute:Int?=n
     filter_fixture='''
 var completionFrom:Date?=nil
 var completionBefore:Date?=nil
+var modifiedFrom:Date?=nil
+var modifiedBefore:Date?=nil
 var req:[String:Any]=[:]
 var dueFilter:String?=nil
 var dueFrom:String?="2026-10-27"
@@ -43,7 +46,7 @@ var completed:Bool?=false
 var text:String?=nil
 let reminders=[
  EKReminder(dueDateComponents:components(2026,10,26),calendarItemIdentifier:"a",title:"Early",notes:"",priority:0),
- EKReminder(dueDateComponents:components(2026,10,27),calendarItemIdentifier:"b",title:"Today",notes:"",priority:1),
+ EKReminder(dueDateComponents:components(2026,10,27),calendarItemIdentifier:"b",title:"Today",notes:"",priority:1,lastModifiedDate:Date(timeIntervalSince1970:100)),
  EKReminder(dueDateComponents:components(2026,10,29),calendarItemIdentifier:"c",title:"Later",notes:"Synthetic body",priority:5),
  EKReminder(dueDateComponents:nil,calendarItemIdentifier:"undated",title:"Undated",notes:"",priority:9),
  EKReminder(dueDateComponents:components(2026,10,27),calendarItemIdentifier:"done",title:"Done",notes:"",isCompleted:true,priority:1,completionDate:Date(timeIntervalSince1970:100))]
@@ -67,6 +70,11 @@ precondition(completionInRange(true,Date(timeIntervalSince1970:100),completionFr
 precondition(!completionInRange(true,Date(timeIntervalSince1970:200),completionFrom,completionBefore))
 precondition(!completionInRange(false,Date(timeIntervalSince1970:150),completionFrom,completionBefore))
 precondition(!completionInRange(true,nil,completionFrom,completionBefore))
+completionFrom=nil;completionBefore=nil;modifiedFrom=Date(timeIntervalSince1970:100);modifiedBefore=Date(timeIntervalSince1970:200)
+precondition(filteredIDs()==["b"])
+precondition(modificationInRange(Date(timeIntervalSince1970:100),modifiedFrom,modifiedBefore))
+precondition(!modificationInRange(Date(timeIntervalSince1970:200),modifiedFrom,modifiedBefore))
+precondition(!modificationInRange(nil,modifiedFrom,modifiedBefore))
 '''
     assertions=''' 
 precondition(dueDay(EKReminder(dueDateComponents:nil))==nil)
@@ -85,7 +93,7 @@ print("passed")
         subprocess.run(['/usr/bin/swiftc',str(script),'-o',str(binary)],capture_output=True,check=True,timeout=60)
         result=subprocess.run([str(binary)],capture_output=True,text=True,check=True,timeout=10)
         assert result.stdout.strip()=='passed'
-    return {'status':'passed','in_memory_only':True,'checks':['undated','date_only_travel','timed_timezone_day_boundary','DST_transition','year_boundary','inclusive_range','priority_and_completion','undated_exclusion','overdue','case_insensitive_search','completion_utc_inclusive_exclusive_and_unknown']}
+    return {'status':'passed','in_memory_only':True,'checks':['undated','date_only_travel','timed_timezone_day_boundary','DST_transition','year_boundary','inclusive_range','priority_and_completion','undated_exclusion','overdue','case_insensitive_search','completion_utc_inclusive_exclusive_and_unknown','modified_utc_inclusive_exclusive_and_unknown']}
 
 
 if __name__=='__main__':

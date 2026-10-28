@@ -79,6 +79,7 @@ def run():
                 query=next(t for t in tools if t['name']=='reminders_query');assert query['annotations']['readOnlyHint'] is True
                 assert 'YYYY-MM-DDTHH:MM:SSZ' in query['description'] and 'inclusive' in query['description'] and 'exclusive' in query['description']
                 completion=data(rpc('tools/call',{'name':'reminders_query','arguments':{'completed_from':'2026-10-27T00:00:00Z','completed_before':'2026-10-28T00:00:00Z'}})['result']);assert completion['completion_filter']['semantics']=='utc_inclusive_from_exclusive_before' and completion['items']==[]
+                modified=data(rpc('tools/call',{'name':'reminders_query','arguments':{'modified_from':'2026-10-27T12:00:00Z','modified_before':'2026-10-27T13:00:00Z'}})['result']);assert modified['items'][0]['id']=='synthetic-task' and modified['modification_filter']['unknown_modified_excluded'] is True
                 assert rpc('tools/call',{'name':'reminders_query','arguments':{'completed':False,'completed_from':'2026-10-27T00:00:00Z'}})['result'].get('isError')
                 combined_range=data(rpc('tools/call',{'name':'reminders_query','arguments':{'flagged':True,'completed_from':'2026-10-27T00:00:00Z'}})['result']);assert combined_range['native_flag_filter']['scanned']==0 and combined_range['completion_filter']['from']=='2026-10-27T00:00:00Z'
 

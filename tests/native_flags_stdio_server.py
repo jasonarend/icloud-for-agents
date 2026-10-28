@@ -41,6 +41,8 @@ def dispatch(self,request,config):
         assert request['source_id']=='selected'
         child=request['id']=='synthetic-child';root='synthetic-parent' if child else request['id'];children=['synthetic-child'] if request['id']=='synthetic-parent' else None
         return {'protocol_version':1,'id':request['id'],'source_id':'selected','found_as_root':not child,'found_in_view':True,'parent_id':root if child else None,'recovery_root_id':root,'view':'provider_recently_deleted','reported_child_ids':children,'children_status':'provider_reported' if children is not None else 'unavailable','children_complete':False,'data_mutated':False,'observation_consistency':'separate_provider_reads'}
+    if request['action']=='query' and ('modified_from' in request or 'modified_before' in request):
+        return {'protocol_version':1,'items':[{'id':'synthetic-task','source_id':'selected','list_id':'list','modified':1793102400.0}], 'done':True,'next_offset':1,'pagination_consistency':'live_offset_may_shift','modification_filter':{'from':request.get('modified_from'),'before':request.get('modified_before'),'semantics':'utc_inclusive_from_exclusive_before','unknown_modified_excluded':True}}
     if request['action']=='query' and ('completed_from' in request or 'completed_before' in request):
         result={'protocol_version':1,'items':[],'done':True,'next_offset':request['offset'],'pagination_consistency':'live_offset_may_shift','completion_filter':{'from':request.get('completed_from'),'before':request.get('completed_before'),'semantics':'utc_inclusive_from_exclusive_before'}}
         evidence={'scanned':0,'matched':0,'observation_consistency':'separate_provider_reads'}
