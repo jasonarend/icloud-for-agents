@@ -2,7 +2,7 @@
 import json
 import os
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, PropertyMock
 from icloud_for_agents.core import SafetyError
 from icloud_for_agents.native_reminders import RemindersCreateAdapter,validate_date
 
@@ -119,6 +119,31 @@ class NativeRemindersTests(unittest.TestCase):
         metadata['early_alerts'][0]['native_count']=-6
         self.assertFalse(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
         with self.assertRaises(SafetyError):self.existing('add_early',{'unit':'minutes','count':5})
+
+    def test_early_readback_reconciliation_requires_exact_observed_state(self):
+        import tempfile
+        from pathlib import Path
+        from icloud_for_agents.approvals import PlanStore
+        from icloud_for_agents.native_changes import NativeChanges
+        metadata=self.native_reader();self.reader.item['due']={'year':2027,'month':1,'day':1,'hour':10,'minute':0,'timezone':'UTC'}
+        calls=[]
+        def apply(item):
+            calls.append(1);metadata.update(early_alerts=[{'native_unit':0,'native_count':-5}],early_payload_fingerprint='a'*64)
+            return {'id':'created','source_id':'selected','list_id':'list'}
+        verify=self.adapter.verify;first=[True]
+        def verify_once(item,outcome):
+            if first[0]:first[0]=False;return False
+            return verify(item,outcome)
+        self.adapter.apply=apply;self.adapter.verify=verify_once
+        with tempfile.TemporaryDirectory() as directory,patch.dict(os.environ,{'ICLOUD_MAIL_ACCOUNT':'synthetic@example.com','ICLOUD_APPROVAL_POLICY':'trusted-client'}),patch.object(RemindersCreateAdapter,'backend_id',new_callable=PropertyMock,return_value='synthetic-early'):
+            engine=NativeChanges('reminders','synthetic@example.com',self.adapter,PlanStore(Path(directory)/'runtime'))
+            plan=engine.prepare_once([{'operation':'add_early','source_id':'selected','id':'created','fields':{'unit':'minutes','count':5}}])
+            self.assertEqual(engine.execute(plan['plan_id'])['status'],'failed_or_uncertain')
+            metadata['early_alerts'][0]['native_count']=-6
+            with self.assertRaises(SafetyError):engine.reconcile_known_changes(plan['plan_id'])
+            metadata['early_alerts'][0]['native_count']=-5
+            self.assertEqual(engine.reconcile_known_changes(plan['plan_id'])['status'],'applied_after_readback_reconciliation')
+            self.assertEqual(len(calls),1)
 
     def test_urgent_drift_blocks_nonurgent_write_readback_and_snapshot(self):
         self.native_reader();state={'urgent':False};read=self.reader.read

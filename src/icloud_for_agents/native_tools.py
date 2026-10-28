@@ -314,7 +314,7 @@ def register_change_tools(mcp):
         @mcp.tool(annotations=WRITE)
         @guard
         def reminders_reconcile_known_changes(plan_id:str)->dict:
-            """Independently verify complete returned-ID updates, completion, moves or list renames after failed readback; no mutation or replay."""
+            """Independently verify complete returned-ID updates, completion, early alerts, moves or list renames after failed readback; no mutation or replay."""
             check_plan_scope('reminders',plan_id)
             return editor('reminders').reconcile_known_changes(plan_id)
 
