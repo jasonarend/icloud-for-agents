@@ -32,6 +32,8 @@ def run():
                 value=result.get('structuredContent') or json.loads(result['content'][0]['text'])
                 assert value['items'][0]['title']=='Synthetic title' and value['coverage']['restorable'] is False
                 assert value['coverage']['complete_backup'] is False and value['page']['done'] is True
+                ical=rpc('tools/call',{'name':'reminders_export_ical','arguments':{'id':'task'}})['result'];assert not ical.get('isError'),ical
+                calendar=ical.get('structuredContent') or json.loads(ical['content'][0]['text']);assert 'BEGIN:VTODO\r\n' in calendar['content'] and calendar['coverage']['restorable'] is False
                 assert rpc('tools/call',{'name':'reminders_export_page','arguments':{'list_id':'list','limit':21}})['result'].get('isError')
             finally:
                 process.stdin.close()

@@ -1172,6 +1172,13 @@ def register_read_tools(mcp):
 
         @mcp.tool(annotations=annotations)
         @guard
+        def reminders_export_ical(id: str) -> dict:
+            """Read one scoped reminder as a limited iCalendar VTODO. Unsupported dates, alarms and recurrence are refused; native metadata is omitted."""
+            from .native_reminder_ical import export_ical
+            return export_ical(NativeReader('reminders'),id)
+
+        @mcp.tool(annotations=annotations)
+        @guard
         def reminders_get(id: str, include_native_metadata: bool=False, include_native_tags: bool=False, include_native_hierarchy: bool=False, include_native_children: bool=False, include_native_urgent: bool=False, include_native_section: bool=False, include_native_early: bool=False, include_native_assignment: bool=False, include_native_attachments: bool=False) -> dict:
             """Read one exact scoped reminder. Optional native flags/tags/hierarchy/children/urgent/section/early/assignment/attachment observations require owner-selected ReminderKit; assignment people and permissions remain unverified."""
             result=NativeReader('reminders').read('get', id=id, include_native_metadata=include_native_metadata, include_native_tags=include_native_tags, include_native_hierarchy=include_native_hierarchy, include_native_children=include_native_children, include_native_urgent=include_native_urgent,include_native_section=include_native_section,include_native_early=include_native_early,include_native_assignment=include_native_assignment,include_native_attachments=include_native_attachments)

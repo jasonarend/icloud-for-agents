@@ -10,6 +10,7 @@ row={'id':'task','source_id':'selected','list_id':'list','title':'Synthetic titl
      'has_recurrence':False,'has_alarms':False,'recurrence_rules':[],'alarms':[],'public_metadata_complete':True,
      'content_complete':False,'omitted_features':['native_tags','hierarchy','attachments','advanced_metadata']}
 def dispatch(self,request,config):
+    if request.get('action')=='get' and request.get('id')=='task':return {'protocol_version':1,'item':row}
     if request.get('action')!='query' or request.get('list_id')!='list':raise AssertionError('Unexpected native request')
     return {'protocol_version':1,'items':[row],'done':True,'next_offset':1,'pagination_consistency':'live_offset_may_shift'}
 NativeReader._dispatch=dispatch
