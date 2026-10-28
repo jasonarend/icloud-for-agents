@@ -30,6 +30,12 @@ class NoteReferencesTests(unittest.TestCase):
         value=find_references(NativeReader('notes'),'folder','https://example.com/?a=1&b=2')
         self.assertEqual([row['id'] for row in value['matches']],['match'])
         self.assertEqual(value['coverage']['match'],'exact_decoded_href_in_bounded_exported_html')
+
+    def test_unclosed_link_is_reported_as_incomplete_not_proven_absent(self):
+        self.items['match']['html']='<a href="https://example.com/spec">unfinished'
+        value=self.find()
+        self.assertIn({'id':'match','reason':'incomplete_link_html'},value['unavailable'])
+        self.assertNotIn('match',[row['id'] for row in value['matches']])
     def test_read_failure_stops_without_retry_or_implicit_skip(self):
         original=self.backend.side_effect;calls=[]
         def fail(request,config):

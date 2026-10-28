@@ -23,7 +23,8 @@ def inspect_links(reader,folder_id,note_id,limit=20,offset=0,expected_modified=N
             or (item['modified'] is not None and (not isinstance(item['modified'],str) or not 1<=len(item['modified'])<=100))):
         raise SafetyError('A bounded unlocked Notes HTML observation is required')
     if expected_modified is not None and item['modified']!=expected_modified:raise SafetyError('Note changed since the prior link page')
-    try:links=project_html(item['html'])['links']
+    try:
+        projection=project_html(item['html']);links=projection['links']
     except ValueError:raise SafetyError('Notes HTML link projection is unavailable') from None
     if offset>len(links):raise SafetyError('Link page offset exceeds the current observation; restart paging')
     output=[]
@@ -39,6 +40,7 @@ def inspect_links(reader,folder_id,note_id,limit=20,offset=0,expected_modified=N
     result={**identity,'locked':False,'content_available':True,'links':output,'offset':offset,'next_offset':next_offset,
             'done':next_offset>=len(links),'modified':item['modified'],'source_truncated':item['truncated'],
             'coverage':{'source':'exported_html_only','native_links_complete':False,'backlinks_verified':False,
+                        'html_links_complete':projection['links_projection_complete'] and not item['truncated'],
                         'targets_opened':False,'pagination_consistency':'live_note_may_change',
                         'limitations':['Only link elements observed in the bounded HTML export are included.',
                                        'Native objects, backlinks, target availability and link identity are not verified.',
@@ -70,11 +72,13 @@ def find_references(reader,folder_id,target,limit=3,offset=0):
         if (item.get('locked') is not False or not isinstance(item.get('html'),str) or len(item['html'])>100000
                 or type(item.get('truncated')) is not bool or not isinstance(item.get('title'),str) or len(item['title'])>1000):
             unavailable.append({'id':row['id'],'reason':'invalid_observation'});continue
-        try:links=project_html(item['html'])['links']
+        try:
+            projection=project_html(item['html']);links=projection['links']
         except ValueError:
             unavailable.append({'id':row['id'],'reason':'projection_unavailable'});continue
         count=sum(link['href']==target for link in links)
         if count:matches.append({'id':row['id'],'folder_id':folder_id,'source_id':row['source_id'],'title':item['title'],'observed_matches':count})
+        if not projection['links_projection_complete']:unavailable.append({'id':row['id'],'reason':'incomplete_link_html'})
         if item['truncated']:unavailable.append({'id':row['id'],'reason':'truncated_html'})
     return {'folder_id':folder_id,'matches':matches,'unavailable':unavailable,'attempted_notes':attempted,
             'done':False if stopped else page['done'],'next_offset':None if stopped else page['next_offset'],

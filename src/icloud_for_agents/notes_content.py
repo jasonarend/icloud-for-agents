@@ -63,4 +63,5 @@ def project_html(html):
     parser=Projection();parser.feed(html);parser.close()
     unknown=parser.unknown_objects+sum(not o for o in parser.objects)
     return {'text':' '.join(''.join(parser.parts).split()),'tables':parser.tables,'links':parser.links,
+            'links_projection_complete':not (parser.link_stack or parser.ignored),
             'unknown_objects':unknown,'text_projection_complete':not (unknown or parser.stack or parser.ignored)}

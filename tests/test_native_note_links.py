@@ -28,6 +28,14 @@ class NoteLinksTests(unittest.TestCase):
         self.backend.return_value={'protocol_version':1,'item':self.item}
         with self.assertRaises(SafetyError):self.read(expected_modified='different')
         with self.assertRaises(SafetyError):self.read(offset=3)
+
+    def test_unfinished_html_and_truncated_source_disclose_incomplete_links(self):
+        self.assertTrue(self.read()['coverage']['html_links_complete'])
+        self.item['html']='<a href="https://example.com/spec">unfinished'
+        value=self.read();self.assertEqual(value['links'],[])
+        self.assertFalse(value['coverage']['html_links_complete'])
+        self.item['html']='<p>No links</p>';self.item['truncated']=True
+        self.assertFalse(self.read()['coverage']['html_links_complete'])
     def test_untrusted_targets_are_never_resolved_and_large_values_are_omitted(self):
         self.item['html']='<a href="javascript:alert(1)">Active-looking</a><a href="'+('x'*4001)+'">Long</a><a href="bad\x01target">'+('L'*1001)+'</a>'
         value=self.read();self.assertEqual(value['links'][0]['target'],'javascript:alert(1)')
