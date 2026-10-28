@@ -220,6 +220,11 @@ class RemindersCreateAdapter:
         sections=self.reader.read('list_sections',list_id=item['list_id'])
         if sections.get('source_id')!=item['source_id'] or sections.get('list_id')!=item['list_id']:
             raise SafetyError('Section inventory belongs to another source or list')
+        features=self.reader.read('list_features',list_id=item['list_id'])
+        if (features.get('source_id')!=item['source_id'] or features.get('list_id')!=item['list_id'] or features.get('grocery_categorization') is not False
+                or features.get('grocery_shopping_session') is not False or features.get('is_group') is not False):
+            raise SafetyError('Section writes require the grocery-categorization, shopping-session and group flags to be false')
+        base['list_features']=features
         base['sections']=sections['sections']
         return base
 
@@ -231,8 +236,9 @@ class RemindersCreateAdapter:
         fields=change['fields'];title=fields.get('title') if isinstance(fields,dict) else None
         if not isinstance(fields,dict) or set(fields)!={'title'} or not isinstance(title,str) or not title.strip() or len(title)>1000 or len(title.encode('utf-8'))>4000 or any(ord(c)<32 for c in title):raise SafetyError('Use one exact bounded section title')
         item={'operation':'create_section','source_id':change['source_id'],'list_id':change['list_id'],'id':change['list_id'],'section_id':str(uuid.uuid4()).upper(),'fields':{'title':title},'fidelity_verified':True,
-              'effects':{'section':'Create one native section; preserve the observed existing sections and list reminder membership.','ordering':'Apple determines display order; section ordering and reminder membership within sections are not verified.','sharing':'Apple may sync the list change to devices or existing participants; EventKit does not expose participant state.'}}
+              'effects':{'section':'Create one native section; preserve the observed existing sections and list reminder membership.','ordering':'Apple determines display order; section ordering and reminder membership within sections are not verified.','list_type':'Provider flags do not establish the complete list type; section or category behavior may differ on special lists.','sharing':'Apple may sync the list change to devices or existing participants; EventKit does not expose participant state.'}}
         item['before']=self.section_snapshot(item)
+        item['effects']['observed_sharing']={key:item['before']['list_features'][key] for key in ('shared','shared_to_me','sharing_metadata_complete')}
         if len(item['before']['sections'])>=100 or any(s['title']==title for s in item['before']['sections']):raise SafetyError('A matching section exists or section inventory reached its bound')
         return item
 
@@ -249,8 +255,10 @@ class RemindersCreateAdapter:
         fields=change['fields'];title=fields.get('title') if isinstance(fields,dict) else None
         if not isinstance(fields,dict) or set(fields)!={'title'} or not isinstance(title,str) or not title.strip() or len(title)>1000 or len(title.encode('utf-8'))>4000 or any(ord(c)<32 for c in title):raise SafetyError('Use one exact bounded section title')
         item={'operation':'rename_section','source_id':change['source_id'],'list_id':change['list_id'],'id':change['list_id'],'section_id':section,'fields':{'title':title},'fidelity_verified':True,
-              'effects':{'section':'Rename only the selected native section; preserve observed sections and list reminder membership.','ordering':'Apple controls display order; section membership and ordering remain unverified.','sharing':'Apple may sync the list change to devices or existing participants; EventKit does not expose participant state.'}}
-        item['before']=self.section_snapshot(item);matches=[s for s in item['before']['sections'] if s['id'].upper()==section.upper()]
+              'effects':{'section':'Rename only the selected native section; preserve observed sections and list reminder membership.','ordering':'Apple controls display order; section membership and ordering remain unverified.','list_type':'Provider flags do not establish the complete list type; section or category behavior may differ on special lists.','sharing':'Apple may sync the list change to devices or existing participants; EventKit does not expose participant state.'}}
+        item['before']=self.section_snapshot(item)
+        item['effects']['observed_sharing']={key:item['before']['list_features'][key] for key in ('shared','shared_to_me','sharing_metadata_complete')}
+        matches=[s for s in item['before']['sections'] if s['id'].upper()==section.upper()]
         if len(matches)!=1 or matches[0]['title']==title or any(s['title']==title for s in item['before']['sections']):raise SafetyError('Section is absent, unchanged or duplicates an existing title')
         return item
 

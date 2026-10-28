@@ -384,6 +384,13 @@ func listColorFromObject(_ value:Any?)->CGColor? {
 func listRecord(_ list:EKCalendar)->[String:Any] {
     ["id":list.calendarIdentifier,"title":String(list.title.prefix(1000)),"source_id":list.source.sourceIdentifier,"writable":list.allowsContentModifications,"color":listColorObject(list.cgColor)]
 }
+func sectionListFeaturesMatch(_ observed:[String:Any],_ expected:[String:Any])->Bool {
+    guard NSDictionary(dictionary:observed).isEqual(to:expected) else {return false}
+    for key in ["grocery_categorization","grocery_shopping_session","is_group"] {
+        guard let value=observed[key] as? NSNumber,CFGetTypeID(value)==CFBooleanGetTypeID(),!value.boolValue else {return false}
+    }
+    return true
+}
 func defaultListRecord(_ candidate:EKCalendar?,_ selected:[EKCalendar])->[String:Any] {
     guard let candidate=candidate else {return ["protocol_version":1,"state":"unavailable","list":NSNull()]}
     guard let list=selected.first(where:{$0.calendarIdentifier==candidate.calendarIdentifier && $0.source.sourceIdentifier==candidate.source.sourceIdentifier}) else {
@@ -536,8 +543,10 @@ if action == "apply" {
         guard let source=item["source_id"] as? String,sourceIDs.contains(source),let listID=item["list_id"] as? String,
               let sectionID=item["section_id"] as? String,let fields=item["fields"] as? [String:Any],Set(fields.keys)==["title"],let title=fields["title"] as? String,!title.isEmpty,
               let before=item["before"] as? [String:Any],let expectedList=before["list"] as? [String:Any],let expectedSiblings=before["siblings"] as? [[String:Any]],
-              let expectedMembers=before["membership"] as? [String:Any],let expectedSections=before["sections"] as? [[String:Any]],
+              let expectedMembers=before["membership"] as? [String:Any],let expectedSections=before["sections"] as? [[String:Any]],let expectedFeatures=before["list_features"] as? [String:Any],
+              let featurePayload=try? JSONSerialization.data(withJSONObject:["source_id":source,"list_id":listID]),let observedFeatures=(try? JSONSerialization.jsonObject(with:ICloudRemindersReadListFeatures(featurePayload))) as? [String:Any],
               let list=lists.first(where:{$0.calendarIdentifier==listID && $0.source.sourceIdentifier==source}),list.allowsContentModifications else {fail("invalid_mutation")}
+        guard sectionListFeaturesMatch(observedFeatures,expectedFeatures) else {fail("snapshot_changed")}
         let siblings=lists.filter{$0.source.sourceIdentifier==source && $0.calendarIdentifier != listID}.sorted{$0.calendarIdentifier<$1.calendarIdentifier}
         guard NSDictionary(dictionary:listRecord(list)).isEqual(to:expectedList),NSArray(array:siblings.map(listRecord)).isEqual(to:expectedSiblings),
               !expectedSections.contains(where:{$0["title"] as? String==title}),

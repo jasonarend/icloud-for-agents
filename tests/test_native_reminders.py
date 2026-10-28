@@ -11,11 +11,13 @@ class Reader:
     def __init__(self):
         self.membership={'list_id':'list','source_id':'selected','count':2,'sha256':'a'*64}
         self.sections=[]
+        self.features={'protocol_version':1,'source_id':'selected','list_id':'list','grocery_categorization':False,'grocery_shopping_session':False,'is_group':False,'shared':False,'shared_to_me':False,'can_be_shared':True,'sharing_metadata_complete':False,'list_type_verified':False,'data_mutated':False,'backend':'reminderkit-list-features-v2'}
         self.list={'id':'list','title':'Synthetic','source_id':'selected','writable':True}
         self.item={'id':'created','title':'Task','notes':'','priority':0,'source_id':'selected',
                    'list_id':'list','completed':False,'due':None,'start':None}
     def read(self,action,**fields):
         if action=='list_membership':return dict(self.membership)
+        if action=='list_features':return dict(self.features)
         if action=='list_sections':return {'source_id':'selected','list_id':'list','sections':[dict(s) for s in self.sections]}
         if action=='lists':return {'lists':[dict(self.list)],'done':True}
         if action=='get':return {'item':dict(self.item)}
@@ -39,7 +41,10 @@ class NativeRemindersTests(unittest.TestCase):
     def test_section_creation_requires_opt_in_and_preserves_inventory_and_membership(self):
         change={'operation':'create_section','source_id':'selected','list_id':'list','fields':{'title':'Synthetic section'}}
         with self.assertRaises(SafetyError):self.adapter.prepare(change)
-        self.native_reader();item=self.adapter.prepare(change);outcome={'id':item['section_id'],'source_id':'selected','list_id':'list'}
+        self.native_reader();self.reader.features['grocery_categorization']=True
+        with self.assertRaises(SafetyError):self.adapter.prepare(change)
+        self.reader.features['grocery_categorization']=False;item=self.adapter.prepare(change);outcome={'id':item['section_id'],'source_id':'selected','list_id':'list'}
+        self.assertIn('do not establish',item['effects']['list_type']);self.assertEqual(item['effects']['observed_sharing'],{'shared':False,'shared_to_me':False,'sharing_metadata_complete':False})
         self.reader.sections.append({'id':item['section_id'],'title':'Synthetic section'})
         self.assertTrue(self.adapter.verify(item,outcome))
         self.reader.membership['count']=3;self.assertFalse(self.adapter.verify(item,outcome));self.reader.membership['count']=2
