@@ -830,6 +830,17 @@ NSData *ICloudRemindersReadChildren(NSData *data){
                 [seen addObject:identifier];[ids addObject:identifier];
             }
             [ids sortUsingSelector:@selector(compare:)];children=ids;status=@"provider_reported";
+        }else{
+            // A leaf can have no child context. Do not equate that absence with
+            // an empty inventory: obtain a separate validated whole-list graph.
+            NSData *scope=[NSJSONSerialization dataWithJSONObject:@{@"source_id":identity[@"source_id"],@"list_id":identity[@"list_id"]} options:0 error:NULL];
+            NSDictionary *graph=[NSJSONSerialization JSONObjectWithData:ICloudRemindersListHierarchy(scope) options:0 error:NULL];
+            if([graph[@"source_id"] isEqual:identity[@"source_id"]] && [graph[@"list_id"] isEqual:identity[@"list_id"]]
+                    && [graph[@"data_mutated"] isEqual:@NO] && [graph[@"nodes"] isKindOfClass:NSArray.class]){
+                BOOL found=NO;NSMutableArray *ids=[NSMutableArray array];
+                for(NSDictionary *node in graph[@"nodes"]){if([node[@"id"] isEqual:identity[@"id"]])found=YES;if([node[@"parent_id"] isEqual:identity[@"id"]])[ids addObject:node[@"id"]];}
+                if(found && ids.count<=100){[ids sortUsingSelector:@selector(compare:)];children=ids;status=@"provider_reported";}
+            }
         }
         return EncodeFlag(@{@"protocol_version":@1,@"native_metadata":@{@"backend":@"reminderkit-children-v1",@"id":identity[@"id"],@"source_id":identity[@"source_id"],@"list_id":identity[@"list_id"],@"child_ids":children,@"children_fetch_status":status,@"children_complete":@NO,@"coverage":@[@"children"],@"native_metadata_complete":@NO,@"observation_consistency":@"separate_provider_reads"}});
     }@catch(NSException *exception){return EncodeFlag(FlagFailure(@"private_read_exception"));}

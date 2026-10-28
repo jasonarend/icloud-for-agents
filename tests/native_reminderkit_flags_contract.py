@@ -425,7 +425,10 @@ int main(){@autoreleasepool{
  NSMutableArray *over=[NSMutableArray array];for(int i=0;i<101;i++)[over addObject:child];hierarchy.children=over;NSCAssert(Children(request)[@"error"],@"children bound");
  hierarchy.children=nil;NSCAssert(Children(request)[@"error"],@"nil provider result refused");
  hierarchy.denied=YES;NSCAssert([Children(request)[@"category"] isEqual:@"children_read_unavailable"],@"provider error refused");hierarchy.denied=NO;
- fixture.subtaskContext=nil;children=Children(request)[@"native_metadata"];NSCAssert(children[@"child_ids"]==[NSNull null] && [children[@"children_fetch_status"] isEqual:@"unavailable"],@"missing context not empty success");
+ fixture.subtaskContext=nil;fixture.list.graphReminders=nil;children=Children(request)[@"native_metadata"];NSCAssert(children[@"child_ids"]==[NSNull null] && [children[@"children_fetch_status"] isEqual:@"unavailable"],@"missing context and unavailable list graph never become empty success");
+ fixture.list.graphReminders=@[fixture];children=Children(request)[@"native_metadata"];NSCAssert([children[@"child_ids"] isEqual:@[]] && [children[@"children_fetch_status"] isEqual:@"provider_reported"] && ![children[@"children_complete"] boolValue],@"validated whole-list graph can observe a leaf without child context");
+ fixture.list.graphReminders=@[fixture,graphChild];children=Children(request)[@"native_metadata"];NSCAssert([children[@"child_ids"] isEqual:@[other]],@"graph fallback retains actual children rather than assuming a leaf");
+ graphChild.parentReminder=nil;children=Children(request)[@"native_metadata"];NSCAssert(children[@"child_ids"]==[NSNull null],@"inconsistent graph retains unknown observation");graphChild.parentReminder=fixture;fixture.list.graphReminders=@[fixture];
  puts("fixed native flag read: scope, types, denied/missing/unknown refusal passed");return 0;
 }}
 '''

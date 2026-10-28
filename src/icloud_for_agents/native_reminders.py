@@ -536,7 +536,7 @@ class RemindersCreateAdapter:
                 or metadata.get('is_subtask') is not True or metadata.get('parent_id')!=item['id']):return False
         parent=self.reader.read('get',id=item['id'])['item'];baseline=item['before']['item']
         if any(parent.get(k)!=baseline.get(k) for k in ('id','source_id','list_id','title','notes','priority','due','start','completed','url','location','alarms','has_alarms','recurrence_rules','has_recurrence')):return False
-        actual=self.native_snapshot(parent);expected=dict(item['before']['native_metadata']);expected['child_ids']=sorted(expected['child_ids']+[item['child_id']]);expected['has_subtasks']=True
+        actual=self.native_snapshot(parent);expected=dict(item['before']['native_metadata']);expected['child_ids']=sorted(expected['child_ids']+[item['child_id']]);expected['has_subtasks']=True;expected['children_status']='provider_reported'
         return actual==expected and self.urgent_snapshot(parent) is item['before']['urgent']
 
     def verify(self,item,outcome):
