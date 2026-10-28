@@ -21,6 +21,8 @@ def synthetic_run(command,**kwargs):
     kwargs['stdout'].write(json.dumps({'protocol_version':1,'error':'mutation_failed_or_uncertain','mutation_dispatched':True}).encode())
     return SimpleNamespace(returncode=0)
 native_tools.RemindersCreateAdapter=lambda:Adapter()
+import icloud_for_agents.native_reminder_recovery as recovery
+recovery.RemindersCreateAdapter=lambda:Adapter()
 import icloud_for_agents.native_read as native_read
 native_read.subprocess.run=synthetic_run
 from icloud_for_agents.server import main

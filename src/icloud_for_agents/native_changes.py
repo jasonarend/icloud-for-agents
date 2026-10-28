@@ -103,7 +103,7 @@ class NativeChanges:
             if previous['payload'].get('account')!=self.account:
                 continue
             if not self.store.operation_settled(started.stem):
-                if not (self.store._reconciliation_completed(started.stem) or (correction and correction.get('kind')=='notes_move_recovery' and self.store._native_move_recovery_for(started.stem,correction)) or (correction and correction.get('kind')=='notes_edit_recovery' and self.store._native_edit_recovery_for(started.stem,correction)) or (correction and correction.get('native_recovery_of')==started.stem and self.store._native_recovery_for(started.stem,correction)) or (correction and correction.get('native_correction_of')==started.stem and self.store._native_correction_for(started.stem,correction))):
+                if not (self.store._reconciliation_completed(started.stem) or (correction and correction.get('kind')=='notes_move_recovery' and self.store._native_move_recovery_for(started.stem,correction)) or (correction and correction.get('kind')=='notes_edit_recovery' and self.store._native_edit_recovery_for(started.stem,correction)) or (correction and correction.get('kind')=='reminders_observation_recovery' and self.store._native_reminder_recovery_for(started.stem,correction)) or (correction and correction.get('native_recovery_of')==started.stem and self.store._native_recovery_for(started.stem,correction)) or (correction and correction.get('native_correction_of')==started.stem and self.store._native_correction_for(started.stem,correction))):
                     raise SafetyError('Prior write unfinished or uncertain; reconcile before another native write')
 
     def prepare_update_correction(self,original_id,target="requested"):

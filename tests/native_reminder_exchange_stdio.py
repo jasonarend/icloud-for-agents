@@ -40,6 +40,16 @@ def run(policy):
                 assert 'private synthetic' not in json.dumps(observed)
                 for suffix in ('.native-reminder-request-0','.native-reminder-response-0'):
                     assert 'private synthetic' not in (runtime/(identity+suffix)).read_text()
+                recovery=call('reminders_prepare_observation_recovery',{'plan_id':identity});rid=recovery['plan_id']
+                assert 'delayed effects' in recovery['review']['payload']['effects']['uncertainty']
+                if policy=='local-receipt':
+                    refused=rpc('tools/call',{'name':'reminders_accept_observation_recovery','arguments':{'plan_id':rid}})['result'];assert refused.get('isError')
+                    fd=os.open(runtime/(rid+'.approved'),os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+                    with os.fdopen(fd,'w') as stream:json.dump({'plan_id':rid,'sha256':recovery['sha256']},stream)
+                accepted=call('reminders_accept_observation_recovery',{'plan_id':rid})
+                assert accepted['native_data_changed'] is False and accepted['causal_dispatch_proven'] is False
+                status=call('reminders_plan_status',{'plan_id':identity});assert status['original_status']=='failed_or_uncertain'
+                assert rpc('tools/call',{'name':'reminders_execute_approved','arguments':{'plan_id':identity}})['result'].get('isError')
             finally:
                 process.stdin.close()
                 try:process.wait(timeout=10)

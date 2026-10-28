@@ -32,7 +32,7 @@ def editor(name,write=False):
 def check_plan_scope(name,plan_id):
     status=access_status(name)
     plan=PlanStore().read(PlanStore().path(plan_id,'.json'))
-    allowed={name+'_change'} | ({'notes_recovery','notes_move_recovery','notes_edit_recovery'} if name=='notes' else set())
+    allowed={name+'_change'} | ({'notes_recovery','notes_move_recovery','notes_edit_recovery'} if name=='notes' else {'reminders_observation_recovery'})
     if plan.get('kind') not in allowed or plan.get('payload',{}).get('account')!=owner():
         raise SafetyError('Plan belongs to another service or owner')
     if not set(plan['payload'].get('context',{}).get('source_ids',[]))<=set(status['source_ids']):
@@ -312,6 +312,38 @@ def register_change_tools(mcp):
             from .native_reminder_observation import inspect_uncertain_reminder
             check_plan_scope('reminders',plan_id)
             return inspect_uncertain_reminder(editor('reminders'),plan_id)
+
+        @mcp.tool(annotations=WRITE)
+        @guard
+        def reminders_prepare_observation_recovery(plan_id:str)->dict:
+            """Review accepting one unchanged Reminder after a request-bound terminal error; delayed or unobserved effects remain possible."""
+            from .native_reminder_recovery import ReminderObservationRecovery
+            check_plan_scope('reminders',plan_id)
+            return ReminderObservationRecovery(owner()).prepare(plan_id)
+
+        @mcp.tool(annotations=WRITE)
+        @guard
+        def reminders_accept_observation_recovery(plan_id:str)->dict:
+            """Accept the exact reviewed Reminder observation under the configured policy; never replay or change the reminder."""
+            from .native_reminder_recovery import ReminderObservationRecovery
+            check_plan_scope('reminders',plan_id)
+            return ReminderObservationRecovery(owner()).execute(plan_id)
+
+        @mcp.tool(annotations=WRITE)
+        @guard
+        def reminders_finalize_observation_recovery(plan_id:str)->dict:
+            """Finalize an already accepted Reminder observation after interruption without native mutation."""
+            from .native_reminder_recovery import ReminderObservationRecovery
+            check_plan_scope('reminders',plan_id)
+            return ReminderObservationRecovery(owner()).finalize(plan_id)
+
+        @mcp.tool(annotations=WRITE)
+        @guard
+        def reminders_abandon_observation_recovery(plan_id:str)->dict:
+            """Withdraw a Reminder observation review and retain the original uncertainty."""
+            from .native_reminder_recovery import ReminderObservationRecovery
+            check_plan_scope('reminders',plan_id)
+            return ReminderObservationRecovery(owner()).abandon(plan_id)
 
         @mcp.tool(annotations=WRITE)
         @guard
