@@ -16,9 +16,11 @@ def _date(value):
             fields[key]=value[key]
     return validate_date(fields)
 
-def prepare_copy(engine,snapshot,source_id,list_id,*,accept_omissions,include_dates=False,include_urls=False,grant_id=None,_source_ical_sha256=None):
-    if engine.name!='reminders' or accept_omissions is not True or type(include_dates) is not bool or type(include_urls) is not bool:
+def prepare_copy(engine,snapshot,source_id,list_id,*,accept_omissions,include_dates=False,include_urls=False,grant_id=None,_source_ical_sha256=None,_ical_alarms=None,include_alarms=False):
+    if engine.name!='reminders' or accept_omissions is not True or type(include_dates) is not bool or type(include_urls) is not bool or type(include_alarms) is not bool:
         raise SafetyError('Explicit acceptance of copy limitations and Boolean options are required')
+    if include_alarms and (_source_ical_sha256 is None or not isinstance(_ical_alarms,list)):
+        raise SafetyError('Alarm copy requires parsed iCalendar absolute display alarms')
     if any(not isinstance(value,str) or not 1<=len(value)<=1000 for value in (source_id,list_id)):raise SafetyError('Select an exact destination source and list')
     if not isinstance(snapshot,dict) or snapshot.get('format')!='icloud-for-agents-reminders-observation' or type(snapshot.get('version')) is not int or snapshot['version']!=1:
         raise SafetyError('Copy requires one version 1 Reminder observation page')
@@ -26,6 +28,7 @@ def prepare_copy(engine,snapshot,source_id,list_id,*,accept_omissions,include_da
     if (not isinstance(rows,list) or not 1<=len(rows)<=10 or not isinstance(page,dict)
             or type(page.get('done')) is not bool or not isinstance(snapshot.get('list_id'),str)):
         raise SafetyError('Copy requires 1..10 observed items in one page')
+    if _ical_alarms is not None and len(rows)!=1:raise SafetyError('iCalendar alarm copies require one task')
     try:
         if len(canonical(snapshot))>100000:raise SafetyError('Observation page exceeds the copy review limit')
     except (TypeError,ValueError,UnicodeError):raise SafetyError('Observation contains unsupported data') from None
@@ -46,19 +49,21 @@ def prepare_copy(engine,snapshot,source_id,list_id,*,accept_omissions,include_da
         if include_urls:
             if 'url' not in row:raise SafetyError('URL copy requires the observed URL field')
             if row['url'] is not None:fields['url']=row['url']
+        if include_alarms and _ical_alarms:fields['alarms']=[dict(alarm) for alarm in _ical_alarms]
         changes.append({'operation':'create_reminder','source_id':source_id,'list_id':list_id,'fields':fields})
     review={'operation':'create_lossy_copies_from_user_supplied_observation','observation_sha256':digest(snapshot),
-            'item_count':len(rows),'source_completed_count':completed,'include_dates':include_dates,'include_urls':include_urls,
+            'item_count':len(rows),'source_completed_count':completed,'include_dates':include_dates,'include_urls':include_urls,'include_alarms':include_alarms,
             'page_done':page['done'],'accepted_omissions':True,
             'effects':['Creates new incomplete reminders; original IDs and completion state are not preserved.',
-                       'Native tags, hierarchy, attachments, recurrence, alarms, location, sharing and timestamps are not copied.',
+                       'Native tags, hierarchy, attachments, recurrence, location, sharing and timestamps are not copied.' + (' Absolute display alarms are copied; their display text may change.' if include_alarms and _ical_alarms else ' Alarms are not copied.'),
                        'Copies can duplicate existing reminders; the source observation is user-supplied and may be stale or incomplete.',
-                       'Dates, if selected, can affect due-date behavior; notification delivery remains controlled by Apple.']}
+                       'Dates and absolute alarms, if selected, can affect or schedule notifications; past alarms may notify immediately. Delivery remains controlled by Apple.']}
     if _source_ical_sha256 is not None:
         if (not isinstance(_source_ical_sha256,str) or len(_source_ical_sha256)!=64
                 or any(c not in '0123456789abcdef' for c in _source_ical_sha256)):
             raise SafetyError('Invalid iCalendar source binding')
         review['source_format']='user_supplied_icalendar';review['source_ical_sha256']=_source_ical_sha256
+        review['source_absolute_alarm_count']=len(_ical_alarms) if _ical_alarms is not None else 0
     if grant_id is not None:
         if not isinstance(grant_id,str) or not grant_id:raise SafetyError('Use one exact active copy scenario grant')
         return engine.prepare_with_grant(grant_id,changes,_review_context=review)

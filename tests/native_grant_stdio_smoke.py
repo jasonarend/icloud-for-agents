@@ -74,7 +74,7 @@ def run(policy):
                     assert data(call(name+'_grant_status',{'grant_id':identity}))['status']=='revoked'
                     assert call(name+'_execute_approved',{'plan_id':pending['plan_id']}).get('isError')
                     assert call(name+'_prepare_with_grant',{'grant_id':identity,'changes':changes}).get('isError')
-                    copy_fields=['title','body','format'] if name=='notes' else ['title','notes','priority']
+                    copy_fields=['title','body','format'] if name=='notes' else ['title','notes','priority','alarms']
                     copy_scope={'scenario':'Synthetic observation copies','rules':[{'operation':'copy_observation','source_id':'selected','container_id':'folder','fields':copy_fields,'destinations':[]}],'max_batch':1,'max_24h':2,'expires':None}
                     copy_grant=data(call(name+'_prepare_grant',{'scope':copy_scope}));assert 'lossy copies' in copy_grant['review']['payload']['effects']['observation_copy']
                     if policy=='local-receipt':
@@ -93,8 +93,8 @@ def run(policy):
                     assert data(call(name+'_execute_approved',{'plan_id':copied['plan_id']}))['status']=='applied'
                     assert call(name+'_execute_approved',{'plan_id':copied['plan_id']}).get('isError')
                     if name=='reminders':
-                        ical='BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Synthetic//EN\r\nBEGIN:VTODO\r\nUID:synthetic\r\nDTSTAMP:20260101T000000Z\r\nSUMMARY:Imported task\r\nSTATUS:NEEDS-ACTION\r\nPRIORITY:0\r\nEND:VTODO\r\nEND:VCALENDAR\r\n'
-                        imported=data(call('reminders_prepare_ical_copy',{'calendar_text':ical,'source_id':'selected','list_id':'folder','accept_omissions':True,'grant_id':copy_grant['plan_id']}))
+                        ical='BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Synthetic//EN\r\nBEGIN:VTODO\r\nUID:synthetic\r\nDTSTAMP:20260101T000000Z\r\nSUMMARY:Imported task\r\nSTATUS:NEEDS-ACTION\r\nPRIORITY:0\r\nBEGIN:VALARM\r\nACTION:DISPLAY\r\nTRIGGER;VALUE=DATE-TIME:20260102T030405Z\r\nDESCRIPTION:Task\r\nEND:VALARM\r\nEND:VTODO\r\nEND:VCALENDAR\r\n'
+                        imported=data(call('reminders_prepare_ical_copy',{'calendar_text':ical,'source_id':'selected','list_id':'folder','accept_omissions':True,'include_alarms':True,'grant_id':copy_grant['plan_id']}))
                         assert imported['authorization_path']=='standing-native' and imported['review']['payload']['copy_review']['source_format']=='user_supplied_icalendar'
                         assert data(call('reminders_execute_approved',{'plan_id':imported['plan_id']}))['status']=='applied'
                     assert data(call(name+'_revoke_grant',{'grant_id':copy_grant['plan_id']}))['status']=='revoked'

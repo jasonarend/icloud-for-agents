@@ -1,6 +1,6 @@
 """Strict single-VTODO iCalendar input for reviewed, lossy Reminder copies."""
 import hashlib,re
-from datetime import datetime
+from datetime import datetime,timezone
 from .core import SafetyError
 from .native_reminder_import import prepare_copy
 
@@ -53,17 +53,29 @@ def observation(text):
     if len(logical)>100 or any(len(line)>100000 for line in logical):raise SafetyError('iCalendar component exceeds input bounds')
     if len(logical)<7 or logical[0].upper()!='BEGIN:VCALENDAR' or logical[-1].upper()!='END:VCALENDAR':
         raise SafetyError('Expected one complete iCalendar object')
-    calendar={};todo={};state='calendar';closed=False
+    calendar={};todo={};alarms=[];alarm=None;state='calendar';closed=False
     cal_allowed={'VERSION','PRODID','CALSCALE'}
     todo_allowed={'UID','DTSTAMP','SUMMARY','DESCRIPTION','STATUS','PRIORITY','DTSTART','DUE','URL','LOCATION','CREATED','LAST-MODIFIED','COMPLETED'}
     for line in logical[1:-1]:
         upper=line.upper()
         if upper=='BEGIN:VTODO' and state=='calendar' and not closed:state='todo';continue
         if upper=='END:VTODO' and state=='todo':state='calendar';closed=True;continue
+        if upper=='BEGIN:VALARM' and state=='todo':
+            if len(alarms)>=10:raise SafetyError('Too many iCalendar alarms')
+            alarm={};state='alarm';continue
+        if upper=='END:VALARM' and state=='alarm':
+            if set(alarm)!={'ACTION','TRIGGER','DESCRIPTION'} or alarm['ACTION'][0].upper()!='DISPLAY' or alarm['TRIGGER'][1]!=';VALUE=DATE-TIME':
+                raise SafetyError('Only absolute display alarms are supported')
+            try:seconds=int(_utc(alarm['TRIGGER'][0]).replace(tzinfo=timezone.utc).timestamp())
+            except (ValueError,OverflowError,OSError):raise SafetyError('Absolute alarm timestamp is not representable') from None
+            if not 946684800<=seconds<=4102444799:raise SafetyError('Absolute alarm must be within 2000 through 2099')
+            _text(alarm['DESCRIPTION'][0]);alarms.append({'absolute_date':seconds});alarm=None;state='todo';continue
         if ':' not in line or (state=='calendar' and closed):raise SafetyError('Unsupported iCalendar component or property')
         left,value=line.split(':',1);name,sep,param=left.partition(';');name=name.upper();parameter=(';'+param.upper()) if sep else ''
-        target=calendar if state=='calendar' else todo;allowed=cal_allowed if state=='calendar' else todo_allowed
-        if name not in allowed or name in target or (parameter and (state!='todo' or name not in {'DTSTART','DUE'})):
+        target=calendar if state=='calendar' else todo if state=='todo' else alarm
+        allowed=cal_allowed if state=='calendar' else todo_allowed if state=='todo' else {'ACTION','TRIGGER','DESCRIPTION'}
+        parameter_allowed=(state=='todo' and name in {'DTSTART','DUE'}) or (state=='alarm' and name=='TRIGGER')
+        if name not in allowed or name in target or (parameter and not parameter_allowed):
             raise SafetyError('Unsupported, repeated or parameterized iCalendar property')
         target[name]=(value,parameter)
     if state!='calendar' or not closed or calendar.get('VERSION')!=('2.0','') or 'PRODID' not in calendar:
@@ -89,9 +101,10 @@ def observation(text):
          'title':title,'notes':notes,'priority':int(priority),'completed':status=='COMPLETED',
          'due':due,'start':start,'url':todo.get('URL',(None,''))[0]}
     return {'format':'icloud-for-agents-reminders-observation','version':1,'list_id':'user-supplied-icalendar',
-            'page':{'done':True},'items':[row]},hashlib.sha256(data).hexdigest()
+            'page':{'done':True},'items':[row],'source_absolute_alarms':alarms},hashlib.sha256(data).hexdigest()
 
-def prepare_ical_copy(engine,calendar_text,source_id,list_id,*,accept_omissions,include_dates=False,include_urls=False,grant_id=None):
+def prepare_ical_copy(engine,calendar_text,source_id,list_id,*,accept_omissions,include_dates=False,include_urls=False,include_alarms=False,grant_id=None):
     snapshot,source_hash=observation(calendar_text)
     return prepare_copy(engine,snapshot,source_id,list_id,accept_omissions=accept_omissions,
-                        include_dates=include_dates,include_urls=include_urls,grant_id=grant_id,_source_ical_sha256=source_hash)
+                        include_dates=include_dates,include_urls=include_urls,grant_id=grant_id,_source_ical_sha256=source_hash,
+                        include_alarms=include_alarms,_ical_alarms=snapshot['source_absolute_alarms'])

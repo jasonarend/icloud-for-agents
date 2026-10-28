@@ -74,4 +74,13 @@ class CopyGrantTests(unittest.TestCase):
         next_plan=self.copy('reminders',grant['plan_id'])
         with self.assertRaises(SafetyError):self.engines['reminders'].execute(next_plan['plan_id'])
         self.assertEqual(self.engines['reminders'].adapter.calls,[])
+    def test_ical_alarm_copy_requires_alarm_field_in_grant(self):
+        from icloud_for_agents.native_reminder_ical_import import prepare_ical_copy
+        calendar='BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Synthetic//EN\r\nBEGIN:VTODO\r\nUID:synthetic\r\nDTSTAMP:20260101T000000Z\r\nSUMMARY:Task\r\nSTATUS:NEEDS-ACTION\r\nPRIORITY:0\r\nBEGIN:VALARM\r\nACTION:DISPLAY\r\nTRIGGER;VALUE=DATE-TIME:20260102T030405Z\r\nDESCRIPTION:Task\r\nEND:VALARM\r\nEND:VTODO\r\nEND:VCALENDAR\r\n'
+        manager,limited=self.grant('reminders')
+        with self.assertRaises(SafetyError):prepare_ical_copy(self.engines['reminders'],calendar,'selected','folder',accept_omissions=True,include_alarms=True,grant_id=limited['plan_id'])
+        manager.revoke(limited['plan_id']);manager,grant=self.grant('reminders',fields=['title','notes','priority','alarms'])
+        self.assertIn('alarms can affect notifications',grant['review']['payload']['effects']['observation_copy'])
+        plan=prepare_ical_copy(self.engines['reminders'],calendar,'selected','folder',accept_omissions=True,include_alarms=True,grant_id=grant['plan_id'])
+        self.assertEqual(self.engines['reminders'].execute(plan['plan_id'])['status'],'applied');manager.revoke(grant['plan_id'])
 if __name__=='__main__':unittest.main()

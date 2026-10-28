@@ -69,9 +69,9 @@ def run(policy):
                     with os.fdopen(fd,'w') as stream:json.dump({'plan_id':note_plan['plan_id'],'sha256':note_plan['sha256']},stream)
                 assert data(call('notes_execute_approved',{'plan_id':note_plan['plan_id']}))['status']=='applied'
                 assert call('notes_execute_approved',{'plan_id':note_plan['plan_id']}).get('isError')
-                ical='BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Synthetic//EN\r\nBEGIN:VTODO\r\nUID:synthetic\r\nDTSTAMP:20260101T000000Z\r\nSUMMARY:Imported task\r\nSTATUS:NEEDS-ACTION\r\nPRIORITY:0\r\nEND:VTODO\r\nEND:VCALENDAR\r\n'
-                ical_plan=data(call('reminders_prepare_ical_copy',{'calendar_text':ical,'source_id':'selected','list_id':'destination','accept_omissions':True}))
-                assert ical_plan['review']['payload']['copy_review']['source_format']=='user_supplied_icalendar'
+                ical='BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Synthetic//EN\r\nBEGIN:VTODO\r\nUID:synthetic\r\nDTSTAMP:20260101T000000Z\r\nSUMMARY:Imported task\r\nSTATUS:NEEDS-ACTION\r\nPRIORITY:0\r\nBEGIN:VALARM\r\nACTION:DISPLAY\r\nTRIGGER;VALUE=DATE-TIME:20260102T030405Z\r\nDESCRIPTION:Task\r\nEND:VALARM\r\nEND:VTODO\r\nEND:VCALENDAR\r\n'
+                ical_plan=data(call('reminders_prepare_ical_copy',{'calendar_text':ical,'source_id':'selected','list_id':'destination','accept_omissions':True,'include_alarms':True}))
+                assert ical_plan['review']['payload']['copy_review']['source_format']=='user_supplied_icalendar' and ical_plan['review']['payload']['changes'][0]['fields']['alarms']==[{'absolute_date':1767323045}]
                 if policy=='local-receipt':
                     assert call('reminders_execute_approved',{'plan_id':ical_plan['plan_id']}).get('isError')
                     receipt=runtime/(ical_plan['plan_id']+'.approved');fd=os.open(receipt,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)

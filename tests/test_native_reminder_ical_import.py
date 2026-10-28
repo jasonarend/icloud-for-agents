@@ -47,6 +47,22 @@ class ICalImportTests(unittest.TestCase):
         text=export_ical(Reader(),'old',datetime(2026,1,1,tzinfo=timezone.utc))['content']
         snapshot,_=observation(text)
         self.assertEqual(snapshot['items'][0]['title'],self.row['title']);self.assertEqual(snapshot['items'][0]['notes'],self.row['notes'])
+    def test_absolute_display_alarm_requires_explicit_selection(self):
+        alarm={'type':0,'proximity':0,'structured_location':None,'email_address':None,'sound_name':None,'absolute_date':1767323045,'relative_offset_seconds':0}
+        self.row.update(has_alarms=True,alarms=[alarm])
+        class Reader:
+            def read(inner,*args,**kwargs):return {'item':self.row}
+        self.calendar=export_ical(Reader(),'old',datetime(2026,1,1,tzinfo=timezone.utc))['content']
+        omitted=self.prepare();review=omitted['review']['payload']['copy_review']
+        self.assertEqual(review['source_absolute_alarm_count'],1);self.assertFalse(review['include_alarms'])
+        self.assertNotIn('alarms',omitted['review']['payload']['changes'][0]['fields'])
+        selected=self.prepare(include_alarms=True);review=selected['review']['payload']['copy_review']
+        self.assertTrue(review['include_alarms']);self.assertIn('schedule notifications',review['effects'][-1])
+        self.assertEqual(selected['review']['payload']['changes'][0]['fields']['alarms'],[{'absolute_date':1767323045}])
+        for bad in (self.calendar.replace('ACTION:DISPLAY','ACTION:AUDIO'),self.calendar.replace('TRIGGER;VALUE=DATE-TIME:20260102T030405Z','TRIGGER:-PT15M'),
+                    self.calendar.replace('TRIGGER;VALUE=DATE-TIME:20260102T030405Z','TRIGGER:20260102T030405Z'),
+                    self.calendar.replace('END:VALARM','REPEAT:2\r\nEND:VALARM'),self.calendar.replace('TRIGGER;VALUE=DATE-TIME:20260102T030405Z','TRIGGER;VALUE=DATE-TIME:21000101T000000Z')):
+            with self.subTest(bad=bad[-100:]),self.assertRaises(SafetyError):observation(bad)
     def test_unrepresentable_components_and_controls_refuse(self):
         base=self.calendar
         invalid=(base.replace('END:VTODO','RRULE:FREQ=DAILY\r\nEND:VTODO'),
@@ -76,4 +92,16 @@ class ICalImportTests(unittest.TestCase):
         bad=self.calendar.replace('URL:https://example.com/path','URL:javascript:alert(1)')
         with patch.object(adapter,'snapshot',return_value={'id':'destination','source_id':'selected','writable':True}),self.assertRaises(SafetyError):
             prepare_ical_copy(engine,bad,'selected','destination',accept_omissions=True,include_urls=True)
+    def test_real_adapter_reviews_notification_effects(self):
+        from icloud_for_agents.native_reminders import RemindersCreateAdapter
+        helper=self.store.root.parent/'helper';helper.write_text('synthetic')
+        os.environ['ICLOUD_NATIVE_CONFIG']=json.dumps({'reminders':{'access_mode':'read-only','source_ids':['selected'],'helper_path':str(helper)}})
+        adapter=RemindersCreateAdapter();engine=NativeChanges('reminders',self.engine.account,adapter,self.store)
+        alarm='BEGIN:VALARM\r\nACTION:DISPLAY\r\nTRIGGER;VALUE=DATE-TIME:20260102T030405Z\r\nDESCRIPTION:Task\r\nEND:VALARM\r\n'
+        text=self.calendar.replace('END:VTODO',alarm+'END:VTODO')
+        with patch.object(adapter,'snapshot',return_value={'id':'destination','source_id':'selected','writable':True}):
+            plan=prepare_ical_copy(engine,text,'selected','destination',accept_omissions=True,include_alarms=True)
+        item=plan['review']['payload']['changes'][0]
+        self.assertEqual(item['fields']['alarms'],[{'absolute_date':1767323045}]);self.assertIn('sync',item['effects']['time_alarms']['devices'])
+        self.assertIn('schedule notifications',plan['review']['payload']['copy_review']['effects'][-1])
 if __name__=='__main__':unittest.main()

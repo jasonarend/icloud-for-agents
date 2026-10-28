@@ -255,10 +255,10 @@ def register_change_tools(mcp):
             from .native_reminder_import import prepare_copy
             return prepare_copy(editor('reminders'),snapshot,source_id,list_id,accept_omissions=accept_omissions,include_dates=include_dates,include_urls=include_urls,grant_id=grant_id)
         mcp.tool(name='reminders_prepare_observation_copy',annotations=WRITE)(guard(prepare_observation_copy))
-        def prepare_ical_copy(calendar_text:str,source_id:str,list_id:str,accept_omissions:bool,include_dates:bool=False,include_urls:bool=False,grant_id:str|None=None)->dict:
-            """Review a lossy copy from one supported iCalendar VTODO. Unsupported properties, recurrence and alarms are refused; one-time approval or a copy_observation grant is required."""
+        def prepare_ical_copy(calendar_text:str,source_id:str,list_id:str,accept_omissions:bool,include_dates:bool=False,include_urls:bool=False,include_alarms:bool=False,grant_id:str|None=None)->dict:
+            """Review a lossy copy from one supported iCalendar VTODO. Absolute display alarms can be copied explicitly; recurrence and other alarms are refused. Copying alarms can schedule notifications."""
             from .native_reminder_ical_import import prepare_ical_copy as prepare
-            return prepare(editor('reminders'),calendar_text,source_id,list_id,accept_omissions=accept_omissions,include_dates=include_dates,include_urls=include_urls,grant_id=grant_id)
+            return prepare(editor('reminders'),calendar_text,source_id,list_id,accept_omissions=accept_omissions,include_dates=include_dates,include_urls=include_urls,include_alarms=include_alarms,grant_id=grant_id)
         mcp.tool(name='reminders_prepare_ical_copy',annotations=WRITE)(guard(prepare_ical_copy))
         @mcp.tool(annotations=WRITE)
         @guard
