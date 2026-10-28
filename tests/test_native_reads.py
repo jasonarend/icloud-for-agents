@@ -572,6 +572,21 @@ class NativeReadTests(unittest.TestCase):
             with self.subTest(invalid=invalid),self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',side_effect=AssertionError('No helper')),self.assertRaises(SafetyError):
                 NativeReader('notes').read('search',text='table',**invalid)
 
+    def test_reminder_attachment_filter_verifies_scope_and_observation(self):
+        config={'reminders':{'source_ids':['selected'],'advanced_backend':'reminderkit','helper_path':'/synthetic/helper'}}
+        item={'id':'task','source_id':'selected','list_id':'list'};row={'id':'attachment','kind':'file','uti':'public.data'}
+        metadata={**item,'coverage':['attachments'],'attachments':[row],'attachment_metadata_complete':False}
+        page={'items':[{**item,'native_metadata':metadata}],'done':True,'next_offset':1,'pagination_consistency':'live_offset_may_shift','native_attachment_filter':{'scanned':1,'matched':1,'observation_consistency':'separate_provider_reads'}}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch') as backend:
+            backend.return_value=page
+            self.assertEqual(len(NativeReader('reminders').read('query',limit=1,has_native_attachments=True)['items']),1)
+            for bad in ({'attachments':[]},{'attachments':[row,row]},{'attachment_metadata_complete':True},{'source_id':'foreign'}):
+                backend.return_value={**page,'items':[{**item,'native_metadata':{**metadata,**bad}}]}
+                with self.subTest(bad=bad),self.assertRaises(SafetyError):NativeReader('reminders').read('query',limit=1,has_native_attachments=True)
+            backend.return_value={k:v for k,v in page.items() if k!='native_attachment_filter'}
+            with self.assertRaises(SafetyError):NativeReader('reminders').read('query',limit=1,has_native_attachments=True)
+            with self.assertRaises(SafetyError):NativeReader('reminders').read('query',limit=1,has_native_attachments=1)
+
     def test_reminder_assignment_filter_verifies_scope_and_observation(self):
         config={'reminders':{'source_ids':['selected'],'advanced_backend':'reminderkit','helper_path':'/synthetic/helper'}}
         item={'id':'task','source_id':'selected','list_id':'list'}
