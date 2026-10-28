@@ -12,6 +12,8 @@ credentials.credentials=lambda:(_ for _ in ()).throw(AssertionError('No credenti
 from icloud_for_agents.native_read import NativeReader
 def dispatch(self,request,config):
     assert self.name=='reminders' and request['source_ids']==['selected']
+    if request['action']=='templates':
+        return {'protocol_version':1,'source_id':'selected','templates':[{'id':'33333333-3333-4333-8333-333333333333','title':'Synthetic'}],'next_offset':request['offset']+1,'done':True,'pagination_consistency':'live_offset_may_shift','template_contents_complete':False,'data_mutated':False,'backend':'reminderkit-templates-v1'}
     if request['action']=='default_list':
         return {'protocol_version':1,'state':'available','list':{'id':'list','title':'Synthetic list','source_id':'selected','writable':True,'color':None}}
     if request['action']=='list_features':

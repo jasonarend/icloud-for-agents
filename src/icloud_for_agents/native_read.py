@@ -14,7 +14,7 @@ from .services import enabled
 
 
 READ_ACTIONS = {'notes': {'status', 'sources', 'folders', 'default_folder', 'folder_get', 'folder_inventory', 'folder_role', 'model_folder_role', 'query', 'get', 'text_page', 'search', 'attachments', 'diagnose_note', 'contains'},
-                'reminders': {'status', 'sources', 'lists', 'default_list', 'list_sections', 'list_features', 'query', 'get','list_membership','recovery_lookup','recovery_tree','recovery_list'}}
+                'reminders': {'status', 'sources', 'lists', 'default_list', 'list_sections', 'list_features', 'templates', 'query', 'get','list_membership','recovery_lookup','recovery_tree','recovery_list'}}
 MAX_OUTPUT = 2_000_000
 
 
@@ -122,7 +122,7 @@ class NativeReader:
                 if self.name!='reminders' or action!='query' or not isinstance(tag,str) or not tag or len(tag.encode('utf-8'))>512 or any(ord(c)<32 for c in tag):raise ValueError()
             except (ValueError,UnicodeEncodeError):raise SafetyError('Tag filtering requires one exact bounded native tag name') from None
             if config.get('advanced_backend')!='reminderkit' or not config.get('helper_path'):raise SafetyError('Tag filtering requires the explicitly selected ReminderKit backend and signed helper')
-        if 'source_id' in fields and action not in {'recovery_lookup','recovery_tree','recovery_list','model_folder_role','default_folder'}:raise SafetyError('Source selector is only supported for exact role or recovery lookup')
+        if 'source_id' in fields and action not in {'recovery_lookup','recovery_tree','recovery_list','templates','model_folder_role','default_folder'}:raise SafetyError('Source selector is only supported for exact role or recovery lookup')
         if action in {'list_sections','list_features'}:
             if self.name!='reminders' or set(fields)!={'list_id'} or not isinstance(fields.get('list_id'),str) or not fields['list_id']:
                 raise SafetyError('Native list inspection requires one exact list ID')
@@ -136,6 +136,10 @@ class NativeReader:
             if (config.get('folder_write_backend')!='notes-shared' or config.get('metadata_backend')!='notes-store-readonly'
                     or not config.get('helper_path')):
                 raise SafetyError('Model role lookup requires explicitly selected native Notes and read-only store backends and a signed helper')
+        if action=='templates':
+            if self.name!='reminders' or set(fields)-{'source_id','limit','offset'} or fields.get('source_id') not in sources:raise SafetyError('Template discovery requires one exact selected source and bounded page')
+            if config.get('advanced_backend')!='reminderkit' or not config.get('helper_path'):raise SafetyError('Template discovery requires the explicitly selected ReminderKit backend and signed helper')
+            fields.setdefault('limit',20);fields.setdefault('offset',0)
         if action=='recovery_list':
             if self.name!='reminders' or set(fields)-{'source_id','limit','offset'} or fields.get('source_id') not in sources:
                 raise SafetyError('Recovery discovery requires one exact selected source and bounded page')
@@ -397,6 +401,10 @@ class NativeReader:
                     or result.get('role') not in {'ordinary_non_system','system_trash'} or result.get('backend')!='notes-shared-folder-role-v1'
                     or result.get('data_mutated') is not False or type(result.get('ancestor_count')) is not int or not 0<=result['ancestor_count']<32):
                 raise SafetyError('Configured helper did not verify the exact Notes folder role')
+        if action=='templates':
+            if native_config('reminders')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode:raise SafetyError('Reminder access changed during template discovery')
+            validate_template_list(result,fields['source_id'],limit,offset)
+            result={key:result[key] for key in ('protocol_version','source_id','templates','next_offset','done','pagination_consistency','template_contents_complete','data_mutated','backend') if key in result}
         if action=='recovery_list':
             if native_config('reminders')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode:raise SafetyError('Reminder access changed during recovery discovery')
             validate_recovery_list(result,fields['source_id'],fields['limit'],fields['offset'])
@@ -704,7 +712,7 @@ class NativeReader:
             if self.name == 'notes' and code == 'permission_required':
                 raise SafetyError('Notes Automation permission is required; the user must approve access in macOS Privacy & Security.')
             detail=''
-            if code=='private_metadata_unavailable' and response.get('category') in {'unsupported_public_identity','unsupported_interface','private_store_unavailable','private_read_denied_or_unavailable','private_reminder_not_found','native_identity_mismatch','unsupported_flag_metadata','unsupported_assignment_metadata','unsupported_attachment_metadata','unsupported_tag_metadata','unsupported_hierarchy_metadata','unsupported_children_metadata','children_read_unavailable','hierarchy_parent_unavailable','hierarchy_parent_inconsistent','hierarchy_read_unavailable','unknown_flag_state','private_read_exception'}:detail=' ('+response['category']+')'
+            if code=='private_metadata_unavailable' and response.get('category') in {'unsupported_public_identity','unsupported_interface','private_store_unavailable','private_read_denied_or_unavailable','private_reminder_not_found','native_identity_mismatch','unsupported_flag_metadata','unsupported_assignment_metadata','unsupported_attachment_metadata','unsupported_template_metadata','unsupported_tag_metadata','unsupported_hierarchy_metadata','unsupported_children_metadata','children_read_unavailable','hierarchy_parent_unavailable','hierarchy_parent_inconsistent','hierarchy_read_unavailable','unknown_flag_state','private_read_exception'}:detail=' ('+response['category']+')'
             if code=='private_metadata_unavailable' and response.get('native_error_domain') in {'com.apple.reminderkit','NSCocoaErrorDomain','NSPOSIXErrorDomain','EKErrorDomain','NSOSStatusErrorDomain','other'} and type(response.get('native_error_code')) is int:detail+=' [SDK '+response['native_error_domain']+' '+str(response['native_error_code'])+']'
             raise SafetyError('Native read refused: ' + (code if code in allowed else 'helper_error')+detail)
         return response
@@ -752,6 +760,24 @@ def inspect_reminder_hierarchy(reader, identity, max_nodes=10, max_depth=3):
     return {'root_id':identity,'source_id':source,'list_id':list_id,'nodes':nodes,'unexpanded':unexpanded,
             'hierarchy_complete':False,'observation_consistency':'separate_provider_reads',
             'scope_note':'Provider-reported edges only; concealed descendants and concurrent changes remain unverified.'}
+
+
+def validate_template_list(result,source_id,limit,offset):
+    import uuid
+    if (not isinstance(result,dict) or result.get('source_id')!=source_id or result.get('backend')!='reminderkit-templates-v1'
+            or result.get('pagination_consistency')!='live_offset_may_shift' or result.get('data_mutated') is not False
+            or result.get('template_contents_complete') is not False or type(result.get('done')) is not bool or type(result.get('next_offset')) is not int):
+        raise SafetyError('Helper did not provide scoped template discovery')
+    items=result.get('templates')
+    if not isinstance(items,list) or len(items)>limit or result['next_offset']!=offset+len(items) or (not result['done'] and len(items)!=limit):raise SafetyError('Invalid template discovery page')
+    seen=set()
+    for item in items:
+        if not isinstance(item,dict) or set(item)!={'id','title'} or not isinstance(item['title'],str) or len(item['title'])>1000:raise SafetyError('Invalid template discovery item')
+        try:identity=str(uuid.UUID(item['id'])).upper()
+        except (ValueError,TypeError,AttributeError):raise SafetyError('Invalid template identity') from None
+        if identity in seen:raise SafetyError('Duplicate template identity')
+        seen.add(identity)
+    return result
 
 
 def validate_recovery_list(result,source_id,limit,offset):
@@ -973,6 +999,12 @@ def register_read_tools(mcp):
         def reminders_inspect_recovery_hierarchy(id: str, source_id: str, max_nodes: int=10, max_depth: int=3) -> dict:
             """Inspect one recoverable root and provider-reported descendants; this is not a restoration or a complete subtree."""
             return inspect_reminder_recovery_hierarchy(NativeReader('reminders'),id,source_id,max_nodes,max_depth)
+
+        @mcp.tool(annotations=annotations)
+        @guard
+        def reminders_templates(source_id: str, limit: int=20, offset: int=0) -> dict:
+            """List bounded native template IDs and titles in one selected source; template contents and sharing are not included."""
+            return NativeReader('reminders').read('templates',source_id=source_id,limit=limit,offset=offset)
 
         @mcp.tool(annotations=annotations)
         @guard
