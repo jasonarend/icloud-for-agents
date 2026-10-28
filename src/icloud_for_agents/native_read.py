@@ -94,7 +94,7 @@ class NativeReader:
         include_pinned=fields.pop('include_pinned',False)
         if type(include_pinned) is not bool:raise SafetyError('Pin-state selection must be Boolean')
         native_selections={}
-        for key in ('include_native_metadata','include_native_tags','include_native_hierarchy','include_native_children','include_native_urgent','include_native_section','include_native_early','include_native_assignment'):
+        for key in ('include_native_metadata','include_native_tags','include_native_hierarchy','include_native_children','include_native_urgent','include_native_section','include_native_early','include_native_assignment','include_native_attachments'):
             if key in fields and (self.name!='reminders' or action!='get'):raise SafetyError('Native metadata selection is supported only for Reminders get')
             value=fields.pop(key,False)
             if type(value) is not bool:raise SafetyError('Native metadata selection must be Boolean')
@@ -420,12 +420,13 @@ class NativeReader:
             # successful native read without the requested, scoped coverage.
             item=result.get('item') if isinstance(result,dict) else None
             metadata=item.get('native_metadata') if isinstance(item,dict) else None
-            expected=[label for key,label in (('include_native_metadata','flagged'),('include_native_tags','tags'),('include_native_hierarchy','hierarchy'),('include_native_children','children'),('include_native_urgent','urgent'),('include_native_section','section'),('include_native_early','early'),('include_native_assignment','assignment')) if key in native_selections]
+            expected=[label for key,label in (('include_native_metadata','flagged'),('include_native_tags','tags'),('include_native_hierarchy','hierarchy'),('include_native_children','children'),('include_native_urgent','urgent'),('include_native_section','section'),('include_native_early','early'),('include_native_assignment','assignment'),('include_native_attachments','attachments')) if key in native_selections]
             if (not isinstance(metadata,dict) or metadata.get('coverage')!=expected
                     or item.get('id')!=request.get('id') or item.get('source_id') not in sources
                     or not isinstance(item.get('list_id'),str) or not item['list_id']
                     or any(metadata.get(k)!=item.get(k) for k in ('id','source_id','list_id'))
                     or ('early' in expected and (not isinstance(metadata.get('early_alerts'),list) or len(metadata['early_alerts'])>100 or any(not isinstance(a,dict) or set(a)!={'native_unit','native_count'} or type(a['native_unit']) is not int or not 0<=a['native_unit']<=100 or type(a['native_count']) is not int or not -100000<=a['native_count']<=100000 for a in metadata['early_alerts']) or 'early_payload_fingerprint' not in metadata or (metadata['early_payload_fingerprint'] is not None and (not isinstance(metadata['early_payload_fingerprint'],str) or len(metadata['early_payload_fingerprint'])!=64 or any(c not in '0123456789abcdef' for c in metadata['early_payload_fingerprint']))) or (metadata['early_payload_fingerprint'] is None and bool(metadata['early_alerts']))))
+                    or ('attachments' in expected and (metadata.get('attachment_metadata_complete') is not False or not isinstance(metadata.get('attachments'),list) or len(metadata['attachments'])>100 or any(not isinstance(a,dict) or set(a)!={'id','kind','uti'} or not isinstance(a['id'],str) or not a['id'] or not isinstance(a['kind'],str) or a['kind'] not in {'attachment','file','image','url'} or (a['uti'] is not None and (not isinstance(a['uti'],str) or any(0xD800<=ord(c)<=0xDFFF for c in a['uti']) or len(a['uti'].encode('utf-8','surrogatepass'))>512)) for a in metadata['attachments']) or len({a['id'] for a in metadata['attachments']})!=len(metadata['attachments'])))
                     or ('assignment' in expected and (type(metadata.get('current_assignment_reported')) is not bool or type(metadata.get('assignment_record_count')) is not int or not 0<=metadata['assignment_record_count']<=100 or metadata.get('assignment_metadata_complete') is not False or (metadata['current_assignment_reported'] and metadata['assignment_record_count']==0)))
                     or ('urgent' in expected and type(metadata.get('urgent')) is not bool)
                     or ('section' in expected and ('section' not in metadata or metadata.get('section_status') not in {'provider_reported','provider_not_reported'}
@@ -693,7 +694,7 @@ class NativeReader:
             if self.name == 'notes' and code == 'permission_required':
                 raise SafetyError('Notes Automation permission is required; the user must approve access in macOS Privacy & Security.')
             detail=''
-            if code=='private_metadata_unavailable' and response.get('category') in {'unsupported_public_identity','unsupported_interface','private_store_unavailable','private_read_denied_or_unavailable','private_reminder_not_found','native_identity_mismatch','unsupported_flag_metadata','unsupported_assignment_metadata','unsupported_tag_metadata','unsupported_hierarchy_metadata','unsupported_children_metadata','children_read_unavailable','hierarchy_parent_unavailable','hierarchy_parent_inconsistent','hierarchy_read_unavailable','unknown_flag_state','private_read_exception'}:detail=' ('+response['category']+')'
+            if code=='private_metadata_unavailable' and response.get('category') in {'unsupported_public_identity','unsupported_interface','private_store_unavailable','private_read_denied_or_unavailable','private_reminder_not_found','native_identity_mismatch','unsupported_flag_metadata','unsupported_assignment_metadata','unsupported_attachment_metadata','unsupported_tag_metadata','unsupported_hierarchy_metadata','unsupported_children_metadata','children_read_unavailable','hierarchy_parent_unavailable','hierarchy_parent_inconsistent','hierarchy_read_unavailable','unknown_flag_state','private_read_exception'}:detail=' ('+response['category']+')'
             if code=='private_metadata_unavailable' and response.get('native_error_domain') in {'com.apple.reminderkit','NSCocoaErrorDomain','NSPOSIXErrorDomain','EKErrorDomain','NSOSStatusErrorDomain','other'} and type(response.get('native_error_code')) is int:detail+=' [SDK '+response['native_error_domain']+' '+str(response['native_error_code'])+']'
             raise SafetyError('Native read refused: ' + (code if code in allowed else 'helper_error')+detail)
         return response
@@ -946,9 +947,9 @@ def register_read_tools(mcp):
 
         @mcp.tool(annotations=annotations)
         @guard
-        def reminders_get(id: str, include_native_metadata: bool=False, include_native_tags: bool=False, include_native_hierarchy: bool=False, include_native_children: bool=False, include_native_urgent: bool=False, include_native_section: bool=False, include_native_early: bool=False, include_native_assignment: bool=False) -> dict:
-            """Read one exact scoped reminder. Optional native flags/tags/hierarchy/children/urgent/section/early/assignment observations require owner-selected ReminderKit; assignment people and permissions remain unverified."""
-            result=NativeReader('reminders').read('get', id=id, include_native_metadata=include_native_metadata, include_native_tags=include_native_tags, include_native_hierarchy=include_native_hierarchy, include_native_children=include_native_children, include_native_urgent=include_native_urgent,include_native_section=include_native_section,include_native_early=include_native_early,include_native_assignment=include_native_assignment)
+        def reminders_get(id: str, include_native_metadata: bool=False, include_native_tags: bool=False, include_native_hierarchy: bool=False, include_native_children: bool=False, include_native_urgent: bool=False, include_native_section: bool=False, include_native_early: bool=False, include_native_assignment: bool=False, include_native_attachments: bool=False) -> dict:
+            """Read one exact scoped reminder. Optional native flags/tags/hierarchy/children/urgent/section/early/assignment/attachment observations require owner-selected ReminderKit; assignment people and permissions remain unverified."""
+            result=NativeReader('reminders').read('get', id=id, include_native_metadata=include_native_metadata, include_native_tags=include_native_tags, include_native_hierarchy=include_native_hierarchy, include_native_children=include_native_children, include_native_urgent=include_native_urgent,include_native_section=include_native_section,include_native_early=include_native_early,include_native_assignment=include_native_assignment,include_native_attachments=include_native_attachments)
             if include_native_early:
                 # These mappings were observed on the supported macOS version;
                 # leave other provider values uninterpreted rather than guessing.

@@ -256,6 +256,33 @@ NSData *ICloudRemindersReadAssignment(NSData *data){
     }@catch(NSException *exception){return EncodeFlag(FlagFailure(@"private_read_exception"));}
 }
 
+// Read scoped attachment identities and UTIs without resolving paths or content.
+NSData *ICloudRemindersReadAttachments(NSData *data){
+    @try {
+        NSDictionary *failure=nil;id reminder=SelectedReminder(data,&failure);if(!reminder)return EncodeFlag(failure);
+        NSDictionary *identity=[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
+        if(!MethodMatches([reminder class],@"attachmentContext",@"@@:",NO))return EncodeFlag(FlagFailure(@"unsupported_attachment_metadata"));
+        id context=ObjectValue(reminder,@"attachmentContext");
+        if(!context || !MethodMatches([context class],@"attachments",@"@@:",NO))return EncodeFlag(FlagFailure(@"unsupported_attachment_metadata"));
+        id collection=ObjectValue(context,@"attachments");
+        if(![collection isKindOfClass:NSArray.class] || [collection count]>100)return EncodeFlag(FlagFailure(@"unsupported_attachment_metadata"));
+        NSDictionary *types=@{@"REMCDAttachment":@"attachment",@"REMCDFileAttachment":@"file",@"REMCDImageAttachment":@"image",@"REMCDURLAttachment":@"url"};
+        NSMutableArray *out=[NSMutableArray array];NSMutableSet *seen=[NSMutableSet set];
+        for(id attachment in collection){
+            if(!MethodMatches([attachment class],@"uti",@"@@:",NO))return EncodeFlag(FlagFailure(@"unsupported_attachment_metadata"));
+            id objectID=ObjectValue(attachment,@"remObjectID"),entity=ObjectValue(objectID,@"entityName"),uuid=ObjectValue(objectID,@"uuid"),account=ObjectValue(attachment,@"accountID"),parent=ObjectValue(attachment,@"reminderID"),uti=ObjectValue(attachment,@"uti");
+            if(![entity isKindOfClass:NSString.class] || !types[entity] || ![uuid isKindOfClass:NSUUID.class] || [seen containsObject:[uuid UUIDString]]
+                || ![ObjectValue(account,@"entityName") isEqual:@"REMCDAccount"] || ![ObjectValue(parent,@"entityName") isEqual:@"REMCDReminder"]
+                || ![ObjectValue(account,@"uuid") isKindOfClass:NSUUID.class] || ![ObjectValue(parent,@"uuid") isKindOfClass:NSUUID.class]
+                || !UUIDEqual([ObjectValue(account,@"uuid") UUIDString],identity[@"source_id"]) || !UUIDEqual([ObjectValue(parent,@"uuid") UUIDString],identity[@"id"])
+                || (uti && (![uti isKindOfClass:NSString.class] || [uti lengthOfBytesUsingEncoding:NSUTF8StringEncoding]>512)))return EncodeFlag(FlagFailure(@"unsupported_attachment_metadata"));
+            [seen addObject:[uuid UUIDString]];[out addObject:@{@"id":[uuid UUIDString],@"kind":types[entity],@"uti":uti?:[NSNull null]}];
+        }
+        [out sortUsingComparator:^NSComparisonResult(NSDictionary *a,NSDictionary *b){return [a[@"id"] compare:b[@"id"]];}];
+        return EncodeFlag(@{@"protocol_version":@1,@"native_metadata":@{@"backend":@"reminderkit-attachments-v1",@"id":identity[@"id"],@"source_id":identity[@"source_id"],@"list_id":identity[@"list_id"],@"attachments":out,@"attachment_metadata_complete":@NO,@"coverage":@[@"attachments"],@"native_metadata_complete":@NO,@"observation_consistency":@"separate_provider_reads"}});
+    }@catch(NSException *exception){return EncodeFlag(FlagFailure(@"private_read_exception"));}
+}
+
 // Read the current user's native urgent state; never infer it from priority or flag.
 NSData *ICloudRemindersReadUrgent(NSData *data){
     @try{

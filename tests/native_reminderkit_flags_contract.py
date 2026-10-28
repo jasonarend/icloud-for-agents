@@ -77,6 +77,19 @@ FIXTURE=r'''
 @end
 @implementation FixtureStorage
 @end
+@interface FixtureAttachment:NSObject
+@property FixtureID *remObjectID;
+@property FixtureID *accountID;
+@property FixtureID *reminderID;
+@property NSString *uti;
+@end
+@implementation FixtureAttachment
+@end
+@interface FixtureAttachmentContext:NSObject
+@property id attachments;
+@end
+@implementation FixtureAttachmentContext
+@end
 @interface FixtureAssignments:NSObject
 @property id currentAssignment;
 @property id assignments;
@@ -90,6 +103,7 @@ FIXTURE=r'''
 @property FixtureStorage *storage;
 @property id flaggedContext;
 @property id assignmentContext;
+@property id attachmentContext;
 @property id urgentAlarmContext;
 @property id hashtagContext;
 @property BOOL isSubtask;
@@ -236,6 +250,13 @@ int main(){@autoreleasepool{
  NSDictionary *sectionRequest=@{@"source_id":source,@"list_id":list};NSData *sectionData=[NSJSONSerialization dataWithJSONObject:sectionRequest options:0 error:NULL];NSDictionary *(^readSections)(void)=^NSDictionary *{return [NSJSONSerialization JSONObjectWithData:ICloudRemindersListSections(sectionData) options:0 error:NULL];};
  NSCAssert([readSections()[@"sections"] count]==1 && [readSections()[@"sections"][0][@"title"] isEqual:@"Synthetic"],@"exact section read");
  NSData *membershipData=[NSJSONSerialization dataWithJSONObject:@{@"id":task,@"source_id":source,@"list_id":list} options:0 error:NULL];NSDictionary *(^membership)(void)=^NSDictionary *{return [NSJSONSerialization JSONObjectWithData:ICloudRemindersReadSection(membershipData) options:0 error:NULL];};
+ FixtureAttachmentContext *attachmentContext=[FixtureAttachmentContext new];attachmentContext.attachments=@[];fixture.attachmentContext=attachmentContext;
+ NSDictionary *(^attachmentRead)(void)=^NSDictionary *{return [NSJSONSerialization JSONObjectWithData:ICloudRemindersReadAttachments(membershipData) options:0 error:NULL];};
+ NSCAssert([attachmentRead()[@"native_metadata"][@"attachments"] count]==0,@"empty attachment observation");
+ FixtureAttachment *file=[FixtureAttachment new];file.remObjectID=Identity(@"REMCDFileAttachment",other);file.accountID=fixture.account.remObjectID;file.reminderID=fixture.remObjectID;file.uti=@"public.data";attachmentContext.attachments=@[file];
+ NSCAssert([attachmentRead()[@"native_metadata"][@"attachments"][0][@"kind"] isEqual:@"file"],@"scoped attachment metadata");
+ file.accountID=Identity(@"REMCDAccount",other);NSCAssert(attachmentRead()[@"error"],@"foreign attachment refused");file.accountID=fixture.account.remObjectID;
+ attachmentContext.attachments=@[file,file];NSCAssert(attachmentRead()[@"error"],@"duplicate attachment refused");attachmentContext.attachments=nil;NSCAssert(attachmentRead()[@"error"],@"unknown attachments refused");
  FixtureAssignments *assignments=[FixtureAssignments new];assignments.assignments=[NSSet set];fixture.assignmentContext=assignments;
  NSDictionary *(^assignment)(void)=^NSDictionary *{return [NSJSONSerialization JSONObjectWithData:ICloudRemindersReadAssignment(membershipData) options:0 error:NULL];};
  NSCAssert(CFGetTypeID((__bridge CFTypeRef)assignment()[@"native_metadata"][@"current_assignment_reported"])==CFBooleanGetTypeID() && [assignment()[@"native_metadata"][@"current_assignment_reported"] boolValue]==NO && [assignment()[@"native_metadata"][@"assignment_record_count"] integerValue]==0,@"empty assignment observation");

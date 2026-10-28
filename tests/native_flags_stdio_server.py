@@ -74,6 +74,9 @@ def dispatch(self,request,config):
     if request.get('include_native_assignment'):
         metadata=item.setdefault('native_metadata',{'id':item['id'],'source_id':item['source_id'],'list_id':item['list_id'],'coverage':[],'native_metadata_complete':False})
         metadata.update(current_assignment_reported=item['id']=='synthetic-assigned',assignment_record_count=int(item['id']=='synthetic-assigned'),assignment_metadata_complete=False);metadata['coverage'].append('assignment')
+    if request.get('include_native_attachments'):
+        metadata=item.setdefault('native_metadata',{'id':item['id'],'source_id':item['source_id'],'list_id':item['list_id'],'coverage':[],'native_metadata_complete':False})
+        metadata.update(attachments=[{'id':'synthetic-attachment','kind':'file','uti':'public.data'}] if item['id']=='synthetic-attached' else [],attachment_metadata_complete=False);metadata['coverage'].append('attachments')
     return {'protocol_version':1,'item':item}
 NativeReader._dispatch=dispatch
 from icloud_for_agents.server import main

@@ -572,6 +572,18 @@ class NativeReadTests(unittest.TestCase):
             with self.subTest(invalid=invalid),self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',side_effect=AssertionError('No helper')),self.assertRaises(SafetyError):
                 NativeReader('notes').read('search',text='table',**invalid)
 
+    def test_reminder_attachment_inventory_is_scoped_and_bounded(self):
+        config={'reminders':{'source_ids':['selected'],'advanced_backend':'reminderkit','helper_path':'/synthetic/helper'}}
+        item={'id':'task','source_id':'selected','list_id':'list'}
+        row={'id':'attachment','kind':'file','uti':'public.data'}
+        metadata={**item,'coverage':['attachments'],'attachments':[row],'attachment_metadata_complete':False}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch') as backend:
+            backend.return_value={'item':{**item,'native_metadata':metadata}}
+            self.assertEqual(NativeReader('reminders').read('get',id='task',include_native_attachments=True)['item']['native_metadata']['attachments'],[row])
+            for invalid in ({'attachments':[row,row]},{'attachments':[{**row,'kind':[]}]},{'attachments':[{**row,'uti':'x'*513}]},{'attachments':[{**row,'uti':'\ud800'}]},{'attachments':[{**row,'path':'private'}]},{'attachment_metadata_complete':True},{'source_id':'foreign'}):
+                backend.return_value={'item':{**item,'native_metadata':{**metadata,**invalid}}}
+                with self.subTest(invalid=invalid),self.assertRaises(SafetyError):NativeReader('reminders').read('get',id='task',include_native_attachments=True)
+
     def test_reminder_assignment_observation_is_scoped_and_fail_closed(self):
         config={'reminders':{'source_ids':['selected'],'advanced_backend':'reminderkit','helper_path':'/synthetic/helper'}}
         item={'id':'task','source_id':'selected','list_id':'list'}
