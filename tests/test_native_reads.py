@@ -572,6 +572,17 @@ class NativeReadTests(unittest.TestCase):
             with self.subTest(invalid=invalid),self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',side_effect=AssertionError('No helper')),self.assertRaises(SafetyError):
                 NativeReader('notes').read('search',text='table',**invalid)
 
+    def test_reminder_assignment_observation_is_scoped_and_fail_closed(self):
+        config={'reminders':{'source_ids':['selected'],'advanced_backend':'reminderkit','helper_path':'/synthetic/helper'}}
+        item={'id':'task','source_id':'selected','list_id':'list'}
+        metadata={**item,'coverage':['assignment'],'current_assignment_reported':False,'assignment_record_count':0,'assignment_metadata_complete':False}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch') as backend:
+            backend.return_value={'item':{**item,'native_metadata':metadata}}
+            self.assertFalse(NativeReader('reminders').read('get',id='task',include_native_assignment=True)['item']['native_metadata']['current_assignment_reported'])
+            for invalid in ({'current_assignment_reported':None},{'assignment_record_count':True},{'assignment_record_count':101},{'assignment_metadata_complete':True},{'current_assignment_reported':True,'assignment_record_count':0},{'source_id':'foreign'}):
+                backend.return_value={'item':{**item,'native_metadata':{**metadata,**invalid}}}
+                with self.subTest(invalid=invalid),self.assertRaises(SafetyError):NativeReader('reminders').read('get',id='task',include_native_assignment=True)
+
     def test_notes_search_rejects_invalid_pagination_for_body_and_title(self):
         config={'notes':{'source_ids':['selected']}}
         for scope in ('all','title'):

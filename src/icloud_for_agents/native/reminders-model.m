@@ -242,6 +242,20 @@ NSData *ICloudRemindersReadFlag(NSData *data){
     }@catch(NSException *exception){return EncodeFlag(FlagFailure(@"private_read_exception"));}
 }
 
+// Report the provider's current-assignment observation without inferring people or permissions.
+NSData *ICloudRemindersReadAssignment(NSData *data){
+    @try {
+        NSDictionary *failure=nil;id reminder=SelectedReminder(data,&failure);if(!reminder)return EncodeFlag(failure);
+        NSDictionary *identity=[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
+        if(!MethodMatches([reminder class],@"assignmentContext",@"@@:",NO))return EncodeFlag(FlagFailure(@"unsupported_assignment_metadata"));
+        id context=ObjectValue(reminder,@"assignmentContext");
+        if(!context || !MethodMatches([context class],@"currentAssignment",@"@@:",NO) || !MethodMatches([context class],@"assignments",@"@@:",NO))return EncodeFlag(FlagFailure(@"unsupported_assignment_metadata"));
+        id assignments=ObjectValue(context,@"assignments"),current=ObjectValue(context,@"currentAssignment");
+        if(![assignments isKindOfClass:NSSet.class] || [assignments count]>100 || (current && ![assignments containsObject:current]))return EncodeFlag(FlagFailure(@"unsupported_assignment_metadata"));
+        return EncodeFlag(@{@"protocol_version":@1,@"native_metadata":@{@"backend":@"reminderkit-assignment-v1",@"id":identity[@"id"],@"source_id":identity[@"source_id"],@"list_id":identity[@"list_id"],@"current_assignment_reported":@((BOOL)(current!=nil)),@"assignment_record_count":@([assignments count]),@"assignment_metadata_complete":@NO,@"coverage":@[@"assignment"],@"native_metadata_complete":@NO,@"observation_consistency":@"separate_provider_reads"}});
+    }@catch(NSException *exception){return EncodeFlag(FlagFailure(@"private_read_exception"));}
+}
+
 // Read the current user's native urgent state; never infer it from priority or flag.
 NSData *ICloudRemindersReadUrgent(NSData *data){
     @try{

@@ -77,12 +77,19 @@ FIXTURE=r'''
 @end
 @implementation FixtureStorage
 @end
+@interface FixtureAssignments:NSObject
+@property id currentAssignment;
+@property id assignments;
+@end
+@implementation FixtureAssignments
+@end
 @interface FixtureReminder:NSObject
 @property FixtureID *remObjectID;
 @property FixtureAccount *account;
 @property FixtureList *list;
 @property FixtureStorage *storage;
 @property id flaggedContext;
+@property id assignmentContext;
 @property id urgentAlarmContext;
 @property id hashtagContext;
 @property BOOL isSubtask;
@@ -229,6 +236,10 @@ int main(){@autoreleasepool{
  NSDictionary *sectionRequest=@{@"source_id":source,@"list_id":list};NSData *sectionData=[NSJSONSerialization dataWithJSONObject:sectionRequest options:0 error:NULL];NSDictionary *(^readSections)(void)=^NSDictionary *{return [NSJSONSerialization JSONObjectWithData:ICloudRemindersListSections(sectionData) options:0 error:NULL];};
  NSCAssert([readSections()[@"sections"] count]==1 && [readSections()[@"sections"][0][@"title"] isEqual:@"Synthetic"],@"exact section read");
  NSData *membershipData=[NSJSONSerialization dataWithJSONObject:@{@"id":task,@"source_id":source,@"list_id":list} options:0 error:NULL];NSDictionary *(^membership)(void)=^NSDictionary *{return [NSJSONSerialization JSONObjectWithData:ICloudRemindersReadSection(membershipData) options:0 error:NULL];};
+ FixtureAssignments *assignments=[FixtureAssignments new];assignments.assignments=[NSSet set];fixture.assignmentContext=assignments;
+ NSDictionary *(^assignment)(void)=^NSDictionary *{return [NSJSONSerialization JSONObjectWithData:ICloudRemindersReadAssignment(membershipData) options:0 error:NULL];};
+ NSCAssert(CFGetTypeID((__bridge CFTypeRef)assignment()[@"native_metadata"][@"current_assignment_reported"])==CFBooleanGetTypeID() && [assignment()[@"native_metadata"][@"current_assignment_reported"] boolValue]==NO && [assignment()[@"native_metadata"][@"assignment_record_count"] integerValue]==0,@"empty assignment observation");
+ NSObject *entry=[NSObject new];assignments.currentAssignment=entry;NSCAssert(assignment()[@"error"],@"inconsistent assignment refused");assignments.assignments=[NSSet setWithObject:entry];NSCAssert([assignment()[@"native_metadata"][@"current_assignment_reported"] boolValue],@"present assignment observation");assignments.assignments=nil;NSCAssert(assignment()[@"error"],@"unknown assignments refused");
  NSCAssert([membership()[@"native_metadata"][@"section_status"] isEqual:@"provider_reported"],@"section membership observed");
  section.storage.accountID=Identity(@"REMCDAccount",other);NSCAssert(readSections()[@"error"] && membership()[@"error"],@"foreign section account refused");section.storage.accountID=fixture.account.remObjectID;
  section.list.account.remObjectID=Identity(@"REMCDAccount",other);NSCAssert(membership()[@"error"],@"foreign account membership refused");section.list.account.remObjectID=Identity(@"REMCDAccount",source);section.storage.accountID=fixture.account.remObjectID;
