@@ -14,6 +14,7 @@ FOUNDATION_EXPORT NSData *ICloudRemindersReadChildren(NSData *publicIdentity);
 FOUNDATION_EXPORT NSData *ICloudRemindersListSections(NSData *publicIdentity);
 FOUNDATION_EXPORT NSData *ICloudRemindersReadSection(NSData *publicIdentity);
 FOUNDATION_EXPORT NSData *ICloudRemindersReadEarly(NSData *publicIdentity);
+FOUNDATION_EXPORT NSData *ICloudRemindersAddEarly(NSData *request,BOOL (^enterMutation)(void));
 FOUNDATION_EXPORT NSData *ICloudRemindersCreateSection(NSData *request,BOOL (^enterMutation)(void));
 FOUNDATION_EXPORT NSData *ICloudRemindersCreateSubtask(NSData *request,BOOL (^enterMutation)(void));
 // Exact selected-account recovery-view probe, not a restore or deletion operation.

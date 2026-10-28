@@ -106,6 +106,20 @@ class NativeRemindersTests(unittest.TestCase):
         self.assertFalse(self.adapter.verify(item,outcome));metadata.update(section=None,section_status='provider_not_reported')
         metadata['has_subtasks']=True;metadata['child_ids']=['unexpected-child'];self.assertFalse(self.adapter.verify(item,outcome))
 
+    def test_add_early_requires_timed_due_empty_native_and_exact_readback(self):
+        with self.assertRaises(SafetyError):self.existing('add_early',{'unit':'minutes','count':5})
+        metadata=self.native_reader()
+        with self.assertRaises(SafetyError):self.existing('add_early',{'unit':'minutes','count':5})
+        self.reader.item['due']={'year':2027,'month':1,'day':1,'hour':10,'minute':0,'timezone':'UTC'}
+        for fields in ({'unit':'seconds','count':5},{'unit':[],'count':5},{'unit':'minutes','count':True},{'unit':'minutes','count':0}):
+            with self.subTest(fields=fields),self.assertRaises(SafetyError):self.existing('add_early',fields)
+        item=self.existing('add_early',{'unit':'minutes','count':5})
+        metadata.update(early_alerts=[{'native_unit':0,'native_count':-5}],early_payload_fingerprint='a'*64)
+        self.assertTrue(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
+        metadata['early_alerts'][0]['native_count']=-6
+        self.assertFalse(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
+        with self.assertRaises(SafetyError):self.existing('add_early',{'unit':'minutes','count':5})
+
     def test_urgent_drift_blocks_nonurgent_write_readback_and_snapshot(self):
         self.native_reader();state={'urgent':False};read=self.reader.read
         def enriched(action,**fields):

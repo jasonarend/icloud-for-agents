@@ -264,6 +264,7 @@ def register_change_tools(mcp):
             location with title, latitude, longitude, radius_meters and proximity
             enter/leave. Review includes exact triggers and notification effects.
             Location-text writes and unsupported advanced alarms are refused.
+            add_early uses exact id and fields.unit (minutes, hours, or days) and positive integer fields.count; it adds one early alert to a timed reminder only when the native state is observed empty.
             set_urgent uses exact id and fields.urgent Boolean; it changes current-user urgent notifications.
             set_flagged uses exact id and fields.flagged Boolean, requiring the
             explicitly selected ReminderKit backend. remove_tag uses exact id and

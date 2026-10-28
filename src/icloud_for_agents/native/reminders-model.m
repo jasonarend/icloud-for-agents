@@ -147,7 +147,7 @@ NSData *ICloudRemindersReadEarly(NSData *data){
         if(raw){
             if(![raw isKindOfClass:NSData.class] || [raw length]>65536 || ![raw length])return EncodeFlag(FlagFailure(@"unsupported_early_metadata"));
             id payload=[NSJSONSerialization JSONObjectWithData:raw options:0 error:NULL];
-            if(![payload isKindOfClass:NSDictionary.class] || ![payload[@"accountIdentifier"] isKindOfClass:NSString.class] || ![payload[@"reminderIdentifier"] isKindOfClass:NSString.class] || !UUIDEqual(payload[@"accountIdentifier"],identity[@"source_id"]) || !UUIDEqual(payload[@"reminderIdentifier"],identity[@"id"]) || ![payload[@"dueDateDeltaAlerts"] isKindOfClass:NSArray.class] || [payload[@"dueDateDeltaAlerts"] count]>100)return EncodeFlag(FlagFailure(@"unsupported_early_metadata"));
+            if(![payload isKindOfClass:NSDictionary.class] || ![payload[@"minimumSupportedVersion"] isKindOfClass:NSNumber.class] || CFGetTypeID((__bridge CFTypeRef)payload[@"minimumSupportedVersion"])==CFBooleanGetTypeID() || [payload[@"minimumSupportedVersion"] doubleValue]!=20230430 || ![payload[@"accountIdentifier"] isKindOfClass:NSString.class] || ![payload[@"reminderIdentifier"] isKindOfClass:NSString.class] || !UUIDEqual(payload[@"accountIdentifier"],identity[@"source_id"]) || !UUIDEqual(payload[@"reminderIdentifier"],identity[@"id"]) || ![payload[@"dueDateDeltaAlerts"] isKindOfClass:NSArray.class] || [payload[@"dueDateDeltaAlerts"] count]>100)return EncodeFlag(FlagFailure(@"unsupported_early_metadata"));
             for(id alert in payload[@"dueDateDeltaAlerts"]){
                 if(![alert isKindOfClass:NSDictionary.class])return EncodeFlag(FlagFailure(@"unsupported_early_metadata"));
                 id unit=alert[@"dueDateDeltaUnit"],count=alert[@"dueDateDeltaCount"];
@@ -158,6 +158,27 @@ NSData *ICloudRemindersReadEarly(NSData *data){
         }else if(unfetched)return EncodeFlag(FlagFailure(@"unsupported_early_metadata"));
         return EncodeFlag(@{@"protocol_version":@1,@"native_metadata":@{@"backend":@"reminderkit-early-v1",@"id":identity[@"id"],@"source_id":identity[@"source_id"],@"list_id":identity[@"list_id"],@"early_alerts":alerts,@"early_payload_fingerprint":fingerprint,@"coverage":@[@"early"],@"native_metadata_complete":@NO,@"observation_consistency":@"separate_provider_reads"}});
     }@catch(NSException *exception){return EncodeFlag(FlagFailure(@"private_read_exception"));}
+}
+// Add one observed-empty early offset through the same final mutation gate.
+NSData *ICloudRemindersAddEarly(NSData *data,BOOL (^enterMutation)(void)){
+    __block BOOL dispatched=NO;
+    @try {
+        id req=[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
+        if(![req isKindOfClass:NSDictionary.class] || [req count]!=5 || !enterMutation)return EncodeFlag(FlagFailure(@"invalid_public_identity"));
+        id unit=req[@"unit"],count=req[@"count"];
+        if(![unit isKindOfClass:NSNumber.class] || ![count isKindOfClass:NSNumber.class] || CFGetTypeID((__bridge CFTypeRef)unit)==CFBooleanGetTypeID() || CFGetTypeID((__bridge CFTypeRef)count)==CFBooleanGetTypeID() || [unit doubleValue]!=[unit integerValue] || [count doubleValue]!=[count integerValue] || [unit integerValue]<0 || [unit integerValue]>2 || [count integerValue]>-1 || [count integerValue]<-10000)return EncodeFlag(FlagFailure(@"invalid_early_offset"));
+        NSDictionary *identity=@{@"id":req[@"id"]?:[NSNull null],@"source_id":req[@"source_id"]?:[NSNull null],@"list_id":req[@"list_id"]?:[NSNull null]};NSData *bytes=[NSJSONSerialization dataWithJSONObject:identity options:0 error:NULL];NSDictionary *failure=nil;id store=nil;id reminder=SelectedReminderWithStore(bytes,&failure,&store);if(!reminder||!store)return EncodeFlag(failure?:FlagFailure(@"private_store_unavailable"));
+        id read=[NSJSONSerialization JSONObjectWithData:ICloudRemindersReadEarly(bytes) options:0 error:NULL];id metadata=read[@"native_metadata"];
+        if(![metadata isKindOfClass:NSDictionary.class] || metadata[@"early_payload_fingerprint"]!=[NSNull null] || ![metadata[@"early_alerts"] isEqual:@[]])return EncodeFlag(FlagFailure(@"snapshot_changed"));
+        Class cls=NSClassFromString(@"REMSaveRequest"),deltaClass=NSClassFromString(@"REMDueDateDeltaInterval");
+        if(!MethodMatches(cls,@"initWithStore:",@"@@:@",NO)||!MethodMatches(cls,@"updateReminder:",@"@@:@",NO)||!MethodMatches(cls,@"saveSynchronouslyWithError:",@"B@:^@",NO)||!MethodMatches(deltaClass,@"initWithUnit:count:",@"@@:qq",NO))return EncodeFlag(FlagFailure(@"unsupported_early_write"));
+        id save=((id(*)(id,SEL,id))objc_msgSend)([cls alloc],NSSelectorFromString(@"initWithStore:"),store);id change=((id(*)(id,SEL,id))objc_msgSend)(save,NSSelectorFromString(@"updateReminder:"),reminder);id context=ObjectValue(change,@"dueDateDeltaAlertContext");
+        if(!context||!MethodMatches([context class],@"addDueDateDeltaAlertWithDueDateDelta:",@"@@:@",NO))return EncodeFlag(FlagFailure(@"unsupported_early_write"));
+        id interval=((id(*)(id,SEL,NSInteger,NSInteger))objc_msgSend)([deltaClass alloc],NSSelectorFromString(@"initWithUnit:count:"),[unit integerValue],[count integerValue]);id added=((id(*)(id,SEL,id))objc_msgSend)(context,NSSelectorFromString(@"addDueDateDeltaAlertWithDueDateDelta:"),interval);if(!added)return EncodeFlag(FlagFailure(@"unsupported_early_write"));
+        if(!enterMutation())return EncodeFlag(FlagFailure(@"native_dispatch_cancelled"));dispatched=YES;NSError *error=nil;BOOL saved=((BOOL(*)(id,SEL,NSError **))objc_msgSend)(save,NSSelectorFromString(@"saveSynchronouslyWithError:"),&error);
+        if(!saved||error)return EncodeFlag(@{@"protocol_version":@1,@"error":@"mutation_failed_or_uncertain",@"mutation_dispatched":@YES});
+        return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":identity[@"id"],@"source_id":identity[@"source_id"],@"list_id":identity[@"list_id"],@"saved_locally":@YES}});
+    }@catch(NSException *exception){return EncodeFlag(@{@"protocol_version":@1,@"error":dispatched?@"mutation_failed_or_uncertain":@"private_metadata_unavailable",@"mutation_dispatched":@(dispatched)});}
 }
 NSData *ICloudRemindersReadFlag(NSData *data){
     @try{

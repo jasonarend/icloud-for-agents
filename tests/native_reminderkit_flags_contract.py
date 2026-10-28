@@ -140,8 +140,21 @@ static int flagSaves=0;static BOOL saveFails=NO;
 @implementation FixtureUrgentChange
 -(void)setIsUrgentStateEnabledForCurrentUser:(BOOL)value{self.enabled=value;}
 @end
+@interface FixtureDelta:NSObject
+-(id)initWithUnit:(NSInteger)unit count:(NSInteger)count;
+@end
+@implementation FixtureDelta
+-(id)initWithUnit:(NSInteger)unit count:(NSInteger)count{return [super init];}
+@end
+@interface FixtureEarlyChange:NSObject
+-(id)addDueDateDeltaAlertWithDueDateDelta:(id)delta;
+@end
+@implementation FixtureEarlyChange
+-(id)addDueDateDeltaAlertWithDueDateDelta:(id)delta{return delta;}
+@end
 @interface FixtureReminderChange:NSObject
 @property FixtureFlagChange *flaggedContext;
+@property FixtureEarlyChange *dueDateDeltaAlertContext;
 @property FixtureUrgentChange *urgentAlarmContext;
 @property FixtureTagChange *hashtagContext;
 @property id subtaskContext;
@@ -167,7 +180,7 @@ static int flagSaves=0;static BOOL saveFails=NO;
 -(id)initWithStore:(id)store{return [super init];}
 -(id)updateList:(id)list{return [FixtureListChange new];}
 -(id)addListSectionWithDisplayName:(id)title toListSectionContextChangeItem:(id)context listSectionObjectID:(id)identity{return [NSObject new];}
--(id)updateReminder:(id)reminder{self.change=[FixtureReminderChange new];self.change.subtaskContext=[NSObject new];self.change.flaggedContext=[FixtureFlagChange new];self.change.urgentAlarmContext=[FixtureUrgentChange new];self.change.urgentAlarmContext.enabled=((FixtureUrgent *)fixture.urgentAlarmContext).enabled;self.change.hashtagContext=[FixtureTagChange new];self.change.hashtagContext.hashtags=[NSMutableArray arrayWithArray:((FixtureTags *)fixture.hashtagContext).hashtags ?: @[]];return self.change;}
+-(id)updateReminder:(id)reminder{self.change=[FixtureReminderChange new];self.change.dueDateDeltaAlertContext=[FixtureEarlyChange new];self.change.subtaskContext=[NSObject new];self.change.flaggedContext=[FixtureFlagChange new];self.change.urgentAlarmContext=[FixtureUrgentChange new];self.change.urgentAlarmContext.enabled=((FixtureUrgent *)fixture.urgentAlarmContext).enabled;self.change.hashtagContext=[FixtureTagChange new];self.change.hashtagContext.hashtags=[NSMutableArray arrayWithArray:((FixtureTags *)fixture.hashtagContext).hashtags ?: @[]];return self.change;}
 -(id)addReminderWithTitle:(id)title toReminderSubtaskContextChangeItem:(id)context reminderObjectID:(id)identity{return [NSObject new];}
 -(BOOL)saveSynchronouslyWithError:(NSError **)error{flagSaves++;if(saveFails){*error=[NSError errorWithDomain:@"synthetic" code:1 userInfo:nil];return NO;}((FixtureFlag *)fixture.flaggedContext).flagged=self.change.flaggedContext.flagged;if(fixture.hashtagContext)((FixtureTags *)fixture.hashtagContext).hashtags=self.change.hashtagContext.hashtags;if(fixture.urgentAlarmContext)((FixtureUrgent *)fixture.urgentAlarmContext).enabled=self.change.urgentAlarmContext.enabled;return YES;}
 @end
@@ -198,11 +211,17 @@ int main(){@autoreleasepool{
  fixture.storage=[FixtureStorage new];NSDictionary *(^early)(void)=^NSDictionary *{return [NSJSONSerialization JSONObjectWithData:ICloudRemindersReadEarly(membershipData) options:0 error:NULL];};
  NSCAssert([early()[@"native_metadata"][@"early_alerts"] count]==0 && early()[@"native_metadata"][@"early_payload_fingerprint"]==[NSNull null],@"empty early state observed");
  fixture.storage.hasUnfetchedDueDateDeltaAlerts=YES;NSCAssert(early()[@"error"],@"unfetched payload cannot mean empty");
- NSMutableDictionary *payload=[@{@"accountIdentifier":source,@"reminderIdentifier":task,@"dueDateDeltaAlerts":@[@{@"dueDateDeltaUnit":@0,@"dueDateDeltaCount":@-5}]} mutableCopy];fixture.storage.dueDateDeltaAlertsData=[NSJSONSerialization dataWithJSONObject:payload options:0 error:NULL];
+ NSMutableDictionary *payload=[@{@"minimumSupportedVersion":@20230430,@"accountIdentifier":source,@"reminderIdentifier":task,@"dueDateDeltaAlerts":@[@{@"dueDateDeltaUnit":@0,@"dueDateDeltaCount":@-5}]} mutableCopy];fixture.storage.dueDateDeltaAlertsData=[NSJSONSerialization dataWithJSONObject:payload options:0 error:NULL];
  NSCAssert([early()[@"native_metadata"][@"early_alerts"][0][@"native_count"] integerValue]==-5 && [early()[@"native_metadata"][@"early_payload_fingerprint"] length]==64,@"scoped early payload observed");
+ payload[@"minimumSupportedVersion"]=@20240430;fixture.storage.dueDateDeltaAlertsData=[NSJSONSerialization dataWithJSONObject:payload options:0 error:NULL];NSCAssert(early()[@"error"],@"unknown provider version refused");payload[@"minimumSupportedVersion"]=@20230430;
  payload[@"accountIdentifier"]=other;fixture.storage.dueDateDeltaAlertsData=[NSJSONSerialization dataWithJSONObject:payload options:0 error:NULL];NSCAssert(early()[@"error"],@"foreign early payload refused");
  payload[@"accountIdentifier"]=source;payload[@"dueDateDeltaAlerts"]=@[@{@"dueDateDeltaUnit":@YES,@"dueDateDeltaCount":@-5}];fixture.storage.dueDateDeltaAlertsData=[NSJSONSerialization dataWithJSONObject:payload options:0 error:NULL];NSCAssert(early()[@"error"],@"boolean interval refused");
  fixture.storage.dueDateDeltaAlertsData=[NSMutableData dataWithLength:65537];NSCAssert(early()[@"error"],@"oversized payload refused");fixture.storage.hasUnfetchedDueDateDeltaAlerts=NO;fixture.storage.dueDateDeltaAlertsData=nil;
+ NSDictionary *earlyAdd=@{@"id":task,@"source_id":source,@"list_id":list,@"unit":@0,@"count":@-5};NSData *earlyAddData=[NSJSONSerialization dataWithJSONObject:earlyAdd options:0 error:NULL];int earlySaves=flagSaves;
+ NSDictionary *(^addEarly)(BOOL)=^NSDictionary *(BOOL allow){return [NSJSONSerialization JSONObjectWithData:ICloudRemindersAddEarly(earlyAddData,^{return allow;}) options:0 error:NULL];};
+ NSCAssert(addEarly(NO)[@"error"] && flagSaves==earlySaves,@"closed early gate never saves");
+ NSCAssert(addEarly(YES)[@"result"] && flagSaves==earlySaves+1,@"one fixed early write saves only after gate");
+ fixture.storage.hasUnfetchedDueDateDeltaAlerts=YES;NSCAssert(addEarly(YES)[@"error"] && flagSaves==earlySaves+1,@"unavailable early state refuses save");fixture.storage.hasUnfetchedDueDateDeltaAlerts=NO;flagSaves=0;
  NSDictionary *createSection=@{@"source_id":source,@"list_id":list,@"section_id":other,@"title":@"Synthetic new",@"expected_sections":@[]};NSData *createData=[NSJSONSerialization dataWithJSONObject:createSection options:0 error:NULL];NSDictionary *closed=[NSJSONSerialization JSONObjectWithData:ICloudRemindersCreateSection(createData,^{return NO;}) options:0 error:NULL];NSCAssert(closed[@"error"] && flagSaves==0,@"closed section dispatch gate never saves");
  NSDictionary *request=@{@"id":task,@"source_id":source,@"list_id":list};
  NSDictionary *set=@{@"id":task,@"source_id":source,@"list_id":list,@"expected_flagged":@NO,@"flagged":@YES};
@@ -296,7 +315,7 @@ int main(){@autoreleasepool{
 def run():
     source=(ROOT/'src/icloud_for_agents/native/reminders-model.m').read_text();source=source.replace('    if(NSProcessInfo.processInfo.operatingSystemVersion.majorVersion!=27)return NO;','').replace('    if(!dlopen("/System/Library/PrivateFrameworks/ReminderKit.framework/ReminderKit",RTLD_LAZY|RTLD_LOCAL))return NO;','')
     source=source.replace('NSProcessInfo.processInfo.operatingSystemVersion.majorVersion!=27 || !dlopen("/System/Library/PrivateFrameworks/ReminderKit.framework/ReminderKit",RTLD_LAZY|RTLD_LOCAL)','NO')
-    for real,fake in [('REMStore','FixtureStore'),('REMObjectID','FixtureID'),('REMReminder','FixtureReminder'),('REMSaveRequest','FixtureSave'),('REMListSectionsDataView','FixtureSectionView')]:source=source.replace('NSClassFromString(@"'+real+'")','NSClassFromString(@"'+fake+'")')
+    for real,fake in [('REMDueDateDeltaInterval','FixtureDelta'),('REMStore','FixtureStore'),('REMObjectID','FixtureID'),('REMReminder','FixtureReminder'),('REMSaveRequest','FixtureSave'),('REMListSectionsDataView','FixtureSectionView')]:source=source.replace('NSClassFromString(@"'+real+'")','NSClassFromString(@"'+fake+'")')
     with tempfile.TemporaryDirectory(prefix='native-flag-contract-') as directory:
         p=Path(directory);(p/'reminders-model.h').write_text((ROOT/'src/icloud_for_agents/native/reminders-model.h').read_text());(p/'test.m').write_text(source+'\n'+FIXTURE)
         result=subprocess.run(['/usr/bin/clang','-fobjc-arc','-framework','Foundation',str(p/'test.m'),'-o',str(p/'contract')],capture_output=True,text=True,timeout=60);assert result.returncode==0,result.stderr
