@@ -3,6 +3,8 @@ import importlib
 import json
 import os
 import tempfile
+import tomllib
+from pathlib import Path
 import unittest
 from unittest.mock import patch
 
@@ -11,6 +13,13 @@ from icloud_for_agents.dav_changes import contact_content, event_content
 from icloud_for_agents.cleanup_access import CleanupAccess
 from icloud_for_agents.service import MailService
 from test_mail_safety import FakeIMAP
+
+
+class ReleaseVersionTests(unittest.TestCase):
+    def test_runtime_and_package_versions_agree(self):
+        from icloud_for_agents.version import __version__
+        project=tomllib.loads((Path(__file__).resolve().parents[1]/'pyproject.toml').read_text())
+        self.assertEqual(project['project']['version'],__version__)
 
 
 class ContactReplacementTests(unittest.TestCase):

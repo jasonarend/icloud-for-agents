@@ -1,6 +1,6 @@
 # iCloud for Agents
 
-**Version 1.1.0**
+**Development version 1.2.0.dev0**
 
 Manage iCloud mail, calendars and contacts from your AI assistant while keeping your credentials private and stored locally on your Mac. Connect a local MCP client like Claude over stdio, or connect ChatGPT through your own private OpenAI Secure MCP Tunnel.
 
