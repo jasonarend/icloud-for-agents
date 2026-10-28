@@ -350,12 +350,12 @@ class NativeRemindersTests(unittest.TestCase):
         with self.assertRaises(SafetyError):self.existing('set_completed',{'completed':True})
         self.reader.item['has_recurrence']=False;self.reader.item['source_id']='other'
         with self.assertRaises(SafetyError):self.existing()
-    def test_moves_and_previously_approved_move_snapshots_are_refused(self):
+    def test_same_list_moves_and_unguarded_legacy_move_snapshots_are_refused(self):
         for advanced in (False,True):
             if advanced:self.native_reader()
-            with self.subTest(advanced=advanced),self.assertRaisesRegex(SafetyError,'complete hierarchy'):
+            with self.subTest(advanced=advanced),self.assertRaises(SafetyError):
                 self.existing('move_reminder',{'list_id':'list'})
-            with self.subTest(advanced=advanced),self.assertRaisesRegex(SafetyError,'complete hierarchy'):
+            with self.subTest(advanced=advanced),self.assertRaises(SafetyError):
                 self.adapter.snapshot({'operation':'move_reminder','source_id':'selected','id':'created','fields':{'list_id':'list'}})
     def test_partial_date_edit_is_checked_against_unchanged_other_date(self):
         self.reader.item['start']={'year':2026,'month':10,'day':27,'date_only':True,'timezone':None}

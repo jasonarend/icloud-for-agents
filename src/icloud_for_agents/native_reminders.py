@@ -409,6 +409,9 @@ class RemindersCreateAdapter:
         return item
 
     def prepare(self,change):
+        if isinstance(change,dict) and change.get('operation')=='move_reminder':
+            from .native_reminder_moves import prepare
+            return prepare(self,change)
         if isinstance(change,dict) and change.get('operation')=='create_section':return self.prepare_section(change)
         if isinstance(change,dict) and change.get('operation')=='rename_section':return self.prepare_section_rename(change)
         if isinstance(change,dict) and change.get('operation')=='set_list_color':return self.prepare_list_color(change)
@@ -490,10 +493,9 @@ class RemindersCreateAdapter:
         return metadata['urgent']
 
     def snapshot(self,item):
-        # No current backend proves a complete subtree before a cross-list move.
-        # Apply this to fresh plans and rechecks of already approved plans.
         if item['operation']=='move_reminder':
-            raise SafetyError('Reminder moves are unavailable until complete hierarchy effects can be verified before dispatch')
+            from .native_reminder_moves import snapshot
+            return snapshot(self,item)
         if item['operation'] in {'create_section','rename_section'}:return self.section_snapshot(item)
         if item['operation'] in {'rename_list','set_list_color'}:return self.list_rename_snapshot(item)
         lists=[c for c in self.lists() if c['source_id']==item['source_id']]
@@ -538,6 +540,9 @@ class RemindersCreateAdapter:
         return actual==expected and self.urgent_snapshot(parent) is item['before']['urgent']
 
     def verify(self,item,outcome):
+        if item['operation']=='move_reminder' and 'source_graph' in item.get('before',{}):
+            from .native_reminder_moves import verify
+            return verify(self,item,outcome)
         if outcome.get('source_id')!=item['source_id'] or not isinstance(outcome.get('id'),str):return False
         if item['operation']=='rename_section':
             if outcome.get('id')!=item['section_id'] or outcome.get('source_id')!=item['source_id'] or outcome.get('list_id')!=item['list_id']:return False

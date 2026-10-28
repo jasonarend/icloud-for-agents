@@ -103,6 +103,11 @@ class NativeGrants:
                         roles[role['folder_id']]=stable
                 result.append({'source':dict(source,verified_move_roles=[roles[key] for key in sorted(roles)]),'destinations':destinations})
                 continue
+            if self.name=='reminders' and rule['operation']=='move_reminder':
+                from .native_reminder_moves import list_scope
+                source=list_scope(self.engine.adapter,rule['source_id'],rule['container_id'])
+                destinations=[list_scope(self.engine.adapter,rule['source_id'],value) for value in rule['destinations']]
+                result.append({'source':source,'destinations':destinations});continue
             source=self.container(rule['source_id'],rule['container_id'])
             if (self.name=='notes' and rule['operation'] in {'copy_observation','create_note','append_note','prepend_note','replace_text','update_note','create_folder'}
                     and rule['container_id']!=rule['source_id']):
@@ -135,8 +140,6 @@ class NativeGrants:
         return result
     def prepare(self,scope,*,_replaces=None):
         validate_scope(self.name,scope,self.store.clock())
-        if self.name=='reminders' and any(rule['operation']=='move_reminder' for rule in scope['rules']):
-            raise SafetyError('Reminder move grants are unavailable until complete hierarchy effects can be verified')
         context=self.engine.context(True)
         payload={'account':self.account,'context':context,'scope':scope,
              'containers':self.scope_snapshot(scope),'effects':{
@@ -145,10 +148,12 @@ class NativeGrants:
                  'configuration':'No service, source, OS permission or write-mode changes.',
                  'exclusions':'No permanent deletion, collaboration changes, invitations, locks, recording or external export.',
                  'sharing':'Notes private ancestors checked; EventKit does not expose reminder-list participant state.',
-                 'quotas':'All admitted batch items count, including uncertain or refused items; no automatic refund.'}}
+                 'quotas':'Every affected native object counts, including moved descendants and uncertain or refused items; no automatic refund.'}}
         if self.name=='notes':payload['effects']['folder_role']=('The optional native model checks selected content folders and their ancestors before admission; separate provider reads are not atomic.' if native_config('notes').get('folder_write_backend')=='notes-shared' else 'Notes content authority is limited to the account default creation folder; its identity is rechecked before dispatch.')
         if self.name=='notes' and any(rule['operation']=='move_note' for rule in scope['rules']):
             payload['effects']['move_scope']='Moves require explicitly selected read-only metadata, ordinary unshared source/destination ancestors and exact destination IDs. Roles and ancestry are rechecked at admission; every note retains its own content and attachment snapshot. No Recently Deleted, cross-account or shared moves.'
+        if self.name=='reminders' and any(rule['operation']=='move_reminder' for rule in scope['rules']):
+            payload['effects']['move_scope']='Move a root together with all reviewed descendants within the selected source and exact private physical lists. Every descendant counts against batch and rolling object caps. Section migration, recurring reminders and subtask detachment are refused; display ordering and unexposed metadata remain unverified.'
         if any(rule['operation']=='copy_observation' for rule in scope['rules']):
             payload['effects']['observation_copy']='Allows new lossy copies from caller-supplied observations in this exact scope; originals are unchanged, and copies do not retain original identity, native metadata or attachments. Duplicates may result. Each batch discloses its omissions and selected fields.'
             if self.name=='reminders':payload['effects']['observation_copy']+=' Reminder copies start incomplete; copied dates and absolute alarms can affect notifications controlled by Apple. Past alarms may notify immediately.'
@@ -290,11 +295,21 @@ class NativeGrants:
                 if op=='rename_section' and item['section_id'].upper() not in {value.upper() for value in rule['destinations']}:continue
                 return
         raise SafetyError('Native change exceeds the approved scenario source/container/operation/fields')
+    def batch_count(self,items,*,legacy=False):
+        count=0
+        for item in items:
+            if self.name=='reminders' and item.get('operation')=='move_reminder':
+                if 'source_graph' in item.get('before',{}):
+                    from .native_reminder_moves import charge
+                    count+=charge(item);continue
+                if not legacy:raise SafetyError('Move quota requires a complete reviewed subtree')
+            count+=1
+        return count
     def check_batch(self,plan,grant):
         binding=plan['payload'].get('standing_grant')
         if binding!={'grant_id':grant['plan_id'],'sha256':digest(grant)}:raise SafetyError('Native standing batch does not bind the active grant')
         items=plan['payload']['changes']
-        if not 1<=len(items)<=grant['payload']['scope']['max_batch']:raise SafetyError('Native standing batch exceeds its approved bound')
+        if not 1<=len(items)<=grant['payload']['scope']['max_batch'] or self.batch_count(items)>grant['payload']['scope']['max_batch']:raise SafetyError('Native standing batch exceeds its approved native-object bound')
         copy=plan['payload'].get('copy_review');marked=[item.get('standing_operation')=='copy_observation' for item in items]
         expected={'notes':'create_lossy_note_copy_from_user_supplied_observation','reminders':'create_lossy_copies_from_user_supplied_observation'}[self.name]
         if any(marked) or copy is not None:
@@ -308,7 +323,7 @@ class NativeGrants:
             plan=self.store.proposal(plan_id);binding=plan['payload'].get('standing_grant',{})
             grant=self.checked(binding.get('grant_id'));self.check_batch(plan,grant);lineage=self.lineage(grant)
             if plan.get('kind')!=self.name+'_change' or plan['payload'].get('account')!=self.account:raise SafetyError('Wrong native standing owner/service')
-            self.engine.assert_settled(plan);now=self.store.clock();scope=grant['payload']['scope'];count=len(plan['payload']['changes']);used=0
+            self.engine.assert_settled(plan);now=self.store.clock();scope=grant['payload']['scope'];count=self.batch_count(plan['payload']['changes']);used=0
             for path in self.store.root.glob('*.native-grant-use'):
                 entry=self.store.read(path)
                 if entry.get('grant_id') not in lineage:continue
@@ -318,7 +333,7 @@ class NativeGrants:
                 admitted=self.store.read(self.store.path(path.name.removesuffix('.native-grant-use'),'.json'))
                 if (entry.get('grant_sha256')!=digest(original_grant) or entry.get('plan_sha256')!=digest(admitted)
                         or admitted.get('payload',{}).get('standing_grant')!={'grant_id':original_grant['plan_id'],'sha256':digest(original_grant)}
-                        or entry['count']!=len(admitted.get('payload',{}).get('changes',[]))):raise SafetyError('Native grant quota audit does not bind its original batch')
+                        or entry['count']!=self.batch_count(admitted.get('payload',{}).get('changes',[]),legacy=True)):raise SafetyError('Native grant quota audit does not bind its original batch')
                 if entry['time']>=now-86400:used+=entry['count']
             if scope['max_24h'] is not None and used+count>scope['max_24h']:raise SafetyError('Native grant rolling 24-hour item cap reached')
             self.store.write_once(self.store.path(plan_id,'.native-grant-use'),{'grant_id':grant['plan_id'],'grant_sha256':digest(grant),'plan_sha256':digest(plan),'count':count,'time':now})

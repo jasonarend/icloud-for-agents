@@ -1085,3 +1085,94 @@ NSData *ICloudRemindersListHierarchy(NSData *data){
         return EncodeFlag(@{@"protocol_version":@1,@"source_id":identity[@"source_id"],@"list_id":identity[@"list_id"],@"nodes":nodes,@"data_mutated":@NO,@"backend":@"reminderkit-list-hierarchy-v1"});
     }@catch(NSException *exception){return EncodeFlag(FlagFailure(@"private_read_exception"));}
 }
+
+// Update only existing list/parent relationships for one exact root subtree.
+// All staged reminder changes are checked before the single gated native save.
+NSData *ICloudRemindersMoveSubtree(NSData *data,BOOL (^enterMutation)(void)){
+    __block BOOL dispatched=NO;
+    @try {
+        id req=[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
+        if(![req isKindOfClass:NSDictionary.class] || [req count]!=7 || !enterMutation)return EncodeFlag(FlagFailure(@"invalid_public_identity"));
+        NSString *source=req[@"source_id"],*origin=req[@"list_id"],*destination=req[@"destination_list_id"],*rootID=req[@"id"];
+        for(id value in @[source?:[NSNull null],origin?:[NSNull null],destination?:[NSNull null],rootID?:[NSNull null]])if(![value isKindOfClass:NSString.class] || ![[NSUUID alloc]initWithUUIDString:value])return EncodeFlag(FlagFailure(@"invalid_public_identity"));
+        if(UUIDEqual(origin,destination) || ![req[@"source_nodes"] isKindOfClass:NSArray.class] || ![req[@"destination_nodes"] isKindOfClass:NSArray.class] || ![req[@"moved_ids"] isKindOfClass:NSArray.class] || [req[@"moved_ids"] count]<1 || [req[@"moved_ids"] count]>20)return EncodeFlag(FlagFailure(@"invalid_public_identity"));
+        for(NSString *identity in @[origin,destination]){
+            NSData *bytes=[NSJSONSerialization dataWithJSONObject:@{@"source_id":source,@"list_id":identity} options:0 error:NULL];
+            NSDictionary *role=[NSJSONSerialization JSONObjectWithData:ICloudRemindersReadListFeatures(bytes) options:0 error:NULL];
+            if(![role[@"source_id"] isEqual:source] || ![role[@"list_id"] isEqual:identity] || ![role[@"data_mutated"] isEqual:@NO])return EncodeFlag(FlagFailure(@"snapshot_changed"));
+            for(NSString *key in @[@"is_group",@"grocery_categorization",@"grocery_shopping_session",@"shared",@"shared_to_me"])if(![role[key] isEqual:@NO])return EncodeFlag(FlagFailure(@"unsupported_move_write"));
+            NSDictionary *graph=[NSJSONSerialization JSONObjectWithData:ICloudRemindersListHierarchy(bytes) options:0 error:NULL];
+            if(![graph[@"nodes"] isEqual:req[[identity isEqual:origin]?@"source_nodes":@"destination_nodes"]])return EncodeFlag(FlagFailure(@"snapshot_changed"));
+        }
+        NSMutableDictionary *parents=[NSMutableDictionary dictionary];
+        for(NSDictionary *node in req[@"source_nodes"])parents[node[@"id"]]=node[@"parent_id"];
+        if(parents[rootID]!=[NSNull null])return EncodeFlag(FlagFailure(@"unsupported_move_write"));
+        NSMutableArray *closure=[NSMutableArray arrayWithObject:rootID];
+        for(NSUInteger index=0;index<closure.count;index++){
+            NSString *parent=closure[index];
+            for(NSDictionary *node in req[@"source_nodes"])if([node[@"parent_id"] isEqual:parent]){if([closure containsObject:node[@"id"]] || closure.count>=20)return EncodeFlag(FlagFailure(@"unsupported_move_write"));[closure addObject:node[@"id"]];}
+        }
+        NSArray *sorted=[closure sortedArrayUsingSelector:@selector(compare:)];
+        if(![sorted isEqual:req[@"moved_ids"]] || [req[@"destination_nodes"] count]+closure.count>200)return EncodeFlag(FlagFailure(@"snapshot_changed"));
+        NSDictionary *identity=@{@"id":rootID,@"source_id":source,@"list_id":origin};NSData *bytes=[NSJSONSerialization dataWithJSONObject:identity options:0 error:NULL];NSDictionary *failure=nil;id store=nil;
+        id root=SelectedReminderWithStore(bytes,&failure,&store);if(!root || !store)return EncodeFlag(failure?:FlagFailure(@"private_store_unavailable"));
+        Class ids=NSClassFromString(@"REMObjectID"),saveClass=NSClassFromString(@"REMSaveRequest");
+        if(!MethodMatches([store class],@"fetchListWithObjectID:error:",@"@@:@^@",NO) || !MethodMatches(saveClass,@"initWithStore:",@"@@:@",NO) || !MethodMatches(saveClass,@"updateList:",@"@@:@",NO) || !MethodMatches(saveClass,@"updateReminder:",@"@@:@",NO) || !MethodMatches(saveClass,@"saveSynchronouslyWithError:",@"B@:^@",NO))return EncodeFlag(FlagFailure(@"unsupported_move_write"));
+        id destinationID=((id(*)(id,SEL,id))objc_msgSend)((id)ids,NSSelectorFromString(@"objectIDWithURL:"),[NSURL URLWithString:[@"x-apple-reminderkit://REMCDList/" stringByAppendingString:destination]]);NSError *error=nil;
+        id target=((id(*)(id,SEL,id,NSError **))objc_msgSend)(store,NSSelectorFromString(@"fetchListWithObjectID:error:"),destinationID,&error);
+        if(error || !UUIDEqual(ObjectUUID(target,@"REMCDList"),destination) || !UUIDEqual(ObjectUUID(ObjectValue(target,@"account"),@"REMCDAccount"),source))return EncodeFlag(FlagFailure(@"native_identity_mismatch"));
+        NSMutableDictionary *models=[NSMutableDictionary dictionaryWithObject:root forKey:rootID];
+        for(NSString *identifier in closure){
+            if([identifier isEqual:rootID])continue;
+            id oid=((id(*)(id,SEL,id))objc_msgSend)((id)ids,NSSelectorFromString(@"objectIDWithURL:"),[NSURL URLWithString:[@"x-apple-reminderkit://REMCDReminder/" stringByAppendingString:identifier]]);error=nil;
+            id child=((id(*)(id,SEL,id,NSError **))objc_msgSend)(store,NSSelectorFromString(@"fetchReminderWithObjectID:error:"),oid,&error);
+            if(error || !UUIDEqual(ObjectUUID(child,@"REMCDReminder"),identifier) || !UUIDEqual(ObjectUUID(ObjectValue(child,@"list"),@"REMCDList"),origin) || !UUIDEqual(ObjectUUID(ObjectValue(child,@"account"),@"REMCDAccount"),source) || !UUIDEqual(ObjectUUID(ObjectValue(child,@"parentReminder"),@"REMCDReminder"),parents[identifier]))return EncodeFlag(FlagFailure(@"snapshot_changed"));
+            models[identifier]=child;
+        }
+        if(ObjectValue(root,@"parentReminder")!=nil)return EncodeFlag(FlagFailure(@"snapshot_changed"));
+        // Use the provider's moving traversal, and reject additional or omitted
+        // objects rather than relying on a partial child-presence hint.
+        NSMutableArray *ordered=[NSMutableArray arrayWithObject:rootID];
+        for(NSUInteger index=0;index<ordered.count;index++){
+            NSString *parentID=ordered[index];NSMutableSet *expected=[NSMutableSet set];for(NSString *candidate in closure)if([parents[candidate] isEqual:parentID])[expected addObject:candidate];
+            id context=ObjectValue(models[parentID],@"subtaskContext");if(!context){if(expected.count)return EncodeFlag(FlagFailure(@"unsupported_move_write"));continue;}
+            if(!MethodMatches([context class],@"fetchRemindersForMovingWithError:",@"@@:^@",NO))return EncodeFlag(FlagFailure(@"unsupported_move_write"));
+            error=nil;id raw=((id(*)(id,SEL,NSError **))objc_msgSend)(context,NSSelectorFromString(@"fetchRemindersForMovingWithError:"),&error);NSArray *values=nil;
+            if([raw isKindOfClass:NSArray.class])values=raw;else if([raw isKindOfClass:NSOrderedSet.class])values=[raw array];else if([raw isKindOfClass:NSSet.class])values=[raw allObjects];
+            if(error || !values || values.count>20)return EncodeFlag(FlagFailure(@"unsupported_move_write"));
+            NSMutableSet *direct=[NSMutableSet set],*seen=[NSMutableSet set];
+            for(id child in values){NSString *identifier=ObjectUUID(child,@"REMCDReminder");if(!identifier || [seen containsObject:identifier] || !models[identifier])return EncodeFlag(FlagFailure(@"snapshot_changed"));[seen addObject:identifier];
+                if([parents[identifier] isEqual:parentID]){if([ordered containsObject:identifier])return EncodeFlag(FlagFailure(@"snapshot_changed"));[direct addObject:identifier];[ordered addObject:identifier];}}
+            if(![direct isEqual:expected])return EncodeFlag(FlagFailure(@"snapshot_changed"));
+        }
+        if(![[NSSet setWithArray:ordered] isEqual:[NSSet setWithArray:closure]])return EncodeFlag(FlagFailure(@"snapshot_changed"));
+        id save=((id(*)(id,SEL,id))objc_msgSend)([saveClass alloc],NSSelectorFromString(@"initWithStore:"),store),listChange=((id(*)(id,SEL,id))objc_msgSend)(save,NSSelectorFromString(@"updateList:"),target);
+        if(!MethodMatches([listChange class],@"insertReminderChangeItem:adjacentToReminderChangeItem:isAfter:withParentReminderChangeItem:",@"v@:@@B@",NO))return EncodeFlag(FlagFailure(@"unsupported_move_write"));
+        NSMutableDictionary *changes=[NSMutableDictionary dictionary];
+        for(NSString *identifier in ordered){id change=((id(*)(id,SEL,id))objc_msgSend)(save,NSSelectorFromString(@"updateReminder:"),models[identifier]);id parent=parents[identifier]==[NSNull null]?nil:changes[parents[identifier]];
+            if(!change || (parents[identifier]!=[NSNull null] && !parent))return EncodeFlag(FlagFailure(@"unsupported_move_write"));
+            ((void(*)(id,SEL,id,id,BOOL,id))objc_msgSend)(listChange,NSSelectorFromString(@"insertReminderChangeItem:adjacentToReminderChangeItem:isAfter:withParentReminderChangeItem:"),change,nil,YES,parent);changes[identifier]=change;
+        }
+        for(NSString *identifier in ordered){id change=changes[identifier],storage=ObjectValue(change,@"storage"),owner=ObjectValue(storage,@"listID"),ownerUUID=ObjectValue(owner,@"uuid"),parent=ObjectValue(storage,@"parentReminderID"),keys=ObjectValue(change,@"changedKeys");
+            if(![ObjectValue(owner,@"entityName") isEqual:@"REMCDList"] || ![ownerUUID isKindOfClass:NSUUID.class] || !UUIDEqual([ownerUUID UUIDString],destination) || ![keys isKindOfClass:NSSet.class] || ![keys isSubsetOfSet:[NSSet setWithArray:@[@"listID",@"parentReminderID"]]])return EncodeFlag(FlagFailure(@"unsupported_move_effect"));
+            if(parents[identifier]==[NSNull null]){if(parent)return EncodeFlag(FlagFailure(@"unsupported_move_effect"));}
+            else {id uuid=ObjectValue(parent,@"uuid");if(![ObjectValue(parent,@"entityName") isEqual:@"REMCDReminder"] || ![uuid isKindOfClass:NSUUID.class] || !UUIDEqual([uuid UUIDString],parents[identifier]))return EncodeFlag(FlagFailure(@"unsupported_move_effect"));}
+        }
+        // ReminderKit tracks wrappers keyed by REMObjectID, rather than the
+        // change items themselves. Read the fixed noncopying accessor so this
+        // check cannot create a new staged change while inspecting the save.
+        id tracked=ObjectValue(save,@"trackedReminderChangeItems");
+        if(![tracked isKindOfClass:NSDictionary.class] || [tracked count]!=changes.count)return EncodeFlag(FlagFailure(@"unsupported_move_effect"));
+        NSMutableSet *trackedIDs=[NSMutableSet set];
+        for(id key in tracked){id uuid=ObjectValue(key,@"uuid");NSString *identifier=[uuid isKindOfClass:NSUUID.class]?[uuid UUIDString]:nil;
+            if(![ObjectValue(key,@"entityName") isEqual:@"REMCDReminder"] || !identifier || [trackedIDs containsObject:identifier]
+                    || !changes[identifier] || ObjectValue(tracked[key],@"valueWithoutPerformingCopy")!=changes[identifier])return EncodeFlag(FlagFailure(@"unsupported_move_effect"));
+            [trackedIDs addObject:identifier];
+        }
+        if(![trackedIDs isEqual:[NSSet setWithArray:closure]])return EncodeFlag(FlagFailure(@"unsupported_move_effect"));
+        if(!enterMutation())return EncodeFlag(FlagFailure(@"native_dispatch_cancelled"));dispatched=YES;error=nil;
+        BOOL saved=((BOOL(*)(id,SEL,NSError **))objc_msgSend)(save,NSSelectorFromString(@"saveSynchronouslyWithError:"),&error);
+        if(!saved || error)return EncodeFlag(@{@"protocol_version":@1,@"error":@"mutation_failed_or_uncertain",@"mutation_dispatched":@YES});
+        return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":rootID,@"source_id":source,@"list_id":destination,@"moved_ids":sorted,@"saved_locally":@YES}});
+    }@catch(NSException *exception){return EncodeFlag(@{@"protocol_version":@1,@"error":dispatched?@"mutation_failed_or_uncertain":@"private_metadata_unavailable",@"mutation_dispatched":@(dispatched)});}
+}

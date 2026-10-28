@@ -48,13 +48,19 @@ def inspect_uncertain_reminder(engine, plan_id):
             or observed['list'].get('id') != observed['item'].get('list_id')
             or observed['list'].get('source_id') != source):
         raise SafetyError('Observed reminder identity or source differs from the plan')
+    matches=observed == before
+    coverage='only_fields_exposed_by_the_current_adapter'
+    if item['operation']=='move_reminder' and 'source_graph' in before:
+        from .native_reminder_moves import observe_unchanged
+        matches=observe_unchanged(engine.adapter,item,observed)
+        coverage='all_reviewed_subtree_snapshots_and_both_bounded_list_graphs'
     if engine.context(True) != context:
         raise SafetyError('Reminder access changed during observation')
     from .native_reminder_exchange import inspect
     terminal=inspect(engine.store,plan)
     return {'plan_id': plan_id, 'reminder_id': identity, 'source_id': source,
-            'observed_snapshot_matches_before': observed == before,
-            'snapshot_coverage': 'only_fields_exposed_by_the_current_adapter',
+            'observed_snapshot_matches_before': matches,
+            'snapshot_coverage': coverage,
             'observation_consistency': 'separate_live_reads_may_change',
             'original_uncertainty_retained': True, 'causal_dispatch_proven': False,
             'data_mutated': False, 'do_not_retry': True, **terminal}

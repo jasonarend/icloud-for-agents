@@ -612,8 +612,46 @@ func reminderRecurrence(_ value:Any,due:DateComponents?)->EKRecurrenceRule? {
     return rule
 }
 if action == "apply" {
-    if let change=req["change"] as? [String:Any],let operation=change["operation"] as? String,["set_flagged","remove_tag","add_tag","replace_tag","set_urgent","add_early","clear_early","create_subtask","create_section","rename_section"].contains(operation) {
+    if let change=req["change"] as? [String:Any],let operation=change["operation"] as? String,["set_flagged","remove_tag","add_tag","replace_tag","set_urgent","add_early","clear_early","create_subtask","create_section","rename_section","move_reminder"].contains(operation) {
         privateReminderGateArmed=true;NativeMutationGate.armDeadline()
+    }
+    if let item=req["change"] as? [String:Any],item["operation"] as? String == "move_reminder" {
+        guard item["hierarchy_guard"] as? String == "verified_list_graphs" else {fail("unsupported_hierarchy_move")}
+        guard let source=item["source_id"] as? String,sourceIDs.contains(source),let identifier=item["id"] as? String,
+              let originID=item["list_id"] as? String,let fields=item["fields"] as? [String:Any],Set(fields.keys)==["list_id"],let destinationID=fields["list_id"] as? String,originID != destinationID,
+              let origin=lists.first(where:{$0.calendarIdentifier==originID && $0.source.sourceIdentifier==source}),let destination=lists.first(where:{$0.calendarIdentifier==destinationID && $0.source.sourceIdentifier==source}),origin.allowsContentModifications,destination.allowsContentModifications,
+              let before=item["before"] as? [String:Any],let sourceScope=before["source_scope"] as? [String:Any],let destinationScope=before["destination_scope"] as? [String:Any],let expectedSource=sourceScope["list"] as? [String:Any],let expectedDestination=destinationScope["list"] as? [String:Any],
+              NSDictionary(dictionary:listRecord(origin)).isEqual(to:expectedSource),NSDictionary(dictionary:listRecord(destination)).isEqual(to:expectedDestination),
+              let sourceNodes=before["source_nodes"] as? [[String:Any]],let destinationNodes=before["destination_nodes"] as? [[String:Any]],sourceNodes.count<=200,destinationNodes.count<=200,
+              let descendants=before["descendants"] as? [[String:Any]],descendants.count<20,let rootPublic=before["item"] as? [String:Any],rootPublic["id"] as? String==identifier,rootPublic["list_id"] as? String==originID,rootPublic["source_id"] as? String==source else {fail("invalid_mutation")}
+        let snapshots=[before]+descendants
+        store.fetchReminders(matching:store.predicateForReminders(in:[origin,destination])) { values in
+            guard let values=values,values.count<=400 else {fail("query_limit")}
+            var current:[String:EKReminder]=[:];var sourceSet=Set<String>(),destinationSet=Set<String>()
+            for value in values {
+                guard value.calendar.source.sourceIdentifier==source,current[value.calendarItemIdentifier]==nil else {fail("snapshot_changed")}
+                if value.calendar.calendarIdentifier==originID {sourceSet.insert(value.calendarItemIdentifier)}
+                else if value.calendar.calendarIdentifier==destinationID {destinationSet.insert(value.calendarItemIdentifier)} else {fail("snapshot_changed")}
+                current[value.calendarItemIdentifier]=value
+            }
+            let sourceIDs=sourceNodes.compactMap{$0["id"] as? String},destinationIDs=destinationNodes.compactMap{$0["id"] as? String}
+            guard sourceIDs.count==sourceNodes.count,destinationIDs.count==destinationNodes.count,Set(sourceIDs)==sourceSet,Set(destinationIDs)==destinationSet else {fail("snapshot_changed")}
+            var movedIDs=[String]()
+            for snapshot in snapshots {
+                guard let previous=snapshot["item"] as? [String:Any],let id=previous["id"] as? String,!movedIDs.contains(id),sourceSet.contains(id),let reminder=current[id],!reminder.hasRecurrenceRules,
+                      NSDictionary(dictionary:object(reminder)).isEqual(to:previous),let native=snapshot["native_metadata"] as? [String:Any],nativeSnapshotMatches(reminder,native),
+                      native["section"] is NSNull,native["section_status"] as? String=="provider_not_reported",
+                      let urgent=snapshot["urgent"] as? NSNumber,CFGetTypeID(urgent)==CFBooleanGetTypeID(),
+                      let identity=try? JSONSerialization.data(withJSONObject:["id":id,"source_id":source,"list_id":originID]),let urgentResponse=(try? JSONSerialization.jsonObject(with:ICloudRemindersReadUrgent(identity))) as? [String:Any],let urgentMetadata=urgentResponse["native_metadata"] as? [String:Any],let observed=urgentMetadata["urgent"] as? NSNumber,CFGetTypeID(observed)==CFBooleanGetTypeID(),observed.boolValue==urgent.boolValue else {fail("snapshot_changed")}
+                movedIDs.append(id)
+            }
+            guard let payload=try? JSONSerialization.data(withJSONObject:["id":identifier,"source_id":source,"list_id":originID,"destination_list_id":destinationID,"source_nodes":sourceNodes,"destination_nodes":destinationNodes,"moved_ids":movedIDs.sorted()]),
+                  let response=(try? JSONSerialization.jsonObject(with:ICloudRemindersMoveSubtree(payload,{NativeMutationGate.beginMutation()}))) as? [String:Any] else {fail("invalid_mutation")}
+            if response["error"] != nil {fail((response["mutation_dispatched"] as? Bool)==true ? "mutation_failed_or_uncertain" : "unsupported_edit_target")}
+            guard let output=response["result"] as? [String:Any] else {fail("mutation_failed_or_uncertain")}
+            respond(["protocol_version":1,"result":output])
+        }
+        RunLoop.current.run(until:Date(timeIntervalSinceNow:30));fail("mutation_failed_or_uncertain")
     }
     if let item=req["change"] as? [String:Any],let operation=item["operation"] as? String,["create_section","rename_section"].contains(operation) {
         guard let source=item["source_id"] as? String,sourceIDs.contains(source),let listID=item["list_id"] as? String,

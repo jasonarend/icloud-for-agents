@@ -61,8 +61,11 @@ class NativeAccessTests(unittest.TestCase):
             self.assertNotIn('move_note',status['unavailable_write_operations'])
             self.assertEqual(status['provider_capabilities'],'not_probed')
 
-    def test_early_removal_inventory_requires_explicit_native_backend(self):
+    def test_native_clear_and_subtree_move_inventory_require_explicit_backend(self):
         for backend in ('disabled','reminderkit'):
             env={'ICLOUD_ENABLE_REMINDERS':'1','ICLOUD_NATIVE_CONFIG':json.dumps({'reminders':{'advanced_backend':backend}})}
             with self.subTest(backend=backend),patch.dict(os.environ,env,clear=True):
-                status=access_status('reminders');self.assertEqual('clear_early' in status['implemented_write_operations'],backend=='reminderkit');self.assertEqual('clear_early' in status['unavailable_write_operations'],backend!='reminderkit');self.assertEqual(status['effective_access'],'read-only')
+                status=access_status('reminders')
+                for operation in ('clear_early','move_reminder'):
+                    self.assertEqual(operation in status['implemented_write_operations'],backend=='reminderkit');self.assertEqual(operation in status['unavailable_write_operations'],backend!='reminderkit')
+                self.assertEqual(status['effective_access'],'read-only')

@@ -41,6 +41,10 @@ def mutation_request(service,item):
             if 'native_metadata' in item['before']:change['before']['native_metadata']=item['before']['native_metadata']
             if 'urgent' in item['before']:change['before']['urgent']=item['before']['urgent']
         if operation in {'rename_list','set_list_color','create_section','rename_section'}:change['before']=item['before']
+        if operation=='move_reminder' and 'source_graph' in item['before']:
+            from .native_reminder_moves import structure
+            before=item['before'];change['hierarchy_guard']='verified_list_graphs'
+            change['before'].update(source_scope=before['source_scope'],destination_scope=before['destination_scope'],source_nodes=structure(before['source_graph']),destination_nodes=structure(before['destination_graph']),descendants=[{key:part[key] for key in ('item','native_metadata','urgent')} for part in before['descendants']])
     else:
         # Unknown operations are never introduced by the fixed MCP adapters.
         # Preserve their data for synthetic/negative protocol tests; the helper
