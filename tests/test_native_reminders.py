@@ -163,6 +163,26 @@ class NativeRemindersTests(unittest.TestCase):
         month=self.existing('add_early',{'unit':'months','count':2});metadata.update(early_alerts=[{'native_unit':4,'native_count':-2}],early_payload_fingerprint='b'*64)
         self.assertTrue(self.adapter.verify(month,{'id':'created','source_id':'selected'}))
 
+    def test_clear_early_requires_one_exact_reviewed_alert_and_preserves_other_fields(self):
+        with self.assertRaises(SafetyError):self.existing('clear_early',{'clear':True})
+        metadata=self.native_reader()
+        for fields in ({'clear':False},{'clear':1},{'clear':True,'extra':True},{}):
+            with self.subTest(fields=fields),self.assertRaises(SafetyError):self.existing('clear_early',fields)
+        with self.assertRaises(SafetyError):self.existing('clear_early',{'clear':True})
+        metadata.update(early_alerts=[{'native_unit':0,'native_count':-5}],early_payload_fingerprint='a'*64)
+        item=self.existing('clear_early',{'clear':True})
+        from icloud_for_agents.native_protocol import mutation_request
+        self.assertEqual(mutation_request('reminders',item)['change']['before']['native_metadata']['early_payload_fingerprint'],'a'*64)
+        outcome={'id':'created','source_id':'selected'}
+        self.assertFalse(self.adapter.verify(item,outcome))
+        metadata.update(early_alerts=[],early_payload_fingerprint=None)
+        self.assertTrue(self.adapter.verify(item,outcome))
+        metadata['early_payload_fingerprint']='b'*64
+        self.assertTrue(self.adapter.verify(item,outcome)) # A valid known-empty provider envelope is not a new alarm.
+        self.reader.item['notes']='unrelated change';self.assertFalse(self.adapter.verify(item,outcome));self.reader.item['notes']=''
+        metadata.update(early_alerts=[{'native_unit':0,'native_count':-5}]*2,early_payload_fingerprint='c'*64)
+        with self.assertRaises(SafetyError):self.existing('clear_early',{'clear':True})
+
     def test_due_change_reviews_early_notification_and_refuses_unsafe_clear(self):
         metadata=self.native_reader();metadata.update(early_alerts=[{'native_unit':0,'native_count':-5}],early_payload_fingerprint='a'*64)
         due={'year':2027,'month':1,'day':1,'hour':10,'minute':0,'timezone':'UTC'};self.reader.item['due']=due

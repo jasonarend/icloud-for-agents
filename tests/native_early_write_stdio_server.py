@@ -27,7 +27,10 @@ class Adapter(RemindersCreateAdapter):
             return result
         self.reader.read=enriched
     def apply(self,item):
-        require_write('reminders',item);assert item['operation']=='add_early';self.alerts[item['id']]=[{'native_unit':{'minutes':0,'hours':1,'days':2,'weeks':3,'months':4}[item['fields']['unit']],'native_count':-item['fields']['count']}]
+        require_write('reminders',item)
+        if item['operation']=='clear_early':self.alerts.pop(item['id'])
+        else:
+            assert item['operation']=='add_early';self.alerts[item['id']]=[{'native_unit':{'minutes':0,'hours':1,'days':2,'weeks':3,'months':4}[item['fields']['unit']],'native_count':-item['fields']['count']}]
         return {'id':item['id'],'source_id':'selected','list_id':'list'}
 adapter=Adapter();native_tools.RemindersCreateAdapter=lambda:adapter
 from icloud_for_agents.server import main

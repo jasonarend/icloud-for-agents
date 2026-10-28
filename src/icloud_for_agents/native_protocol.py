@@ -34,9 +34,9 @@ def mutation_request(service,item):
                 roles=before.get('roles')
                 if isinstance(roles,list) and roles:
                     change['folder_guard']='verified_store_roles';change['before']['roles']=roles
-    elif service=='reminders' and operation in {'create_list','create_reminder','create_section','rename_section','update_reminder','set_completed','move_reminder','rename_list','set_list_color','set_recurrence','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','add_early','create_subtask'}:
+    elif service=='reminders' and operation in {'create_list','create_reminder','create_section','rename_section','update_reminder','set_completed','move_reminder','rename_list','set_list_color','set_recurrence','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','add_early','clear_early','create_subtask'}:
         change={key:item[key] for key in ('operation','source_id','list_id','id','child_id','section_id','fields') if key in item}
-        if operation in {'update_reminder','set_completed','move_reminder','set_recurrence','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','add_early','create_subtask'}:
+        if operation in {'update_reminder','set_completed','move_reminder','set_recurrence','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','add_early','clear_early','create_subtask'}:
             change['before']={'item':item['before']['item']}
             if 'native_metadata' in item['before']:change['before']['native_metadata']=item['before']['native_metadata']
             if 'urgent' in item['before']:change['before']['urgent']=item['before']['urgent']

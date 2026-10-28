@@ -199,9 +199,12 @@ static int flagSaves=0;static BOOL saveFails=NO;
 -(id)initWithUnit:(NSInteger)unit count:(NSInteger)count{return [super init];}
 @end
 @interface FixtureEarlyChange:NSObject
+@property NSArray *removedIdentifiers;
+-(void)removeDueDateDeltaAlertsWithIdentifiers:(NSArray *)identifiers;
 -(id)addDueDateDeltaAlertWithDueDateDelta:(id)delta;
 @end
 @implementation FixtureEarlyChange
+-(void)removeDueDateDeltaAlertsWithIdentifiers:(NSArray *)identifiers{NSCAssert(identifiers.count==1 && [identifiers[0] isKindOfClass:NSUUID.class],@"exact native UUID object required");self.removedIdentifiers=identifiers;}
 -(id)addDueDateDeltaAlertWithDueDateDelta:(id)delta{return delta;}
 @end
 @interface FixtureReminderChange:NSObject
@@ -243,7 +246,7 @@ static int flagSaves=0;static BOOL saveFails=NO;
 -(id)addListSectionWithDisplayName:(id)title toListSectionContextChangeItem:(id)context listSectionObjectID:(id)identity{return [NSObject new];}
 -(id)updateReminder:(id)reminder{self.change=[FixtureReminderChange new];self.change.dueDateDeltaAlertContext=[FixtureEarlyChange new];self.change.subtaskContext=[NSObject new];self.change.flaggedContext=[FixtureFlagChange new];self.change.urgentAlarmContext=[FixtureUrgentChange new];self.change.urgentAlarmContext.enabled=((FixtureUrgent *)fixture.urgentAlarmContext).enabled;self.change.hashtagContext=[FixtureTagChange new];self.change.hashtagContext.hashtags=[NSMutableArray arrayWithArray:((FixtureTags *)fixture.hashtagContext).hashtags ?: @[]];return self.change;}
 -(id)addReminderWithTitle:(id)title toReminderSubtaskContextChangeItem:(id)context reminderObjectID:(id)identity{return [NSObject new];}
--(BOOL)saveSynchronouslyWithError:(NSError **)error{flagSaves++;if(saveFails){*error=[NSError errorWithDomain:@"synthetic" code:1 userInfo:nil];return NO;}((FixtureFlag *)fixture.flaggedContext).flagged=self.change.flaggedContext.flagged;if(fixture.hashtagContext)((FixtureTags *)fixture.hashtagContext).hashtags=self.change.hashtagContext.hashtags;if(fixture.urgentAlarmContext)((FixtureUrgent *)fixture.urgentAlarmContext).enabled=self.change.urgentAlarmContext.enabled;return YES;}
+-(BOOL)saveSynchronouslyWithError:(NSError **)error{flagSaves++;if(saveFails){*error=[NSError errorWithDomain:@"synthetic" code:1 userInfo:nil];return NO;}if(self.change.dueDateDeltaAlertContext.removedIdentifiers.count==1)fixture.storage.dueDateDeltaAlertsData=nil;((FixtureFlag *)fixture.flaggedContext).flagged=self.change.flaggedContext.flagged;if(fixture.hashtagContext)((FixtureTags *)fixture.hashtagContext).hashtags=self.change.hashtagContext.hashtags;if(fixture.urgentAlarmContext)((FixtureUrgent *)fixture.urgentAlarmContext).enabled=self.change.urgentAlarmContext.enabled;return YES;}
 @end
 static FixtureID *Identity(NSString *entity,NSString *value){FixtureID *v=[FixtureID new];v.entityName=entity;v.uuid=[[NSUUID alloc]initWithUUIDString:value];return v;}
 static NSDictionary *CreateSubtask(NSDictionary *request,BOOL allow){NSData *data=[NSJSONSerialization dataWithJSONObject:request options:0 error:NULL];return [NSJSONSerialization JSONObjectWithData:ICloudRemindersCreateSubtask(data,^{return allow;}) options:0 error:NULL];}
@@ -316,6 +319,15 @@ int main(){@autoreleasepool{
  NSCAssert(addEarly(NO)[@"error"] && flagSaves==earlySaves,@"closed early gate never saves");
  NSCAssert(addEarly(YES)[@"result"] && flagSaves==earlySaves+1,@"one fixed early write saves only after gate");
  fixture.storage.hasUnfetchedDueDateDeltaAlerts=YES;NSCAssert(addEarly(YES)[@"error"] && flagSaves==earlySaves+1,@"unavailable early state refuses save");fixture.storage.hasUnfetchedDueDateDeltaAlerts=NO;flagSaves=0;
+ payload[@"dueDateDeltaAlerts"]=@[@{@"identifier":other,@"dueDateDeltaUnit":@0,@"dueDateDeltaCount":@-5}];fixture.storage.dueDateDeltaAlertsData=[NSJSONSerialization dataWithJSONObject:payload options:0 error:NULL];
+ NSMutableDictionary *clearRequest=[@{@"id":task,@"source_id":source,@"list_id":list,@"expected_fingerprint":early()[@"native_metadata"][@"early_payload_fingerprint"]} mutableCopy];
+ NSDictionary *(^clearEarly)(BOOL)=^NSDictionary *(BOOL allow){NSData *data=[NSJSONSerialization dataWithJSONObject:clearRequest options:0 error:NULL];return [NSJSONSerialization JSONObjectWithData:ICloudRemindersClearEarly(data,^{return allow;}) options:0 error:NULL];};
+ NSCAssert(clearEarly(NO)[@"error"] && flagSaves==0 && fixture.storage.dueDateDeltaAlertsData!=nil,@"closed clear gate cannot save");
+ NSString *clearFingerprint=clearRequest[@"expected_fingerprint"];clearRequest[@"expected_fingerprint"]=[@"f" stringByPaddingToLength:64 withString:@"f" startingAtIndex:0];
+ NSCAssert(clearEarly(YES)[@"error"] && flagSaves==0,@"changed complete early payload refuses save");clearRequest[@"expected_fingerprint"]=clearFingerprint;
+ saveFails=YES;NSCAssert([clearEarly(YES)[@"mutation_dispatched"] boolValue] && flagSaves==1 && fixture.storage.dueDateDeltaAlertsData!=nil,@"failed save remains dispatched and uncertain");saveFails=NO;flagSaves=0;
+ NSCAssert(clearEarly(YES)[@"result"] && flagSaves==1 && fixture.storage.dueDateDeltaAlertsData==nil,@"one exact reviewed early alert removed using native UUID");
+ NSCAssert(clearEarly(YES)[@"error"] && flagSaves==1,@"repeated or already cleared request cannot save");flagSaves=0;
  NSDictionary *createSection=@{@"source_id":source,@"list_id":list,@"section_id":other,@"title":@"Synthetic new",@"expected_sections":@[]};NSData *createData=[NSJSONSerialization dataWithJSONObject:createSection options:0 error:NULL];NSDictionary *closed=[NSJSONSerialization JSONObjectWithData:ICloudRemindersCreateSection(createData,^{return NO;}) options:0 error:NULL];NSCAssert(closed[@"error"] && flagSaves==0,@"closed section dispatch gate never saves");
  NSDictionary *request=@{@"id":task,@"source_id":source,@"list_id":list};
  NSDictionary *set=@{@"id":task,@"source_id":source,@"list_id":list,@"expected_flagged":@NO,@"flagged":@YES};

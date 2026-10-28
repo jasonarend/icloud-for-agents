@@ -45,11 +45,16 @@ def run(policy):
                 approve(plan);assert data(call('reminders_execute_approved',{'plan_id':identity}))['status']=='applied'
                 assert call('reminders_execute_approved',{'plan_id':identity}).get('isError')
                 assert call('reminders_prepare_once',{'changes':[change('created')]}).get('isError')
-                scope={'scenario':'Synthetic early reminder','rules':[{'operation':'add_early','source_id':'selected','container_id':'list','fields':['unit','count'],'destinations':[]}],'max_batch':1,'max_24h':3,'expires':None}
+                clear={'operation':'clear_early','source_id':'selected','id':'created','fields':{'clear':True}}
+                clearing=data(call('reminders_prepare_once',{'changes':[clear]}));approve(clearing);assert data(call('reminders_execute_approved',{'plan_id':clearing['plan_id']}))['status']=='applied'
+                assert call('reminders_execute_approved',{'plan_id':clearing['plan_id']}).get('isError')
+                assert call('reminders_prepare_once',{'changes':[clear]}).get('isError')
+                scope={'scenario':'Synthetic early reminder','rules':[{'operation':'add_early','source_id':'selected','container_id':'list','fields':['unit','count'],'destinations':[]},{'operation':'clear_early','source_id':'selected','container_id':'list','fields':['clear'],'destinations':[]}],'max_batch':1,'max_24h':3,'expires':None}
                 grant=data(call('reminders_prepare_grant',{'scope':scope}));approve(grant)
                 assert data(call('reminders_activate_grant',{'grant_id':grant['plan_id']}))['grant_active'] is True
                 batch=data(call('reminders_prepare_with_grant',{'grant_id':grant['plan_id'],'changes':[change('second')]}))
                 assert data(call('reminders_execute_approved',{'plan_id':batch['plan_id']}))['status']=='applied'
+                clear_second=dict(clear,id='second');clearing=data(call('reminders_prepare_with_grant',{'grant_id':grant['plan_id'],'changes':[clear_second]}));assert data(call('reminders_execute_approved',{'plan_id':clearing['plan_id']}))['status']=='applied'
                 assert data(call('reminders_access_status',{}))['effective_access']=='read-only'
                 assert data(call('reminders_revoke_grant',{'grant_id':grant['plan_id']}))['status']=='revoked'
                 assert call('reminders_prepare_with_grant',{'grant_id':grant['plan_id'],'changes':[change('third')]}).get('isError')
@@ -59,7 +64,7 @@ def run(policy):
                 except subprocess.TimeoutExpired:process.terminate();process.wait(timeout=5)
                 process.stdout.close()
         assert process.returncode==0,(home/'stderr.log').read_text();assert json.loads(audit.read_text())==[]
-        return {'status':'passed','transport':'real stdio JSON-RPC','synthetic_providers_only':True,'policy':policy,'services':['reminders'],'settings_remained_read_only':True,'early_once_scenario_scope_and_revocation_verified':True,'network_helper_attempts':[]}
+        return {'status':'passed','transport':'real stdio JSON-RPC','synthetic_providers_only':True,'policy':policy,'services':['reminders'],'settings_remained_read_only':True,'early_once_scenario_scope_and_revocation_verified':True,'clear_once_scenario_and_replay_verified':True,'network_helper_attempts':[]}
 
 if __name__=='__main__':
     results=[run(policy) for policy in ('trusted-client','local-receipt')];path=ROOT/'build/reports/NATIVE-EARLY-WRITE-STDIO.json';path.parent.mkdir(parents=True,exist_ok=True);path.write_text(json.dumps(results,indent=2)+'\n');print(json.dumps(results,indent=2))

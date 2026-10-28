@@ -587,7 +587,7 @@ func reminderRecurrence(_ value:Any,due:DateComponents?)->EKRecurrenceRule? {
     return rule
 }
 if action == "apply" {
-    if let change=req["change"] as? [String:Any],let operation=change["operation"] as? String,["set_flagged","remove_tag","add_tag","replace_tag","set_urgent","add_early","create_subtask","create_section","rename_section"].contains(operation) {
+    if let change=req["change"] as? [String:Any],let operation=change["operation"] as? String,["set_flagged","remove_tag","add_tag","replace_tag","set_urgent","add_early","clear_early","create_subtask","create_section","rename_section"].contains(operation) {
         privateReminderGateArmed=true;NativeMutationGate.armDeadline()
     }
     if let item=req["change"] as? [String:Any],let operation=item["operation"] as? String,["create_section","rename_section"].contains(operation) {
@@ -634,7 +634,7 @@ if action == "apply" {
         RunLoop.current.run(until:Date(timeIntervalSinceNow:30));fail("mutation_failed_or_uncertain")
     }
     if let item = req["change"] as? [String: Any], let operation = item["operation"] as? String,
-       ["update_reminder", "set_completed", "move_reminder", "set_recurrence", "set_flagged", "remove_tag", "add_tag", "replace_tag", "set_urgent", "add_early", "create_subtask"].contains(operation) {
+       ["update_reminder", "set_completed", "move_reminder", "set_recurrence", "set_flagged", "remove_tag", "add_tag", "replace_tag", "set_urgent", "add_early", "clear_early", "create_subtask"].contains(operation) {
         if operation == "move_reminder" { fail("unsupported_hierarchy_move") }
         guard let sourceID = item["source_id"] as? String, sourceIDs.contains(sourceID),
               let identifier = item["id"] as? String, let fields = item["fields"] as? [String: Any],
@@ -663,6 +663,15 @@ if action == "apply" {
                       let native=before["native_metadata"] as? [String:Any],let children=native["child_ids"] as? [String],
                       let payload=try? JSONSerialization.data(withJSONObject:["id":identifier,"source_id":sourceID,"list_id":reminder.calendar.calendarIdentifier,"child_id":childID,"title":title,"expected_children":children]),
                       let response=(try? JSONSerialization.jsonObject(with:ICloudRemindersCreateSubtask(payload,{NativeMutationGate.beginMutation()}))) as? [String:Any] else {fail("invalid_mutation")}
+                if response["error"] != nil {fail((response["mutation_dispatched"] as? Bool)==true ? "mutation_failed_or_uncertain" : "unsupported_edit_target")}
+                guard let output=response["result"] as? [String:Any] else {fail("mutation_failed_or_uncertain")}
+                respond(["protocol_version":1,"result":output])
+            }
+            if operation == "clear_early" {
+                guard Set(fields.keys)==["clear"],let clear=fields["clear"] as? NSNumber,CFGetTypeID(clear)==CFBooleanGetTypeID(),clear.boolValue,
+                      let native=before["native_metadata"] as? [String:Any],let alerts=native["early_alerts"] as? [[String:Any]],alerts.count==1,let fingerprint=native["early_payload_fingerprint"] as? String,fingerprint.count==64,
+                      let payload=try? JSONSerialization.data(withJSONObject:["id":identifier,"source_id":sourceID,"list_id":reminder.calendar.calendarIdentifier,"expected_fingerprint":fingerprint]),
+                      let response=(try? JSONSerialization.jsonObject(with:ICloudRemindersClearEarly(payload,{NativeMutationGate.beginMutation()}))) as? [String:Any] else {fail("invalid_mutation")}
                 if response["error"] != nil {fail((response["mutation_dispatched"] as? Bool)==true ? "mutation_failed_or_uncertain" : "unsupported_edit_target")}
                 guard let output=response["result"] as? [String:Any] else {fail("mutation_failed_or_uncertain")}
                 respond(["protocol_version":1,"result":output])

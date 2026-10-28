@@ -153,7 +153,7 @@ def alarm_effects(alarms,due):
 
 
 class RemindersCreateAdapter:
-    operations={'create_list','create_reminder','create_section','rename_section','update_reminder','set_completed','move_reminder','rename_list','set_recurrence','set_list_color','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','add_early','create_subtask'}
+    operations={'create_list','create_reminder','create_section','rename_section','update_reminder','set_completed','move_reminder','rename_list','set_recurrence','set_list_color','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','add_early','clear_early','create_subtask'}
     def __init__(self):self.reader=NativeReader('reminders')
     @property
     def backend_id(self):
@@ -315,6 +315,9 @@ class RemindersCreateAdapter:
                 if str(uuid.UUID(fields['tag_id'])).upper()!=fields['tag_id'].upper():raise ValueError()
             except ValueError:raise SafetyError('Use one exact native tag ID') from None
             if native_config('reminders').get('advanced_backend')!='reminderkit':raise SafetyError('Native tag changes require the explicitly selected ReminderKit backend')
+        elif operation=='clear_early':
+            if set(fields)!={'clear'} or fields.get('clear') is not True:raise SafetyError('Explicitly request clear=true for the single reviewed early reminder')
+            if native_config('reminders').get('advanced_backend')!='reminderkit':raise SafetyError('Native early reminders require the explicitly selected ReminderKit backend')
         elif operation=='add_early':
             if (set(fields)!={'unit','count'} or not isinstance(fields.get('unit'),str) or fields['unit'] not in {'minutes','hours','days','weeks','months'} or type(fields.get('count')) is not int or not 1<=fields['count']<=10000):
                 raise SafetyError('Choose minutes, hours, days, weeks or months and a positive whole number before the due date')
@@ -370,6 +373,10 @@ class RemindersCreateAdapter:
                 item['effects']['early_reminder']='Changing the due date also reschedules the observed native early reminder; Apple controls notification delivery.'
             elif metadata is None:
                 item['effects']['early_reminder']='Native early-reminder state is unavailable on this backend; changing the due date may reschedule or remove an early notification.'
+        if operation=='clear_early':
+            metadata=item['before'].get('native_metadata')
+            if not isinstance(metadata,dict) or not isinstance(metadata.get('early_alerts'),list) or len(metadata['early_alerts'])!=1 or not isinstance(metadata.get('early_payload_fingerprint'),str):raise SafetyError('Clearing requires exactly one observed native early alert with its complete payload fingerprint')
+            item['effects']['early_reminder']='Remove the one reviewed native early reminder; retain due date and ordinary alarms. Apple controls notification cancellation and sync.'
         if operation=='add_early':
             metadata=item['before'].get('native_metadata');due=item['before']['item'].get('due')
             if not isinstance(metadata,dict) or metadata.get('early_alerts')!=[] or metadata.get('early_payload_fingerprint') is not None:raise SafetyError('Adding an early reminder requires an observed empty native early-alert state')
@@ -407,7 +414,7 @@ class RemindersCreateAdapter:
         if isinstance(change,dict) and change.get('operation')=='set_list_color':return self.prepare_list_color(change)
         if isinstance(change,dict) and change.get('operation')=='set_recurrence':return self.prepare_recurrence(change)
         if isinstance(change,dict) and change.get('operation')=='rename_list':return self.prepare_list_rename(change)
-        if isinstance(change,dict) and change.get('operation') in {'update_reminder','set_completed','move_reminder','set_recurrence','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','add_early','create_subtask'}:
+        if isinstance(change,dict) and change.get('operation') in {'update_reminder','set_completed','move_reminder','set_recurrence','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','add_early','clear_early','create_subtask'}:
             return self.prepare_existing(change)
         if not isinstance(change,dict) or set(change)-{'operation','source_id','list_id','fields'}:
             raise SafetyError('Unknown Reminders change fields')
@@ -490,7 +497,7 @@ class RemindersCreateAdapter:
         if item['operation'] in {'create_section','rename_section'}:return self.section_snapshot(item)
         if item['operation'] in {'rename_list','set_list_color'}:return self.list_rename_snapshot(item)
         lists=[c for c in self.lists() if c['source_id']==item['source_id']]
-        if item['operation'] in {'update_reminder','set_completed','move_reminder','set_recurrence','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','add_early','create_subtask'}:
+        if item['operation'] in {'update_reminder','set_completed','move_reminder','set_recurrence','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','add_early','clear_early','create_subtask'}:
             reminder=self.reader.read('get',id=item['id'])['item']
             if reminder.get('source_id')!=item['source_id']:raise SafetyError('Reminder belongs to another source')
             current=next((c for c in lists if c['id']==reminder['list_id']),None)
@@ -554,7 +561,7 @@ class RemindersCreateAdapter:
         if item['operation']=='create_list':return any(c['id']==outcome['id'] and c['title']==item['fields']['title'] and c['source_id']==item['source_id'] for c in self.lists())
         if item['operation']=='create_subtask':return self.verify_subtask(item,outcome)
         note=self.reader.read('get',id=outcome['id'])['item']
-        if item['operation'] in {'update_reminder','set_completed','move_reminder','set_recurrence','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','add_early','create_subtask'}:
+        if item['operation'] in {'update_reminder','set_completed','move_reminder','set_recurrence','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','add_early','clear_early','create_subtask'}:
             if outcome['id']!=item['id'] or note.get('source_id')!=item['source_id']:return False
             expected=dict(item['before']['item']);expected.update(item['fields'])
             if 'alarms' in item['fields']:expected['has_alarms']=bool(item['fields']['alarms'])
@@ -566,6 +573,11 @@ class RemindersCreateAdapter:
             native=self.native_snapshot(note);expected_native=item['before'].get('native_metadata')
             if expected_native is not None:
                 expected_native=dict(expected_native,list_id=expected['list_id'])
+                if item['operation']=='clear_early':
+                    import re
+                    fingerprint=native.get('early_payload_fingerprint') if isinstance(native,dict) else None
+                    if not isinstance(native,dict) or native.get('early_alerts')!=[] or (fingerprint is not None and (not isinstance(fingerprint,str) or re.fullmatch(r'[0-9a-f]{64}',fingerprint) is None)):return False
+                    expected_native.update(early_alerts=[],early_payload_fingerprint=fingerprint)
                 if item['operation']=='add_early':
                     units={'minutes':0,'hours':1,'days':2,'weeks':3,'months':4}
                     if not isinstance(native,dict) or native.get('early_alerts')!=[{'native_unit':units[item['fields']['unit']],'native_count':-item['fields']['count']}] or not isinstance(native.get('early_payload_fingerprint'),str):return False

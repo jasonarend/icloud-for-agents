@@ -23,6 +23,7 @@ FOUNDATION_EXPORT NSData *ICloudRemindersReadListParent(NSData *request);
 FOUNDATION_EXPORT NSData *ICloudRemindersGroupLists(NSData *request);
 FOUNDATION_EXPORT NSData *ICloudRemindersTemplateSections(NSData *request);
 FOUNDATION_EXPORT NSData *ICloudRemindersAddEarly(NSData *request,BOOL (^enterMutation)(void));
+FOUNDATION_EXPORT NSData *ICloudRemindersClearEarly(NSData *request,BOOL (^enterMutation)(void));
 FOUNDATION_EXPORT NSData *ICloudRemindersCreateSection(NSData *request,BOOL (^enterMutation)(void));
 FOUNDATION_EXPORT NSData *ICloudRemindersRenameSection(NSData *request,BOOL (^enterMutation)(void));
 FOUNDATION_EXPORT NSData *ICloudRemindersCreateSubtask(NSData *request,BOOL (^enterMutation)(void));
