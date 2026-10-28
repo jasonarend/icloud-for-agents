@@ -22,7 +22,7 @@ class Adapter(RemindersCreateAdapter):
             if action=='get' and fields.get('include_native_urgent'):
                 result['item']['native_metadata']={**{k:result['item'][k] for k in ('id','source_id','list_id')},'coverage':['urgent'],'urgent':False}
             if action=='get' and fields.get('include_native_metadata'):
-                result['item']['native_metadata']={**{k:result['item'][k] for k in ('id','source_id','list_id')},'flagged':self.flag,'flag_state':int(self.flag),'tags':copy.deepcopy(self.tags),'tags_complete':True,'coverage':['flagged','tags','hierarchy','children','section'],'section':None,'section_status':'provider_not_reported','native_metadata_complete':False,'is_subtask':False,'parent_id':None,'has_subtasks':False,'hierarchy_complete':False,'children_status':'provider_reported','child_ids':[],'children_complete':False,'children_fetch_status':'provider_reported'}
+                result['item']['native_metadata']={**{k:result['item'][k] for k in ('id','source_id','list_id')},'flagged':self.flag,'flag_state':int(self.flag),'tags':copy.deepcopy(self.tags),'tags_complete':True,'coverage':['flagged','tags','hierarchy','children','section','early'],'early_alerts':[],'early_payload_fingerprint':None,'section':None,'section_status':'provider_not_reported','native_metadata_complete':False,'is_subtask':False,'parent_id':None,'has_subtasks':False,'hierarchy_complete':False,'children_status':'provider_reported','child_ids':[],'children_complete':False,'children_fetch_status':'provider_reported'}
             return result
         self.reader.read=enriched
     def apply(self,item):

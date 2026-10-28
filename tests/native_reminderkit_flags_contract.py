@@ -59,10 +59,17 @@ FIXTURE=r'''
 -(BOOL)hasSubtasksWithError:(NSError **)error {if(self.denied){*error=[NSError errorWithDomain:@"synthetic" code:1 userInfo:nil];return NO;}return self.hasChildren;}
 -(id)fetchRemindersWithError:(NSError **)error {if(self.denied){*error=[NSError errorWithDomain:@"synthetic" code:1 userInfo:nil];return nil;}return self.children;}
 @end
+@interface FixtureStorage:NSObject
+@property BOOL hasUnfetchedDueDateDeltaAlerts;
+@property NSData *dueDateDeltaAlertsData;
+@end
+@implementation FixtureStorage
+@end
 @interface FixtureReminder:NSObject
 @property FixtureID *remObjectID;
 @property FixtureAccount *account;
 @property FixtureList *list;
+@property FixtureStorage *storage;
 @property id flaggedContext;
 @property id urgentAlarmContext;
 @property id hashtagContext;
@@ -188,6 +195,14 @@ int main(){@autoreleasepool{
  section.list.account.remObjectID=Identity(@"REMCDAccount",other);NSCAssert(membership()[@"error"],@"foreign account membership refused");section.list.account.remObjectID=Identity(@"REMCDAccount",source);section.storage.accountID=fixture.account.remObjectID;
  fixtureSections=@[section,section];NSCAssert(readSections()[@"error"],@"duplicate sections refused");fixtureSections=@[];NSCAssert([readSections()[@"sections"] count]==0,@"empty list distinct from error");
  NSCAssert([membership()[@"native_metadata"][@"section_status"] isEqual:@"provider_not_reported"] && membership()[@"native_metadata"][@"section"]==[NSNull null],@"unreported membership is not inferred absent");
+ fixture.storage=[FixtureStorage new];NSDictionary *(^early)(void)=^NSDictionary *{return [NSJSONSerialization JSONObjectWithData:ICloudRemindersReadEarly(membershipData) options:0 error:NULL];};
+ NSCAssert([early()[@"native_metadata"][@"early_alerts"] count]==0 && early()[@"native_metadata"][@"early_payload_fingerprint"]==[NSNull null],@"empty early state observed");
+ fixture.storage.hasUnfetchedDueDateDeltaAlerts=YES;NSCAssert(early()[@"error"],@"unfetched payload cannot mean empty");
+ NSMutableDictionary *payload=[@{@"accountIdentifier":source,@"reminderIdentifier":task,@"dueDateDeltaAlerts":@[@{@"dueDateDeltaUnit":@0,@"dueDateDeltaCount":@-5}]} mutableCopy];fixture.storage.dueDateDeltaAlertsData=[NSJSONSerialization dataWithJSONObject:payload options:0 error:NULL];
+ NSCAssert([early()[@"native_metadata"][@"early_alerts"][0][@"native_count"] integerValue]==-5 && [early()[@"native_metadata"][@"early_payload_fingerprint"] length]==64,@"scoped early payload observed");
+ payload[@"accountIdentifier"]=other;fixture.storage.dueDateDeltaAlertsData=[NSJSONSerialization dataWithJSONObject:payload options:0 error:NULL];NSCAssert(early()[@"error"],@"foreign early payload refused");
+ payload[@"accountIdentifier"]=source;payload[@"dueDateDeltaAlerts"]=@[@{@"dueDateDeltaUnit":@YES,@"dueDateDeltaCount":@-5}];fixture.storage.dueDateDeltaAlertsData=[NSJSONSerialization dataWithJSONObject:payload options:0 error:NULL];NSCAssert(early()[@"error"],@"boolean interval refused");
+ fixture.storage.dueDateDeltaAlertsData=[NSMutableData dataWithLength:65537];NSCAssert(early()[@"error"],@"oversized payload refused");fixture.storage.hasUnfetchedDueDateDeltaAlerts=NO;fixture.storage.dueDateDeltaAlertsData=nil;
  NSDictionary *createSection=@{@"source_id":source,@"list_id":list,@"section_id":other,@"title":@"Synthetic new",@"expected_sections":@[]};NSData *createData=[NSJSONSerialization dataWithJSONObject:createSection options:0 error:NULL];NSDictionary *closed=[NSJSONSerialization JSONObjectWithData:ICloudRemindersCreateSection(createData,^{return NO;}) options:0 error:NULL];NSCAssert(closed[@"error"] && flagSaves==0,@"closed section dispatch gate never saves");
  NSDictionary *request=@{@"id":task,@"source_id":source,@"list_id":list};
  NSDictionary *set=@{@"id":task,@"source_id":source,@"list_id":list,@"expected_flagged":@NO,@"flagged":@YES};

@@ -11,6 +11,7 @@ var flag=false
 var urgent=false
 var tagName="Project"
 var childIDs=["synthetic-child"]
+var earlyFingerprint:Any=NSNull()
 var privateReads=0
 func fail(_ code:String)->Never {fatalError(code)}
 func respond(_ value:[String:Any])->Never {fatalError("unexpected refusal")}
@@ -28,6 +29,12 @@ func ICloudRemindersReadUrgent(_ input:Data)->Data {
     return try! JSONSerialization.data(withJSONObject:["native_metadata":value])
 }
 func ICloudRemindersReadFlag(_ input:Data)->Data {output(input,false)}
+func ICloudRemindersReadEarly(_ input:Data)->Data {
+    privateReads+=1
+    var value=try! JSONSerialization.jsonObject(with:input) as! [String:Any]
+    value["backend"]="reminderkit-early-v1";value["coverage"]=["early"];value["early_alerts"]=[];value["early_payload_fingerprint"]=earlyFingerprint;value["native_metadata_complete"]=false;value["observation_consistency"]="separate_provider_reads"
+    return try! JSONSerialization.data(withJSONObject:["native_metadata":value])
+}
 func ICloudRemindersReadSection(_ input:Data)->Data {
     privateReads+=1
     var value=try! JSONSerialization.jsonObject(with:input) as! [String:Any]
@@ -53,13 +60,14 @@ func ICloudRemindersReadHierarchy(_ input:Data)->Data {
 CHECKS='''
 let reminder=EKReminder()
 precondition(selectedNativeMetadata(reminder,[:])==nil && privateReads==0)
-let expected=selectedNativeMetadata(reminder,["include_native_metadata":true,"include_native_tags":true,"include_native_hierarchy":true,"include_native_children":true,"include_native_section":true])!
-precondition(expected["coverage"] as! [String]==["flagged","tags","hierarchy","children","section"])
+let expected=selectedNativeMetadata(reminder,["include_native_metadata":true,"include_native_tags":true,"include_native_hierarchy":true,"include_native_children":true,"include_native_section":true,"include_native_early":true])!
+precondition(expected["coverage"] as! [String]==["flagged","tags","hierarchy","children","section","early"])
 precondition(nativeSnapshotMatches(reminder,expected))
 let combined=selectedNativeMetadata(reminder,["include_native_metadata":true,"include_native_tags":true,"include_native_hierarchy":true])!
 precondition(combined["coverage"] as! [String]==["flagged","tags","hierarchy"] && combined["backend"] as! String=="reminderkit-combined-v1" && combined["hierarchy_complete"] as! Bool==false)
 flag=true;precondition(!nativeSnapshotMatches(reminder,expected));flag=false
  tagName="Externally changed";precondition(!nativeSnapshotMatches(reminder,expected));tagName="Project"
+earlyFingerprint=String(repeating:"a",count:64);precondition(!nativeSnapshotMatches(reminder,expected));earlyFingerprint=NSNull()
 childIDs.append("new-child");precondition(!nativeSnapshotMatches(reminder,expected));childIDs.removeLast()
 var wrong=expected;wrong["source_id"]="foreign";precondition(!nativeSnapshotMatches(reminder,wrong))
 wrong=expected;wrong["list_id"]="foreign";precondition(!nativeSnapshotMatches(reminder,wrong))
@@ -86,7 +94,7 @@ def run():
         from icloud_for_agents.native_protocol import mutation_request
         metadata={'id':'task','source_id':'selected','list_id':'list','flagged':False,'flag_state':0,
                   'tags':[{'id':'tag','name':'Project','native_type':0}],'tags_complete':True,
-                  'coverage':['flagged','tags','hierarchy','children','section'],'section':None,'section_status':'provider_not_reported','backend':'reminderkit-combined-v1',
+                  'coverage':['flagged','tags','hierarchy','children','section','early'],'early_alerts':[],'early_payload_fingerprint':None,'section':None,'section_status':'provider_not_reported','backend':'reminderkit-combined-v1',
                   'is_subtask':False,'parent_id':None,'has_subtasks':False,'hierarchy_complete':False,'children_status':'provider_reported',
                   'child_ids':['synthetic-child'],'children_complete':False,'children_fetch_status':'provider_reported',
                   'native_metadata_complete':False,'observation_consistency':'separate_provider_reads'}

@@ -20,7 +20,7 @@ def enriched(action,**fields):
     if action=='get' and fields.get('include_native_urgent'):
         result['item']['native_metadata']={**{k:result['item'][k] for k in ('id','source_id','list_id')},'coverage':['urgent'],'urgent':urgent[0]}
     if action=='get' and fields.get('include_native_metadata'):
-        result['item']['native_metadata']={**{k:result['item'][k] for k in ('id','source_id','list_id')},'coverage':['flagged','tags','hierarchy','children','section'],'section':None,'section_status':'provider_not_reported','flagged':False,'flag_state':0,'tags':[],'tags_complete':True,'is_subtask':False,'parent_id':None,'has_subtasks':False,'hierarchy_complete':False,'children_status':'provider_reported','child_ids':[],'children_complete':False,'children_fetch_status':'provider_reported'}
+        result['item']['native_metadata']={**{k:result['item'][k] for k in ('id','source_id','list_id')},'coverage':['flagged','tags','hierarchy','children','section','early'],'early_alerts':[],'early_payload_fingerprint':None,'section':None,'section_status':'provider_not_reported','flagged':False,'flag_state':0,'tags':[],'tags_complete':True,'is_subtask':False,'parent_id':None,'has_subtasks':False,'hierarchy_complete':False,'children_status':'provider_reported','child_ids':[],'children_complete':False,'children_fetch_status':'provider_reported'}
     return result
 adapter.reader.read=enriched;calls=[0];verify=adapter.verify
 def apply(item):

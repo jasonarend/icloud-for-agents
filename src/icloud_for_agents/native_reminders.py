@@ -410,9 +410,9 @@ class RemindersCreateAdapter:
         return item
     def native_snapshot(self,public_item):
         if native_config('reminders').get('advanced_backend')!='reminderkit':return None
-        observed=dict(self.reader.read('get',id=public_item['id'],include_native_metadata=True,include_native_tags=True,include_native_hierarchy=True,include_native_children=True,include_native_section=True)['item'])
+        observed=dict(self.reader.read('get',id=public_item['id'],include_native_metadata=True,include_native_tags=True,include_native_hierarchy=True,include_native_children=True,include_native_section=True,include_native_early=True)['item'])
         metadata=observed.pop('native_metadata',None)
-        if (observed!=public_item or not isinstance(metadata,dict) or metadata.get('coverage')!=['flagged','tags','hierarchy','children','section']
+        if (observed!=public_item or not isinstance(metadata,dict) or metadata.get('coverage')!=['flagged','tags','hierarchy','children','section','early']
                 or metadata.get('section_status') not in {'provider_reported','provider_not_reported'}
                 or (metadata.get('section_status')=='provider_not_reported' and metadata.get('section') is not None)
                 or (metadata.get('section_status')=='provider_reported' and not isinstance(metadata.get('section'),dict))

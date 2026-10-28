@@ -58,6 +58,9 @@ def dispatch(self,request,config):
     if request.get('include_native_section'):
         metadata=item.setdefault('native_metadata',{'id':item['id'],'source_id':item['source_id'],'list_id':item['list_id'],'coverage':[],'native_metadata_complete':False})
         metadata.update(section={'id':'11111111-1111-4111-8111-111111111111','title':'Synthetic section'},section_status='provider_reported');metadata['coverage'].append('section')
+    if request.get('include_native_early'):
+        metadata=item.setdefault('native_metadata',{'id':item['id'],'source_id':item['source_id'],'list_id':item['list_id'],'coverage':[],'native_metadata_complete':False})
+        metadata.update(early_alerts=[{'native_unit':0,'native_count':-5}],early_payload_fingerprint='a'*64);metadata['coverage'].append('early')
     return {'protocol_version':1,'item':item}
 NativeReader._dispatch=dispatch
 from icloud_for_agents.server import main

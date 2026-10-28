@@ -88,7 +88,7 @@ class NativeReader:
         if action not in {'status', 'sources'} and not sources:
             raise SafetyError('Select exact native source IDs before reading content')
         native_selections={}
-        for key in ('include_native_metadata','include_native_tags','include_native_hierarchy','include_native_children','include_native_urgent','include_native_section'):
+        for key in ('include_native_metadata','include_native_tags','include_native_hierarchy','include_native_children','include_native_urgent','include_native_section','include_native_early'):
             if key in fields and (self.name!='reminders' or action!='get'):raise SafetyError('Native metadata selection is supported only for Reminders get')
             value=fields.pop(key,False)
             if type(value) is not bool:raise SafetyError('Native metadata selection must be Boolean')
@@ -276,11 +276,12 @@ class NativeReader:
             # successful native read without the requested, scoped coverage.
             item=result.get('item') if isinstance(result,dict) else None
             metadata=item.get('native_metadata') if isinstance(item,dict) else None
-            expected=[label for key,label in (('include_native_metadata','flagged'),('include_native_tags','tags'),('include_native_hierarchy','hierarchy'),('include_native_children','children'),('include_native_urgent','urgent'),('include_native_section','section')) if key in native_selections]
+            expected=[label for key,label in (('include_native_metadata','flagged'),('include_native_tags','tags'),('include_native_hierarchy','hierarchy'),('include_native_children','children'),('include_native_urgent','urgent'),('include_native_section','section'),('include_native_early','early')) if key in native_selections]
             if (not isinstance(metadata,dict) or metadata.get('coverage')!=expected
                     or item.get('id')!=request.get('id') or item.get('source_id') not in sources
                     or not isinstance(item.get('list_id'),str) or not item['list_id']
                     or any(metadata.get(k)!=item.get(k) for k in ('id','source_id','list_id'))
+                    or ('early' in expected and (not isinstance(metadata.get('early_alerts'),list) or len(metadata['early_alerts'])>100 or any(not isinstance(a,dict) or set(a)!={'native_unit','native_count'} or type(a['native_unit']) is not int or not 0<=a['native_unit']<=100 or type(a['native_count']) is not int or not -100000<=a['native_count']<=100000 for a in metadata['early_alerts']) or 'early_payload_fingerprint' not in metadata or (metadata['early_payload_fingerprint'] is not None and (not isinstance(metadata['early_payload_fingerprint'],str) or len(metadata['early_payload_fingerprint'])!=64 or any(c not in '0123456789abcdef' for c in metadata['early_payload_fingerprint']))) or (metadata['early_payload_fingerprint'] is None and bool(metadata['early_alerts']))))
                     or ('urgent' in expected and type(metadata.get('urgent')) is not bool)
                     or ('section' in expected and ('section' not in metadata or metadata.get('section_status') not in {'provider_reported','provider_not_reported'}
                         or (metadata.get('section_status')=='provider_not_reported' and metadata.get('section') is not None)
@@ -738,9 +739,9 @@ def register_read_tools(mcp):
 
         @mcp.tool(annotations=annotations)
         @guard
-        def reminders_get(id: str, include_native_metadata: bool=False, include_native_tags: bool=False, include_native_hierarchy: bool=False, include_native_children: bool=False, include_native_urgent: bool=False, include_native_section: bool=False) -> dict:
-            """Read one exact scoped reminder. Optional native flags/tags/hierarchy/children/urgent/section state require owner-selected ReminderKit; other advanced metadata remains incomplete."""
-            return NativeReader('reminders').read('get', id=id, include_native_metadata=include_native_metadata, include_native_tags=include_native_tags, include_native_hierarchy=include_native_hierarchy, include_native_children=include_native_children, include_native_urgent=include_native_urgent,include_native_section=include_native_section)
+        def reminders_get(id: str, include_native_metadata: bool=False, include_native_tags: bool=False, include_native_hierarchy: bool=False, include_native_children: bool=False, include_native_urgent: bool=False, include_native_section: bool=False, include_native_early: bool=False) -> dict:
+            """Read one exact scoped reminder. Optional native flags/tags/hierarchy/children/urgent/section/early state require owner-selected ReminderKit; other advanced metadata remains incomplete."""
+            return NativeReader('reminders').read('get', id=id, include_native_metadata=include_native_metadata, include_native_tags=include_native_tags, include_native_hierarchy=include_native_hierarchy, include_native_children=include_native_children, include_native_urgent=include_native_urgent,include_native_section=include_native_section,include_native_early=include_native_early)
 
         @mcp.tool(annotations=annotations)
         @guard

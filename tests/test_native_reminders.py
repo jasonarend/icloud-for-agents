@@ -81,7 +81,7 @@ class NativeRemindersTests(unittest.TestCase):
     def native_reader(self):
         import copy
         os.environ['ICLOUD_NATIVE_CONFIG']=json.dumps({'reminders':{'access_mode':'write-enabled','source_ids':['selected'],'advanced_backend':'reminderkit','helper_path':'/synthetic/helper'}})
-        metadata={'flagged':False,'flag_state':0,'tags':[],'tags_complete':True,'coverage':['flagged','tags','hierarchy','children','section'],'section':None,'section_status':'provider_not_reported','native_metadata_complete':False,'is_subtask':False,'parent_id':None,'has_subtasks':False,'hierarchy_complete':False,'children_status':'provider_reported','child_ids':[],'children_complete':False,'children_fetch_status':'provider_reported'}
+        metadata={'flagged':False,'flag_state':0,'tags':[],'tags_complete':True,'coverage':['flagged','tags','hierarchy','children','section','early'],'early_alerts':[],'early_payload_fingerprint':None,'section':None,'section_status':'provider_not_reported','native_metadata_complete':False,'is_subtask':False,'parent_id':None,'has_subtasks':False,'hierarchy_complete':False,'children_status':'provider_reported','child_ids':[],'children_complete':False,'children_fetch_status':'provider_reported'}
         read=self.reader.read
         def enriched(action,**fields):
             result=read(action,**fields)
@@ -213,7 +213,7 @@ class NativeRemindersTests(unittest.TestCase):
         with self.assertRaises(SafetyError):self.existing()
         metadata['tags_complete']=True;metadata['coverage']=['flagged']
         with self.assertRaises(SafetyError):self.existing()
-        metadata['coverage']=['flagged','tags','hierarchy','children','section'];metadata['child_ids']=['contradictory-child']
+        metadata['coverage']=['flagged','tags','hierarchy','children','section','early'];metadata['child_ids']=['contradictory-child']
         with self.assertRaises(SafetyError):self.existing()
         metadata['child_ids']=[];metadata['is_subtask']=True;metadata['parent_id']=None
         with self.assertRaises(SafetyError):self.existing()

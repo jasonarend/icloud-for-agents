@@ -3,6 +3,7 @@
 #import <objc/runtime.h>
 #import <objc/message.h>
 #import <dlfcn.h>
+#import <CommonCrypto/CommonDigest.h>
 static NSData *EncodeFlag(NSDictionary *value){return [NSJSONSerialization dataWithJSONObject:value options:0 error:NULL] ?: [NSData data];}
 static NSDictionary *FlagFailure(NSString *category){return @{@"protocol_version":@1,@"error":@"private_metadata_unavailable",@"category":category,@"data_mutated":@NO};}
 static NSString *Signature(Method method){
@@ -132,6 +133,30 @@ NSData *ICloudRemindersReadSection(NSData *data){
             sectionValue=@{@"id":sectionID,@"title":title};status=@"provider_reported";
         }
         return EncodeFlag(@{@"protocol_version":@1,@"native_metadata":@{@"backend":@"reminderkit-section-v1",@"id":identity[@"id"],@"source_id":identity[@"source_id"],@"list_id":identity[@"list_id"],@"section":sectionValue,@"section_status":status,@"coverage":@[@"section"],@"native_metadata_complete":@NO,@"observation_consistency":@"separate_provider_reads"}});
+    }@catch(NSException *exception){return EncodeFlag(FlagFailure(@"private_read_exception"));}
+}
+// Early reminders are independent of EventKit's ordinary alarms. Read only the
+// selected reminder's bounded provider payload; never infer from an empty EK array.
+NSData *ICloudRemindersReadEarly(NSData *data){
+    @try {
+        NSDictionary *failure=nil;id reminder=SelectedReminder(data,&failure);if(!reminder)return EncodeFlag(failure);
+        NSDictionary *identity=[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];id storage=ObjectValue(reminder,@"storage");
+        if(!storage || !MethodMatches([storage class],@"hasUnfetchedDueDateDeltaAlerts",@"B@:",NO) || !MethodMatches([storage class],@"dueDateDeltaAlertsData",@"@@:",NO))return EncodeFlag(FlagFailure(@"unsupported_early_metadata"));
+        BOOL unfetched=((BOOL(*)(id,SEL))objc_msgSend)(storage,NSSelectorFromString(@"hasUnfetchedDueDateDeltaAlerts"));id raw=ObjectValue(storage,@"dueDateDeltaAlertsData");
+        NSMutableArray *alerts=[NSMutableArray array];id fingerprint=[NSNull null];
+        if(raw){
+            if(![raw isKindOfClass:NSData.class] || [raw length]>65536 || ![raw length])return EncodeFlag(FlagFailure(@"unsupported_early_metadata"));
+            id payload=[NSJSONSerialization JSONObjectWithData:raw options:0 error:NULL];
+            if(![payload isKindOfClass:NSDictionary.class] || ![payload[@"accountIdentifier"] isKindOfClass:NSString.class] || ![payload[@"reminderIdentifier"] isKindOfClass:NSString.class] || !UUIDEqual(payload[@"accountIdentifier"],identity[@"source_id"]) || !UUIDEqual(payload[@"reminderIdentifier"],identity[@"id"]) || ![payload[@"dueDateDeltaAlerts"] isKindOfClass:NSArray.class] || [payload[@"dueDateDeltaAlerts"] count]>100)return EncodeFlag(FlagFailure(@"unsupported_early_metadata"));
+            for(id alert in payload[@"dueDateDeltaAlerts"]){
+                if(![alert isKindOfClass:NSDictionary.class])return EncodeFlag(FlagFailure(@"unsupported_early_metadata"));
+                id unit=alert[@"dueDateDeltaUnit"],count=alert[@"dueDateDeltaCount"];
+                if(![unit isKindOfClass:NSNumber.class] || ![count isKindOfClass:NSNumber.class] || CFGetTypeID((__bridge CFTypeRef)unit)==CFBooleanGetTypeID() || CFGetTypeID((__bridge CFTypeRef)count)==CFBooleanGetTypeID() || [unit doubleValue]!=[unit integerValue] || [count doubleValue]!=[count integerValue] || [unit integerValue]<0 || [unit integerValue]>100 || [count integerValue]<-100000 || [count integerValue]>100000)return EncodeFlag(FlagFailure(@"unsupported_early_metadata"));
+                [alerts addObject:@{@"native_unit":unit,@"native_count":count}];
+            }
+            unsigned char digest[CC_SHA256_DIGEST_LENGTH];CC_SHA256([raw bytes],(CC_LONG)[raw length],digest);NSMutableString *hex=[NSMutableString stringWithCapacity:64];for(int i=0;i<CC_SHA256_DIGEST_LENGTH;i++)[hex appendFormat:@"%02x",digest[i]];fingerprint=hex;
+        }else if(unfetched)return EncodeFlag(FlagFailure(@"unsupported_early_metadata"));
+        return EncodeFlag(@{@"protocol_version":@1,@"native_metadata":@{@"backend":@"reminderkit-early-v1",@"id":identity[@"id"],@"source_id":identity[@"source_id"],@"list_id":identity[@"list_id"],@"early_alerts":alerts,@"early_payload_fingerprint":fingerprint,@"coverage":@[@"early"],@"native_metadata_complete":@NO,@"observation_consistency":@"separate_provider_reads"}});
     }@catch(NSException *exception){return EncodeFlag(FlagFailure(@"private_read_exception"));}
 }
 NSData *ICloudRemindersReadFlag(NSData *data){
