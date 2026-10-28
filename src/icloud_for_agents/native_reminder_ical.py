@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from .core import SafetyError
 
 def _text(value):
-    if not isinstance(value,str) or any((ord(c)<32 and c not in '\r\n\t') or 0xD800<=ord(c)<=0xDFFF for c in value):
+    if not isinstance(value,str) or any((ord(c)<32 and c not in '\r\n\t') or ord(c)==127 or 0xD800<=ord(c)<=0xDFFF for c in value):
         raise SafetyError('Reminder text cannot be represented safely in iCalendar')
     return value.replace('\\','\\\\').replace('\r\n','\n').replace('\r','\n').replace('\n','\\n').replace(';','\\;').replace(',','\\,')
 

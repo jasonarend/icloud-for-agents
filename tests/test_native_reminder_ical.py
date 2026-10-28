@@ -50,7 +50,7 @@ class ReminderICalTests(unittest.TestCase):
     def test_refuses_unrepresentable_and_wrong_scope(self):
         invalid=[dict(self.item,source_id='foreign'),dict(self.item,has_recurrence=True),dict(self.item,has_alarms=True),
                  dict(self.item,public_metadata_complete=False),dict(self.item,content_complete=True),dict(self.item,priority=True),
-                 dict(self.item,title='unsafe\x00title'),dict(self.item,due={'year':2026,'month':10,'day':28,'hour':8,'minute':0,'second':0,'timezone':'Unknown/Zone','date_only':False}),
+                 dict(self.item,title='unsafe\x00title'),dict(self.item,title='unsafe\x7ftitle'),dict(self.item,location='unsafe\x7flocation'),dict(self.item,due={'year':2026,'month':10,'day':28,'hour':8,'minute':0,'second':0,'timezone':'Unknown/Zone','date_only':False}),
                  dict(self.item,due={'year':2026,'month':10,'day':28,'hour':8,'minute':0,'timezone':'UTC','date_only':False})]
         for item in invalid:
             self.backend.return_value={'protocol_version':1,'item':item}
