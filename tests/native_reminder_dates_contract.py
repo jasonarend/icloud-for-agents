@@ -30,7 +30,7 @@ func components(_ year:Int,_ month:Int,_ day:Int,_ hour:Int?=nil,_ minute:Int?=n
 }
 '''
     filter_start=source.index('    let filtered = reminders.filter { r in',start)
-    filter_code=source[filter_start:source.index('    if nativeFlag != nil || nativeTag != nil || nativeUrgent != nil {',filter_start)]
+    filter_code=source[filter_start:source.index('    if nativeFlag != nil || nativeTag != nil || nativeUrgent != nil || nativeAssignment != nil {',filter_start)]
     filter_fixture='''
 var completionFrom:Date?=nil
 var completionBefore:Date?=nil
