@@ -12,6 +12,7 @@ FOUNDATION_EXPORT NSData *ICloudRemindersReadTags(NSData *publicIdentity);
 FOUNDATION_EXPORT NSData *ICloudRemindersReadHierarchy(NSData *publicIdentity);
 FOUNDATION_EXPORT NSData *ICloudRemindersReadChildren(NSData *publicIdentity);
 FOUNDATION_EXPORT NSData *ICloudRemindersListSections(NSData *publicIdentity);
+FOUNDATION_EXPORT NSData *ICloudRemindersReadListFeatures(NSData *publicIdentity);
 FOUNDATION_EXPORT NSData *ICloudRemindersReadSection(NSData *publicIdentity);
 FOUNDATION_EXPORT NSData *ICloudRemindersReadEarly(NSData *publicIdentity);
 FOUNDATION_EXPORT NSData *ICloudRemindersAddEarly(NSData *request,BOOL (^enterMutation)(void));

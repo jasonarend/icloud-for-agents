@@ -69,6 +69,18 @@ class NativeReadTests(unittest.TestCase):
         with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',side_effect=AssertionError('No helper')):
             with self.assertRaises(SafetyError):NativeReader('reminders').read('list_sections',list_id='list')
 
+    def test_list_feature_reads_require_scoped_typed_provider_flags(self):
+        config={'reminders':{'source_ids':['selected'],'advanced_backend':'reminderkit','helper_path':'/synthetic/helper'}}
+        result={'protocol_version':1,'source_id':'selected','list_id':'list','grocery_categorization':True,'grocery_shopping_session':False,'is_group':False,'list_type_verified':False,'data_mutated':False,'backend':'reminderkit-list-features-v1'}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=result) as backend:
+            self.assertEqual(NativeReader('reminders').read('list_features',list_id='list'),result)
+            for bad in (dict(result,source_id='foreign'),dict(result,list_id='other'),dict(result,grocery_categorization=1),dict(result,list_type_verified=True),dict(result,data_mutated=True),dict(result,extra='untrusted')):
+                backend.return_value=bad
+                with self.assertRaises(SafetyError):NativeReader('reminders').read('list_features',list_id='list')
+        config['reminders'].pop('advanced_backend')
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',side_effect=AssertionError('No helper')):
+            with self.assertRaises(SafetyError):NativeReader('reminders').read('list_features',list_id='list')
+
     def test_section_membership_distinguishes_reported_from_unknown(self):
         config={'reminders':{'source_ids':['selected'],'advanced_backend':'reminderkit','helper_path':'/synthetic/helper'}}
         metadata={'id':'task','source_id':'selected','list_id':'list','coverage':['section'],'section':None,'section_status':'provider_not_reported'}
@@ -346,7 +358,7 @@ class NativeReadTests(unittest.TestCase):
                     importlib.reload(server)
                     tools = {t.name:t for t in asyncio.run(server.mcp.list_tools())}
                     self.assertEqual(sum(n.startswith('notes_') for n in tools),44 if notes else 0)
-                    self.assertEqual(sum(n.startswith('reminders_') for n in tools),33 if reminders else 0)
+                    self.assertEqual(sum(n.startswith('reminders_') for n in tools),34 if reminders else 0)
                     if notes:
                         with patch.dict(os.environ, {'ICLOUD_ENABLE_NOTES':'0'}), patch('subprocess.run',side_effect=AssertionError('No helper')):
                             with self.assertRaises(ToolError): tools['notes_sources'].fn()
