@@ -483,7 +483,10 @@ class NativeReadTests(unittest.TestCase):
         pages=[{'items':[{**row,'source_id':'foreign'}]}, {'items':[row],'table_projection_candidates':[{**candidate,'folder_id':'other'}]},
                {'items':[row,row],'table_projection_candidates':[]}, {'items':[],'table_projection_candidates':[{**candidate,'source_id':'foreign'}]},
                {'items':[{**row,'locked':True,'excerpt':'private'}]}, {'items':[],'table_projection_candidates':[{**candidate,'locked':True}]},
-               {'items':[],'table_projection_candidates':[{k:v for k,v in candidate.items() if k!='locked'}]}]
+               {'items':[],'table_projection_candidates':[{k:v for k,v in candidate.items() if k!='locked'}]},
+               {'items':[{**row,'title':'x'*1001}]}, {'items':[{**row,'excerpt':'x'*323}]},
+               {'items':[{**row,'content_complete':True}]}, {'items':[],'table_projection_candidates':[{**candidate,'html':'x'*100001}]},
+               {'items':[],'table_projection_candidates':[{**candidate,'truncated':None}]}]
         for page in pages:
             with self.subTest(page=page),self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value={**page,**BODY_SEARCH_EVIDENCE}),self.assertRaises(SafetyError):
                 NativeReader('notes').read('search',text='test',folder_id='folder',limit=1)

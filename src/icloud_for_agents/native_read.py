@@ -483,9 +483,13 @@ class NativeReader:
                            or row.get('source_id') not in sources or not isinstance(row.get('folder_id'),str) or not row['folder_id']
                            or (fields.get('folder_id') is not None and row['folder_id']!=fields['folder_id'])
                            for row in items+candidates)
+                    or any(not isinstance(row.get('title'),str) or len(row['title'])>1000 for row in items+candidates)
                     or any(type(row.get('locked')) is not bool or not isinstance(row.get('excerpt'),str)
+                           or len(row['excerpt'])>322 or row.get('content_complete') is not False
                            or (row['locked'] and row['excerpt']!='') for row in items)
-                    or any(row.get('locked') is not False for row in candidates)
+                    or any(row.get('locked') is not False or not isinstance(row.get('html'),str)
+                           or len(row['html'])>100000 or type(row.get('truncated')) is not bool for row in candidates)
+                    or sum(len(row['html']) for row in candidates)>250000
                     or (locked_filter is not None and (result.get('locked_filter') is not locked_filter
                         or any(row.get('locked') is not locked_filter for row in items+candidates)))
                     or (shared_filter is not None and (result.get('shared_filter') is not shared_filter
