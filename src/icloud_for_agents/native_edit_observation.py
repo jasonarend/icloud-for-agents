@@ -28,7 +28,7 @@ def inspect_uncertain_note_edit(engine, plan_id, folder_id):
             or note.get('source_id')!=item.get('source_id') or not isinstance(before.get('attachments'),list)):
         raise SafetyError('The original exact Notes snapshot is incomplete')
     exchange=completed_exchange_evidence(mutation_request('notes',item),plan_id=plan_id,store=engine.store)
-    observed=engine.adapter.note_snapshot(dict(item,folder_id=folder_id),rewrite=False)
+    observed=engine.adapter.note_snapshot(dict(item,folder_id=folder_id),rewrite=False,verify_folder_role=False)
     current=observed['note']
     if current.get('id')!=item['id'] or current.get('source_id')!=item['source_id'] or current.get('folder_id')!=folder_id:
         raise SafetyError('The observed note does not match the selected identity and source')

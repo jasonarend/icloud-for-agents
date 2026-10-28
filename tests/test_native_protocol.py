@@ -8,6 +8,17 @@ from icloud_for_agents.core import SafetyError
 
 
 class NativeProtocolTests(unittest.TestCase):
+    def test_folder_guard_is_bound_to_exact_snapshot_identity(self):
+        item=self.item()
+        self.assertEqual(mutation_request('notes',item)['change']['folder_guard'],'unverified')
+        item['before']['folder']={'verified_default_folder':{'id':'folder','source_id':'selected'}}
+        self.assertEqual(mutation_request('notes',item)['change']['folder_guard'],'default_folder')
+        item['before']['folder']['verified_default_folder']['id']='other'
+        self.assertEqual(mutation_request('notes',item)['change']['folder_guard'],'unverified')
+        item['before']['folder']={'verified_model_role':{'folder_id':'folder','source_id':'selected','role':'ordinary_non_system'}}
+        self.assertEqual(mutation_request('notes',item)['change']['folder_guard'],'verified_model')
+        item['before']['folder']['verified_model_role']['role']='system_trash'
+        self.assertEqual(mutation_request('notes',item)['change']['folder_guard'],'unverified')
     def item(self):
         return {'operation':'append_note','source_id':'selected','folder_id':'folder','id':'note',
                 'fields':{'title':'Synthetic','html':'<div>'+('n'*20000)+'</div>','expected_text':'n'*20000},

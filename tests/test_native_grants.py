@@ -15,6 +15,9 @@ class Adapter:
     def private_folder(self,identity,source):
         if identity!='folder' or source!='selected' or self.folder['shared']:raise SafetyError('Unselected/shared fake folder')
         return copy.deepcopy(self.folder)
+    def checked_content_folder_role(self,folder,source):
+        if folder['id']!='folder' or source!='selected':raise SafetyError('Unverified fake folder')
+        return dict(folder,verified_default_folder={'id':folder['id'],'source_id':source})
     def lists(self):return [copy.deepcopy(self.folder)]
     def prepare(self,change):
         planning_access(self.name)
@@ -55,9 +58,9 @@ class NativeGrantTests(unittest.TestCase):
         self.store.write_once(self.store.path(p['plan_id'],'.approved'),{'plan_id':p['plan_id'],'sha256':p['sha256']})
         self.manager.activate(p['plan_id']);plan=self.engine.prepare_with_grant(p['plan_id'],self.changes())
         self.assertEqual(self.engine.execute(plan['plan_id'])['status'],'applied');self.assertFalse(self.store.path(plan['plan_id'],'.approved').exists())
-    def test_notes_grant_preview_discloses_unverified_special_folder_role(self):
+    def test_notes_grant_preview_discloses_default_folder_scope(self):
         proposal=self.manager.prepare(self.scope())
-        self.assertIn('Recently Deleted',proposal['review']['payload']['effects']['folder_role'])
+        self.assertIn('default creation folder',proposal['review']['payload']['effects']['folder_role'])
     def test_opted_in_notes_grant_rechecks_folder_role(self):
         os.environ['ICLOUD_NATIVE_CONFIG']=json.dumps({'notes':{'access_mode':'write-enabled','source_ids':['selected'],'metadata_backend':'notes-store-readonly','folder_write_backend':'notes-shared'}})
         state={'role':'ordinary_non_system'}

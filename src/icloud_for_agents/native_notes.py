@@ -202,9 +202,15 @@ class NotesCreateAdapter:
         return True
 
     def checked_content_folder_role(self,folder,source_id):
-        # Opted-in native model can identify Recently Deleted and unsafe ancestors.
-        # The ordinary scripting route cannot reliably classify those roles.
-        if native_config('notes').get('folder_write_backend')!='notes-shared':return folder
+        # Without the optional native model, only the account's explicitly
+        # reported default creation folder has a known role. Names are not roles.
+        if native_config('notes').get('folder_write_backend')!='notes-shared':
+            default=self.reader.read('default_folder',source_id=source_id).get('folder')
+            if (not isinstance(default,dict) or default.get('id')!=folder['id']
+                    or default.get('source_id')!=source_id or default.get('parent_id')!=source_id
+                    or default.get('role')!='default_folder' or default.get('shared') is not False):
+                raise SafetyError('Notes writes require the verified default folder or the optional verified native folder role')
+            return dict(folder,verified_default_folder={'id':default['id'],'source_id':source_id})
         role=self.reader.read('model_folder_role',folder_id=folder['id'],source_id=source_id)
         if (role.get('folder_id')!=folder['id'] or role.get('source_id')!=source_id
                 or role.get('role')!='ordinary_non_system' or role.get('data_mutated') is not False
@@ -213,8 +219,9 @@ class NotesCreateAdapter:
             raise SafetyError('Notes writes require an ordinary folder with verified nonsystem ancestors')
         return dict(folder,verified_model_role=role)
 
-    def note_snapshot(self,item,*,rewrite=True):
-        folder=self.checked_content_folder_role(self.private_folder(item['folder_id'],item['source_id']),item['source_id'])
+    def note_snapshot(self,item,*,rewrite=True,verify_folder_role=True):
+        folder=self.private_folder(item['folder_id'],item['source_id'])
+        if verify_folder_role:folder=self.checked_content_folder_role(folder,item['source_id'])
         note=self.reader.read('get',folder_id=item['folder_id'],id=item['id'])['item']
         if (folder.get('source_id')!=item['source_id'] or folder.get('shared') is not False
                 or note.get('id')!=item['id'] or note.get('folder_id')!=item['folder_id']
@@ -310,7 +317,7 @@ class NotesCreateAdapter:
         item.update(fields={'title':title,'html':html,'expected_text':project_html(html)['text']},before=before,
                     fidelity_verified=True,effects={'existing_content':effect,'native_objects':'Existing attachments, tables, checklists and unknown structures refused',
                     'sharing':'none','sync_status':'unconfirmed',
-                    'folder_role':('Optional native model checks this folder and its ancestors before admission; separate provider reads are not atomic.' if native_config('notes').get('folder_write_backend')=='notes-shared' else 'Unverified by scripting; Recently Deleted is not a supported edit target.')})
+                    'folder_role':('Optional native model checks this folder and its ancestors before admission; separate provider reads are not atomic.' if native_config('notes').get('folder_write_backend')=='notes-shared' else 'Only the account default creation folder is supported; its identity is rechecked before dispatch.')})
         return item
 
     def prepare(self,change):
@@ -337,7 +344,7 @@ class NotesCreateAdapter:
         item={'operation':operation,'source_id':source,'fields':fields,
               'fidelity_verified':True,'effects':{'sharing':'none','existing_content':'unchanged',
               'rich_native_features':'not certified by text readback',
-              'folder_role':('Optional native model checks selected parent folders before admission; separate provider reads are not atomic.' if native_config('notes').get('folder_write_backend')=='notes-shared' else 'Unverified by scripting; Recently Deleted is not a supported creation target.')}}
+              'folder_role':('Optional native model checks selected parent folders before admission; separate provider reads are not atomic.' if native_config('notes').get('folder_write_backend')=='notes-shared' else 'Folder targets require the account default creation folder; its identity is rechecked before dispatch.')}}
         if operation=='create_note':item['folder_id']=change['folder_id']
         if operation=='create_folder' and 'parent_folder_id' in change:
             parent=change['parent_folder_id']

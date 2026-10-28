@@ -15,6 +15,7 @@ class Reader:
         self.parents={};self.attachments=[]
         self.note={'id':'created','title':'Spec','text':'Spec Body','html':'<div>Spec</div><div>Body</div>','locked':False,'truncated':False,'shared':False,'source_id':'selected','folder_id':'folder','modified':'2026-10-26T12:00:00Z','created':'2026-10-25T12:00:00Z'}
     def read(self,action,**fields):
+        if action=='default_folder':return {'folder':{'id':self.folder['id'],'source_id':'selected','parent_id':'selected','title':'Synthetic','shared':False,'role':'default_folder'}}
         if action=='folders':return {'folders':[dict(self.folder)],'done':True}
         if action=='folder_get':
             value=self.destination if fields['folder_id']=='destination' else self.parents.get(fields['folder_id'],self.folder)
@@ -81,11 +82,41 @@ class NativeNotesTests(unittest.TestCase):
         with self.assertRaises(SafetyError):self.prepare()
     def test_prepare_binds_exact_folder_snapshot_and_preserves_existing_content(self):
         item=self.prepare()
-        self.assertEqual(item['before'],self.reader.folder)
+        self.assertEqual(item['before'],dict(self.reader.folder,verified_default_folder={'id':'folder','source_id':'selected'}))
         self.assertEqual(item['source_id'],'selected')
         self.assertEqual(item['effects']['existing_content'],'unchanged')
-        self.assertIn('Recently Deleted',item['effects']['folder_role'])
+        self.assertIn('default creation folder',item['effects']['folder_role'])
         self.assertNotIn('approved',item)
+    def test_unverified_folder_and_default_folder_drift_refuse_writes(self):
+        with self.assertRaisesRegex(SafetyError,'verified default folder'):
+            self.prepare(folder_id='destination')
+        item=self.prepare()
+        self.reader.folder['id']='changed-default'
+        with self.assertRaises(SafetyError):self.adapter.snapshot(item)
+        self.reader.folder['id']='folder'
+        with self.assertRaisesRegex(SafetyError,'verified default folder'):
+            self.adapter.prepare({'operation':'create_folder','source_id':'selected','parent_folder_id':'destination','fields':{'title':'Synthetic child'}})
+
+    def test_stale_default_folder_stops_consumed_plan_before_native_dispatch(self):
+        import tempfile
+        from pathlib import Path
+        from icloud_for_agents.native_changes import NativeChanges
+        from icloud_for_agents.approvals import PlanStore
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,{'ICLOUD_MAIL_ACCOUNT':'synthetic@example.com','ICLOUD_APPROVAL_POLICY':'trusted-client'}), patch.object(NotesCreateAdapter,'backend_id',new_callable=PropertyMock,return_value='synthetic-notes'):
+            engine=NativeChanges('notes','synthetic@example.com',self.adapter,PlanStore(Path(directory)/'runtime'))
+            plan=engine.prepare_once([{'operation':'create_note','source_id':'selected','folder_id':'folder','fields':{'title':'Synthetic','body':'Body'}}])
+            original=self.reader.read;default_reads=0
+            def changed(action,**fields):
+                nonlocal default_reads
+                if action=='default_folder':
+                    default_reads+=1
+                    if default_reads>1:return {'folder':{'id':'destination','source_id':'selected','parent_id':'selected','title':'Destination','shared':False,'role':'default_folder'}}
+                return original(action,**fields)
+            self.reader.read=changed
+            with patch.object(self.adapter,'apply',side_effect=AssertionError('No native dispatch')):
+                result=engine.execute(plan['plan_id'])
+            self.assertEqual(result['status'],'stopped_before_dispatch')
+            self.assertEqual(result['completed'],[])
     def test_opted_in_model_checks_content_folder_role_at_each_snapshot(self):
         config={'notes':{'access_mode':'write-enabled','source_ids':['selected'],'metadata_backend':'notes-store-readonly','folder_write_backend':'notes-shared'}}
         os.environ['ICLOUD_NATIVE_CONFIG']=json.dumps(config)
@@ -125,7 +156,7 @@ class NativeNotesTests(unittest.TestCase):
         self.assertEqual(item['before']['note'],self.reader.note)
         self.assertTrue(item['fields']['html'].startswith(before))
         self.assertIn('Decision &amp; details',item['fields']['html'])
-        self.assertIn('Recently Deleted',item['effects']['folder_role'])
+        self.assertIn('default creation folder',item['effects']['folder_role'])
         self.reader.note['html']=item['fields']['html']
         self.assertTrue(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
     def test_full_replacement_requires_both_title_and_body(self):

@@ -62,6 +62,14 @@ function applyNotes(app, req, beginMutation, nativePhase) {
     if(item.folder_id)collect(item.folder_id);
     if(item.parent_folder_id)collect(item.parent_folder_id);
     if(item.operation==='move_note')collect(fields.destination_folder_id);
+    // The native model is verified in the final Python snapshot. The ordinary
+    // scripting path can safely identify only the account's creation default.
+    const guardedFolder=item.operation==='create_folder'?item.parent_folder_id:item.folder_id;
+    if(guardedFolder && ['create_note','create_folder','repair_note_body','append_note','prepend_note','replace_text','update_note'].includes(item.operation)) {
+        if(item.folder_guard==='default_folder') {
+            if(account.defaultFolder().id()!==guardedFolder)throw Error('unverified_folder_role');
+        } else if(item.folder_guard!=='verified_model')throw Error('unverified_folder_role');
+    }
     function requirePrivateFolder(folder) {
         const visited=new Set();let current=folder;
         for(let depth=0;depth<32;depth++) {
@@ -187,7 +195,7 @@ function applyNotes(app, req, beginMutation, nativePhase) {
     return JSON.stringify({protocol_version:1,result:{id:createdID,source_id:item.source_id,folder_id:item.folder_id,saved_locally:true}});
     } catch(error) {
         const match=String(error).match(/-\d{3,6}/);
-        const known=['invalid_request','unsupported_operation','not_found_in_scope','invalid_fields','folder_limit','duplicate_folder','shared_write_not_supported','created_identity_uncertain','unsupported_repair_target','snapshot_changed','unsupported_edit_target','unsupported_move_command','unverified_folder_role_move','moved_identity_uncertain','folder_ancestry_unavailable','native_dispatch_cancelled'];
+        const known=['invalid_request','unsupported_operation','not_found_in_scope','invalid_fields','folder_limit','duplicate_folder','shared_write_not_supported','created_identity_uncertain','unsupported_repair_target','snapshot_changed','unsupported_edit_target','unsupported_move_command','unverified_folder_role_move','unverified_folder_role','moved_identity_uncertain','folder_ancestry_unavailable','native_dispatch_cancelled'];
         const category=known.find(value=>String(error).includes(value)) || 'provider_exception';
         return JSON.stringify({protocol_version:1,error:'notes_operation_failed',stage:stage,category:category,mutation_dispatched:mutationDispatched,
             error_code:match?Number(match[0]):-2700});

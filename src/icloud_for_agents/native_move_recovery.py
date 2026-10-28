@@ -42,7 +42,7 @@ class NotesMoveRecovery:
         if any(type(v) is not bool for v in present.values()) or sum(present.values())!=1:
             raise SafetyError('Known move object must be physically present in exactly one reviewed folder')
         actual=next(key for key,value in present.items() if value);candidate=dict(item,folder_id=actual)
-        observed=self.adapter.note_snapshot(candidate,rewrite=False);note=observed['note'];before=item['before']['note']
+        observed=self.adapter.note_snapshot(candidate,rewrite=False,verify_folder_role=False);note=observed['note'];before=item['before']['note']
         if (note.get('source_id')!=item['source_id'] or note.get('folder_id')!=actual
                 or any(note.get(key)!=before.get(key) for key in CONTENT_KEYS) or observed['attachments']!=item['before']['attachments']):
             raise SafetyError('Known move content, identity or attachment state changed; no recovery association')

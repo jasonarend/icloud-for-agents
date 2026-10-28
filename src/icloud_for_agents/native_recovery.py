@@ -82,7 +82,10 @@ class NotesCreationRecovery:
         if not isinstance(candidate_id,str) or not 1<=len(candidate_id)<=1000:raise SafetyError('Select one exact candidate ID')
         with self.engine.serialized():
             original,result,item=self.original(original_id)
-            snapshot=self.snapshot(item,candidate_id);self.validate_target(item,snapshot,action)
+            snapshot=self.snapshot(item,candidate_id)
+            if action=='repair_title_only_candidate':
+                snapshot['folder']=self.adapter.checked_content_folder_role(snapshot['folder'],item['source_id'])
+            self.validate_target(item,snapshot,action)
             if action=='repair_title_only_candidate':
                 repair={'operation':'repair_note_body','source_id':item['source_id'],'folder_id':item['folder_id'],'id':candidate_id,'fields':item['fields'],'before':snapshot}
                 if len(json.dumps(mutation_request('notes',repair),ensure_ascii=False).encode())>239000:raise SafetyError('Recovery exceeds the fixed helper request limit')
@@ -113,6 +116,8 @@ class NotesCreationRecovery:
             if payload.get('account')!=self.account or payload.get('context')!=self.context(plan):
                 raise SafetyError('Recovery account, backend or access changed')
             current=self.snapshot(item,payload['candidate_id'])
+            if payload['operation']=='repair_title_only_candidate':
+                current['folder']=self.adapter.checked_content_folder_role(current['folder'],item['source_id'])
             if current!=payload['before']:raise SafetyError('Candidate changed since review')
             self.validate_target(item,current,payload['operation'])
             self.engine.assert_settled(plan)

@@ -10,6 +10,17 @@ def mutation_request(service,item):
     operation=item.get('operation')
     if service=='notes' and operation in {'create_note','create_folder','append_note','prepend_note','replace_text','update_note','repair_note_body','move_note','rename_folder'}:
         change={key:item[key] for key in ('operation','source_id','folder_id','parent_folder_id','id') if key in item}
+        if operation in {'create_note','append_note','prepend_note','replace_text','update_note','repair_note_body'} or (operation=='create_folder' and item.get('parent_folder_id')):
+            before=item.get('before',{})
+            folder=(before.get('parent') if operation=='create_folder' else before.get('folder') if operation in {'append_note','prepend_note','replace_text','update_note','repair_note_body'} else before)
+            target=item.get('parent_folder_id') if operation=='create_folder' else item.get('folder_id')
+            model=folder.get('verified_model_role') if isinstance(folder,dict) else None
+            default=folder.get('verified_default_folder') if isinstance(folder,dict) else None
+            if isinstance(model,dict) and model.get('folder_id')==target and model.get('source_id')==item['source_id'] and model.get('role')=='ordinary_non_system':
+                change['folder_guard']='verified_model'
+            elif isinstance(default,dict) and default=={'id':target,'source_id':item['source_id']}:
+                change['folder_guard']='default_folder'
+            else:change['folder_guard']='unverified'
         keys={'title'} if operation in {'create_folder','rename_folder'} else {'title','destination_folder_id'} if operation=='move_note' else {'title','html'}
         change['fields']={key:item['fields'][key] for key in keys if key in item['fields']}
         if operation=='rename_folder':

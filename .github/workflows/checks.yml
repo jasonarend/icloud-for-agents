@@ -60,6 +60,7 @@ jobs:
           .venv/bin/python tests/native_write_contract.py
           .venv/bin/python tests/native_folder_inventory_contract.py
           .venv/bin/python tests/native_notes_model_contract.py
+          .venv/bin/python tests/native_notes_folder_guard_contract.py
           .venv/bin/python tests/native_notes_store_status_contract.py
           .venv/bin/python tests/native_notes_launch_contract.py
           .venv/bin/python tests/native_dispatch_gate_contract.py

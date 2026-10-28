@@ -37,7 +37,7 @@ folder.notes={id:()=>saved.filter(id=>id!=='move-id' || !moved),byId:id=>id==='m
  saved.splice(0,saved.length,'permanent-old','repair-id','edit-id','move-id','new-note');
  if(makeAmbiguous)saved.push('other-new');
 }};
-const account={id:()=> 'selected',folders:roots};
+const account={id:()=> 'selected',folders:roots,defaultFolder:()=>folder};
 const app={folders:{byId:id=>{throw Error('unqualified_app_folder_lookup');}},accounts:()=>[account],
  Note:props=>{if(makeConstructorFail)throw Error('factory_failure');if('name' in props)throw Error('conflicting_title_property');return {id:()=>{throw Error('unbound_reference');},body:()=>props.body};},
  Folder:props=>({id:()=> 'new-folder',name:()=>props.name})};
@@ -66,7 +66,9 @@ function run() {
  result.synthetic_gate_calls=gateCalls;result.synthetic_saved_ids=saved.slice();return JSON.stringify(result);
 }
 ''')
-        def call(change,ids=None,ambiguous=False,constructor_fail=False,edit_fail=False,destination_shared=False,move_fail=False,nameless=False,ancestor_shared=False,gate_open=True,gate_limit=None,unknown_folder_share=False,unknown_note_lock=False,unknown_note_share=False):
+        def call(change,ids=None,ambiguous=False,constructor_fail=False,edit_fail=False,destination_shared=False,move_fail=False,nameless=False,ancestor_shared=False,gate_open=True,gate_limit=None,unknown_folder_share=False,unknown_note_lock=False,unknown_note_share=False,guard='default_folder'):
+            if change.get('operation') in {'create_note','repair_note_body','append_note','prepend_note','replace_text','update_note'} or (change.get('operation')=='create_folder' and change.get('parent_folder_id')):
+                change={**change,'folder_guard':guard}
             return subprocess.run(['/usr/bin/osascript','-l','JavaScript',str(script)],
                 input=json.dumps({'protocol_version':1,'action':'apply','source_ids':ids or ['selected'],'change':change,'synthetic_ambiguous':ambiguous,'synthetic_constructor_fail':constructor_fail,'synthetic_edit_fail':edit_fail,'synthetic_destination_shared':destination_shared,'synthetic_move_fail':move_fail,'synthetic_nameless_attachment':nameless,'synthetic_ancestor_shared':ancestor_shared,'synthetic_gate_open':gate_open,'synthetic_gate_limit':gate_limit,'synthetic_unknown_folder_share':unknown_folder_share,'synthetic_unknown_note_lock':unknown_note_lock,'synthetic_unknown_note_share':unknown_note_share}),
                 capture_output=True,text=True,timeout=10)
@@ -76,7 +78,7 @@ function run() {
         accepted=call(large);assert accepted.returncode==0 and json.loads(accepted.stdout).get('result',{}).get('id')=='new-note',accepted.stdout[:500]
         oversized=dict(note,fields={'title':'Transcript','html':'x'*90001});assert json.loads(call(oversized).stdout).get('error')
         # Exercise the actual large base64-in-source OSAKit route used by the helper.
-        payload=base64.b64encode(json.dumps({'protocol_version':1,'action':'apply','source_ids':['selected'],'change':large}).encode()).decode()
+        payload=base64.b64encode(json.dumps({'protocol_version':1,'action':'apply','source_ids':['selected'],'change':dict(large,folder_guard='default_folder')}).encode()).decode()
         bridge_script=Path(directory)/'large-embedded.js'
         bridge_script.write_text(FIXTURE+'\n'+source+"\nfunction run(){const req=JSON.parse(ObjC.unwrap($.NSString.alloc.initWithDataEncoding($.NSData.alloc.initWithBase64EncodedStringOptions('"+payload+"',0),$.NSUTF8StringEncoding)));syntheticLargeCreate=true;return applyNotes(app,req,()=>true);}")
         swift=Path(directory)/'large-bridge.swift';swift.write_text('import Foundation\nimport OSAKit\nlet source=try String(contentsOfFile:CommandLine.arguments[1],encoding:.utf8)\nlet script=OSAScript(source:source,language:OSALanguage(forName:"JavaScript"))\nvar error:NSDictionary?\nguard let result=script.executeAndReturnError(&error)?.stringValue else {exit(2)}\nprint(result)\n')
@@ -88,6 +90,8 @@ function run() {
         between=json.loads(call(note,gate_limit=1).stdout);assert between['mutation_dispatched'] is True and 'new-note' not in between['synthetic_saved_ids']
         response=call(note);assert response.returncode==0,response.stderr
         assert json.loads(response.stdout)['result']['id']=='new-note'
+        unverified=json.loads(call(note,guard='unverified').stdout);assert unverified['category']=='unverified_folder_role' and unverified['mutation_dispatched'] is False
+        nondefault=json.loads(call(dict(note,folder_id='destination')).stdout);assert nondefault['category']=='unverified_folder_role' and nondefault['mutation_dispatched'] is False
         ambiguous=call(note,ambiguous=True)
         assert json.loads(ambiguous.stdout)['category']=='created_identity_uncertain'
         assert json.loads(ambiguous.stdout)['mutation_dispatched'] is True

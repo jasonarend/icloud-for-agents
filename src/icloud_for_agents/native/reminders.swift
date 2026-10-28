@@ -1,6 +1,7 @@
 // Fixed native protocol: EventKit reads and Notes creation transport.
 // The Python approved-plan executor enforces mutation authorization; no implicit permission requests.
 import Foundation
+import CoreFoundation
 import EventKit
 import CoreLocation
 import OSAKit
@@ -165,6 +166,16 @@ func dateParts(_ date: DateComponents?) -> Any {
     value["timezone"] = d.timeZone?.identifier ?? NSNull() as Any
     return value
 }
+func notesModelRoleMatches(_ role:[String:Any], folder:String, source:String)->Bool {
+    guard let version=role["protocol_version"] as? NSNumber, CFGetTypeID(version) != CFBooleanGetTypeID(), version == 1,
+          role["folder_id"] as? String == folder, role["source_id"] as? String == source,
+          role["role"] as? String == "ordinary_non_system",
+          let mutated=role["data_mutated"] as? NSNumber, CFGetTypeID(mutated) == CFBooleanGetTypeID(), mutated.boolValue == false,
+          role["backend"] as? String == "notes-shared-folder-role-v1",
+          let number=role["ancestor_count"] as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+          let ancestors=role["ancestor_count"] as? Int, (0..<32).contains(ancestors) else {return false}
+    return true
+}
 let data = requestData()
 guard data.count <= 262144, let req = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
       req["protocol_version"] as? Int == 1, let action = req["action"] as? String else { fail("invalid_request") }
@@ -296,6 +307,17 @@ if service == "notes" {
     _ = NSApplication.shared
     if action=="apply" {_ = NativeMutationGate()}
     DispatchQueue.global(qos: .userInitiated).async {
+        if action == "apply", let change=req["change"] as? [String:Any],
+           change["folder_guard"] as? String == "verified_model" {
+            let folder = (change["operation"] as? String == "create_folder") ? change["parent_folder_id"] as? String : change["folder_id"] as? String
+            let source=change["source_id"] as? String
+            guard let folder, let source, let sources=req["source_ids"] as? [String], sources.contains(source),
+                  let probe=try? JSONSerialization.data(withJSONObject:["folder_id":folder,"source_ids":[source]]),
+                  let role=(try? JSONSerialization.jsonObject(with:ICloudNotesModelFolderRole(probe))) as? [String:Any],
+                  notesModelRoleMatches(role,folder:folder,source:source) else {
+                respond(["protocol_version":1,"error":"notes_model_role_refused","category":"unverified_folder_role","mutation_dispatched":false])
+            }
+        }
         guard let script = notesScript(source + bridge) else { fail("notes_bridge_unavailable") }
         var diagnostic: NSDictionary?
         guard let output = script.executeAndReturnError(&diagnostic)?.stringValue,

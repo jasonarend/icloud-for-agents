@@ -19,6 +19,7 @@ class Reader:
         self.folder={'id':'folder','source_id':'selected','title':'Synthetic','parent_id':'selected','shared':False}
         self.note=None;self.duplicate=False;self.attachments=[];self.calls=[];self.bad_repair=False
     def read(self,action,**fields):
+        if action=='default_folder':return {'folder':{'id':'folder','source_id':'selected','parent_id':'selected','title':'Synthetic','shared':False,'role':'default_folder'}}
         if action=='folder_get':return {'folder':copy.deepcopy(self.folder)}
         if action=='get':return {'item':copy.deepcopy(self.note)}
         if action=='query':
