@@ -117,6 +117,20 @@ class NativeNotesTests(unittest.TestCase):
                 result=engine.execute(plan['plan_id'])
             self.assertEqual(result['status'],'stopped_before_dispatch')
             self.assertEqual(result['completed'],[])
+
+    def test_legacy_plan_without_folder_evidence_is_not_admitted(self):
+        import tempfile
+        from pathlib import Path
+        from icloud_for_agents.native_changes import NativeChanges
+        from icloud_for_agents.approvals import PlanStore
+        with tempfile.TemporaryDirectory() as directory,patch.dict(os.environ,{'ICLOUD_MAIL_ACCOUNT':'synthetic@example.com','ICLOUD_APPROVAL_POLICY':'trusted-client'}),patch.object(NotesCreateAdapter,'backend_id',new_callable=PropertyMock,return_value='synthetic-notes'):
+            engine=NativeChanges('notes','synthetic@example.com',self.adapter,PlanStore(Path(directory)/'runtime'))
+            proposal=engine.prepare_once([{'operation':'create_note','source_id':'selected','folder_id':'folder','fields':{'title':'Synthetic','body':'Body'}}])
+            path=engine.store.path(proposal['plan_id'],'.json');plan=engine.store.read(path)
+            del plan['payload']['changes'][0]['before']['verified_default_folder']
+            path.write_text(json.dumps(plan)) # Synthetic pre-upgrade plan fixture.
+            with patch.object(self.adapter,'apply',side_effect=AssertionError('No native dispatch')),self.assertRaises(SafetyError):engine.execute(proposal['plan_id'])
+            self.assertFalse(engine.store.path(proposal['plan_id'],'.started').exists())
     def test_opted_in_model_checks_content_folder_role_at_each_snapshot(self):
         config={'notes':{'access_mode':'write-enabled','source_ids':['selected'],'metadata_backend':'notes-store-readonly','folder_write_backend':'notes-shared'}}
         os.environ['ICLOUD_NATIVE_CONFIG']=json.dumps(config)

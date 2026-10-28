@@ -61,6 +61,13 @@ class NativeGrantTests(unittest.TestCase):
     def test_notes_grant_preview_discloses_default_folder_scope(self):
         proposal=self.manager.prepare(self.scope())
         self.assertIn('default creation folder',proposal['review']['payload']['effects']['folder_role'])
+    def test_legacy_grant_without_folder_evidence_is_not_activated_and_can_be_revoked(self):
+        proposal=self.manager.prepare(self.scope());identity=proposal['plan_id']
+        path=self.store.path(identity,'.json');plan=self.store.read(path)
+        del plan['payload']['containers'][0]['source']['verified_default_folder']
+        path.write_text(json.dumps(plan)) # Synthetic pre-upgrade grant fixture.
+        with self.assertRaises(SafetyError):self.manager.activate(identity)
+        self.assertEqual(self.manager.revoke(identity)['status'],'revoked')
     def test_opted_in_notes_grant_rechecks_folder_role(self):
         os.environ['ICLOUD_NATIVE_CONFIG']=json.dumps({'notes':{'access_mode':'write-enabled','source_ids':['selected'],'metadata_backend':'notes-store-readonly','folder_write_backend':'notes-shared'}})
         state={'role':'ordinary_non_system'}
