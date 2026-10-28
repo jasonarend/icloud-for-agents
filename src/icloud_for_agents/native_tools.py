@@ -330,19 +330,19 @@ def register_change_tools(mcp):
 
         @mcp.tool(annotations=WRITE)
         @guard
-        def reminders_prepare_observation_recovery(plan_id:str)->dict:
-            """Review accepting one unchanged Reminder after a request-bound terminal error; delayed or unobserved effects remain possible."""
+        def reminders_prepare_observation_recovery(plan_id:str,legacy_missing_terminal:bool=False)->dict:
+            """Review accepting an unchanged Reminder after a terminal error, or explicitly prepare legacy acceptance when both exchange records are absent. Legacy acceptance requires the owner's separate exact acknowledgement at execution; general write permission does not supply it."""
             from .native_reminder_recovery import ReminderObservationRecovery
             check_plan_scope('reminders',plan_id)
-            return ReminderObservationRecovery(owner()).prepare(plan_id)
+            return ReminderObservationRecovery(owner()).prepare(plan_id,legacy_missing_terminal)
 
         @mcp.tool(annotations=WRITE)
         @guard
-        def reminders_accept_observation_recovery(plan_id:str)->dict:
+        def reminders_accept_observation_recovery(plan_id:str,owner_acknowledgement:str|None=None)->dict:
             """Accept the exact reviewed Reminder observation under the configured policy; never replay or change the reminder."""
             from .native_reminder_recovery import ReminderObservationRecovery
             check_plan_scope('reminders',plan_id)
-            return ReminderObservationRecovery(owner()).execute(plan_id)
+            return ReminderObservationRecovery(owner()).execute(plan_id,owner_acknowledgement)
 
         @mcp.tool(annotations=WRITE)
         @guard

@@ -3,6 +3,7 @@ import copy,json,os,unittest
 from unittest.mock import patch
 from icloud_for_agents.core import SafetyError
 from icloud_for_agents.native_reminder_recovery import ReminderObservationRecovery
+from icloud_for_agents.native_reminder_recovery import LEGACY_ACK
 from test_native_reminder_exchange import ReminderExchangeTests, Adapter
 
 
@@ -64,6 +65,50 @@ class ReminderRecoveryTests(ReminderExchangeTests):
         original=self.failed();self.store.path(original,'.native-reminder-request-0').unlink();self.store.path(original,'.native-reminder-response-0').unlink()
         with self.assertRaises(SafetyError):self.recovery.prepare(original)
         self.assertFalse(self.store.operation_settled(original))
+
+    def legacy(self):
+        original=self.failed()
+        for suffix in ('.native-reminder-request-0','.native-reminder-response-0'):self.store.path(original,suffix).unlink()
+        return original
+
+    def test_legacy_owner_acceptance_requires_separate_acknowledgement_and_preserves_audit(self):
+        original=self.legacy();before=self.store.path(original,'.result').read_bytes()
+        proposal=self.recovery.prepare(original,legacy_missing_terminal=True)
+        for acknowledgement in (None,'yes','I approve'):
+            with self.assertRaises(SafetyError):self.recovery.execute(proposal['plan_id'],acknowledgement)
+            self.assertFalse(self.store.path(proposal['plan_id'],'.started').exists())
+        result=self.recovery.execute(proposal['plan_id'],LEGACY_ACK)
+        self.assertEqual(result['owner_acknowledgement'],LEGACY_ACK)
+        self.assertTrue(self.store.operation_settled(original));self.engine.assert_settled()
+        self.assertEqual(self.store.path(original,'.result').read_bytes(),before)
+        for suffix in ('.native-reminder-request-0','.native-reminder-response-0'):self.assertFalse(self.store.path(original,suffix).exists())
+        with self.assertRaises(SafetyError):self.engine.execute(original)
+
+    def test_legacy_strict_policy_requires_receipt_as_well_as_acknowledgement(self):
+        original=self.legacy();os.environ['ICLOUD_APPROVAL_POLICY']='local-receipt'
+        proposal=self.recovery.prepare(original,legacy_missing_terminal=True)
+        with self.assertRaises(FileNotFoundError):self.recovery.execute(proposal['plan_id'],LEGACY_ACK)
+        self.store.write_once(self.store.path(proposal['plan_id'],'.approved'),{'plan_id':proposal['plan_id'],'sha256':proposal['sha256']})
+        self.assertEqual(self.recovery.execute(proposal['plan_id'],LEGACY_ACK)['status'],'completed')
+        self.assertTrue(self.store.operation_settled(original))
+
+    def test_legacy_recovery_refuses_partial_exchange_or_changed_snapshot(self):
+        original=self.failed();self.store.path(original,'.native-reminder-response-0').unlink()
+        with self.assertRaises(SafetyError):self.recovery.prepare(original,legacy_missing_terminal=True)
+        self.store.path(original,'.native-reminder-request-0').unlink()
+        proposal=self.recovery.prepare(original,legacy_missing_terminal=True)
+        self.adapter.current['item']['notes']='changed'
+        with self.assertRaises(SafetyError):self.recovery.execute(proposal['plan_id'],LEGACY_ACK)
+        self.assertFalse(self.store.operation_settled(original))
+
+    def test_legacy_review_cannot_omit_risk_or_acknowledgement(self):
+        original=self.legacy();proposal=self.recovery.prepare(original,legacy_missing_terminal=True)
+        plan=self.store.read(self.store.path(proposal['plan_id'],'.json'))
+        for field in ('legacy_acknowledgement','request_record_sha256','response_record_sha256'):
+            forged=copy.deepcopy(plan);del forged['payload'][field]
+            self.assertFalse(self.store._native_reminder_recovery_for(original,forged))
+        forged=copy.deepcopy(plan);del forged['payload']['effects']['missing_terminal_evidence']
+        self.assertFalse(self.store._native_reminder_recovery_for(original,forged))
     def test_missing_or_forged_request_response_and_unrelated_unfinished_write_block(self):
         original=self.failed();proposal=self.recovery.prepare(original);plan=self.store.read(self.store.path(proposal['plan_id'],'.json'))
         for key in ('original_sha256','original_result_sha256','request_record_sha256','response_record_sha256'):

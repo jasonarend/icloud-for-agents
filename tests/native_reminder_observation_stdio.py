@@ -41,6 +41,20 @@ def run():
                 assert 'Synthetic' not in json.dumps(value)
                 refused = rpc('tools/call', {'name': 'reminders_execute_approved', 'arguments': {'plan_id': identity}})['result']
                 assert refused.get('isError')
+                def call(name,arguments):return rpc('tools/call',{'name':name,'arguments':arguments})['result']
+                def data(result):
+                    assert not result.get('isError'),result
+                    return result.get('structuredContent') or json.loads(result['content'][0]['text'])
+                assert call('reminders_prepare_observation_recovery',{'plan_id':identity}).get('isError')
+                review=data(call('reminders_prepare_observation_recovery',{'plan_id':identity,'legacy_missing_terminal':True}))
+                assert 'No original request' in review['review']['payload']['effects']['missing_terminal_evidence']
+                assert call('reminders_accept_observation_recovery',{'plan_id':review['plan_id']}).get('isError')
+                acknowledgement=review['review']['payload']['legacy_acknowledgement']
+                accepted=data(call('reminders_accept_observation_recovery',{'plan_id':review['plan_id'],'owner_acknowledgement':acknowledgement}))
+                assert accepted['causal_dispatch_proven'] is False and accepted['native_data_changed'] is False
+                status=data(call('reminders_plan_status',{'plan_id':identity}))
+                assert status['original_status']=='failed_or_uncertain' and status['do_not_retry'] is True
+                assert call('reminders_execute_approved',{'plan_id':identity}).get('isError')
             finally:
                 process.stdin.close()
                 try: process.wait(timeout=10)

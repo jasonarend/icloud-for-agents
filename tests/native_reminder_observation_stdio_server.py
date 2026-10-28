@@ -17,5 +17,8 @@ store.consume(plan['plan_id'], account)
 store.finish(plan['plan_id'], {'status': 'failed_or_uncertain', 'phase': 'mutation', 'attempted': [], 'completed': [], 'do_not_retry': True})
 Path(os.environ['BRIDGE_TEST_ORIGINAL']).write_text(json.dumps({'plan_id': plan['plan_id']}))
 native_tools.editor = lambda name, write=False: engine
+from icloud_for_agents import native_reminder_recovery
+recovery_class=native_reminder_recovery.ReminderObservationRecovery
+native_reminder_recovery.ReminderObservationRecovery=lambda account:recovery_class(account,store,adapter)
 from icloud_for_agents.server import main
 main()

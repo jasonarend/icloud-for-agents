@@ -208,14 +208,23 @@ class PlanStore:
                 or payload.get('context',{}).get('backend')!=original['payload'].get('context',{}).get('backend')
                 or payload.get('operation')!='accept_observed_unchanged_reminder'):return False
         terminal=inspect(self,original)
-        if terminal!={'terminal_response':'recorded','helper_reported_mutation_dispatched':True}:return False
-        request=self.read(self.path(original_id,'.native-reminder-request-0'));response=self.read(self.path(original_id,'.native-reminder-response-0'))
-        if (response.get('response_kind')!='error' or payload.get('request_record_sha256')!=digest(request)
-                or payload.get('response_record_sha256')!=digest(response)):return False
+        legacy='legacy_acknowledgement' in payload
+        if legacy:
+            from .native_reminder_recovery import LEGACY_ACK, missing_legacy_exchange
+            if (payload['legacy_acknowledgement']!=LEGACY_ACK or not missing_legacy_exchange(self,original_id)
+                    or terminal!={'terminal_response':'not_recorded','helper_reported_mutation_dispatched':None}
+                    or payload.get('request_record_sha256')!=digest(None) or payload.get('response_record_sha256')!=digest(None)
+                    or payload.get('effects',{}).get('missing_terminal_evidence')!='No original request or terminal response was retained. No dispatch, stop or absence of effects is proven by this recovery.'
+                    or payload.get('effects',{}).get('helper_stop_evidence')!='Owner attestation only; independently verify the original helper has stopped before accepting.'):return False
+        else:
+            if terminal!={'terminal_response':'recorded','helper_reported_mutation_dispatched':True}:return False
+            request=self.read(self.path(original_id,'.native-reminder-request-0'));response=self.read(self.path(original_id,'.native-reminder-response-0'))
+            if (response.get('response_kind')!='error' or payload.get('request_record_sha256')!=digest(request)
+                    or payload.get('response_record_sha256')!=digest(response)):return False
         item=items[0]
         if (observed.get('plan_id')!=original_id or observed.get('reminder_id')!=item.get('id') or observed.get('source_id')!=item.get('source_id')
-                or observed.get('observed_snapshot_matches_before') is not True or observed.get('terminal_response')!='recorded'
-                or observed.get('helper_reported_mutation_dispatched') is not True or observed.get('data_mutated') is not False
+                or observed.get('observed_snapshot_matches_before') is not True or observed.get('terminal_response')!=terminal['terminal_response']
+                or observed.get('helper_reported_mutation_dispatched') is not terminal['helper_reported_mutation_dispatched'] or observed.get('data_mutated') is not False
                 or observed.get('original_uncertainty_retained') is not True or observed.get('causal_dispatch_proven') is not False
                 or observed.get('snapshot_coverage')!='only_fields_exposed_by_the_current_adapter'
                 or observed.get('observation_consistency')!='separate_live_reads_may_change'
@@ -243,6 +252,7 @@ class PlanStore:
         if policy=='local-receipt':
             receipt=self.read(self.path(recovery['plan_id'],'.approved'))
             if receipt.get('plan_id')!=recovery['plan_id'] or receipt.get('sha256')!=digest(recovery):return False
+        if 'legacy_acknowledgement' in recovery['payload'] and result.get('owner_acknowledgement')!=recovery['payload']['legacy_acknowledgement']:return False
         return (self._native_reminder_recovery_for(original_id,recovery) and proof.get('status')=='reviewed_unchanged_reminder_accepted'
                 and started.get('sha256')==digest(recovery) and result.get('status')=='completed'
                 and result.get('recovery_state')=='observed_unchanged_reminder_accepted_after_review' and result.get('native_data_changed') is False
