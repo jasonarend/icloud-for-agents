@@ -59,6 +59,18 @@ class ReminderICalTests(unittest.TestCase):
         for invalid in (True,float('nan'),10**400):
             self.item.update(completed=True,created=invalid)
             with self.subTest(invalid=invalid),self.assertRaises(SafetyError):self.export()
+    def test_absolute_display_alarms_and_refusal_of_other_kinds(self):
+        alarm={'type':0,'proximity':0,'structured_location':None,'email_address':None,'sound_name':None,
+               'absolute_date':1767323045,'relative_offset_seconds':0}
+        self.item.update(has_alarms=True,alarms=[alarm]);result=self.export();content=result['content']
+        self.assertEqual(result['coverage']['absolute_display_alarms'],1)
+        self.assertIn('BEGIN:VALARM\r\nACTION:DISPLAY\r\nTRIGGER;VALUE=DATE-TIME:20260102T030405Z\r\n',content)
+        self.assertIn('importing can schedule notifications',result['coverage']['limitations'][-2])
+        for bad in (dict(alarm,absolute_date=None,relative_offset_seconds=-300),dict(alarm,type=1),
+                    dict(alarm,structured_location={}),dict(alarm,absolute_date=1767323045.5),dict(alarm,absolute_date=10**400),
+                    dict(alarm,relative_offset_seconds=-1),dict(alarm,unknown='unverified')):
+            self.item['alarms']=[bad]
+            with self.subTest(bad=bad),self.assertRaises(SafetyError):self.export()
     def test_refuses_unrepresentable_and_wrong_scope(self):
         invalid=[dict(self.item,source_id='foreign'),dict(self.item,has_recurrence=True),dict(self.item,has_alarms=True),
                  dict(self.item,public_metadata_complete=False),dict(self.item,content_complete=True),dict(self.item,priority=True),

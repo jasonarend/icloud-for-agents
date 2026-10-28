@@ -59,9 +59,18 @@ def export_ical(reader,identity,now=None):
     if (item.get('id')!=identity or not isinstance(item.get('source_id'),str) or not item['source_id']
             or type(item.get('completed')) is not bool or type(item.get('priority')) is not int or item['priority'] not in (0,1,5,9)
             or item.get('public_metadata_complete') is not True or item.get('content_complete') is not False
-            or item.get('has_recurrence') is not False or item.get('has_alarms') is not False
-            or item.get('recurrence_rules')!=[] or item.get('alarms')!=[] or any(k not in item for k in ('due','start','url','location','created','modified','completion_date'))):
-        raise SafetyError('iCalendar export requires complete public metadata and no recurrence or alarms')
+            or item.get('has_recurrence') is not False or type(item.get('has_alarms')) is not bool
+            or item.get('recurrence_rules')!=[] or not isinstance(item.get('alarms'),list)
+            or item['has_alarms']!=bool(item['alarms']) or any(k not in item for k in ('due','start','url','location','created','modified','completion_date'))):
+        raise SafetyError('iCalendar export requires complete public metadata, consistent alarms and no recurrence')
+    from .native_reminders import public_time_alarms
+    alarm_keys={'type','proximity','structured_location','email_address','sound_name','absolute_date','relative_offset_seconds'}
+    if any(not isinstance(alarm,dict) or set(alarm)!=alarm_keys or type(alarm.get('relative_offset_seconds')) not in (int,float)
+           or alarm['relative_offset_seconds']!=0 for alarm in item['alarms']):
+        raise SafetyError('Only exact absolute display alarm metadata can be exported')
+    try:alarms=public_time_alarms(item['alarms'])
+    except (ValueError,OverflowError):raise SafetyError('Unsupported or invalid display alarm metadata') from None
+    if any(set(alarm)!={'absolute_date'} for alarm in alarms):raise SafetyError('Only absolute display alarms can be exported')
     title=_text(item.get('title'));notes=_text(item.get('notes'));start=_date(item['start']);due=_date(item['due'])
     if start and due and start[0]!=due[0]:raise SafetyError('Start and due dates must use the same iCalendar value type')
     if start and due and due[1]<=start[1]:raise SafetyError('iCalendar due must be later than its start')
@@ -83,11 +92,15 @@ def export_ical(reader,identity,now=None):
         if value is not None:lines.append(name+':'+value)
     for name,value in (('DTSTART',start),('DUE',due)):
         if value:lines.append(name+(';VALUE=DATE' if value[0]=='DATE' else '')+':'+value[1])
+    for alarm in alarms:
+        lines+=['BEGIN:VALARM','ACTION:DISPLAY','TRIGGER;VALUE=DATE-TIME:'+_timestamp(alarm['absolute_date']),
+                'DESCRIPTION:'+(title or 'Reminder'),'END:VALARM']
     lines+=['END:VTODO','END:VCALENDAR']
     try:content=''.join(_fold(line) for line in lines)
     except UnicodeError:raise SafetyError('Reminder text is not valid Unicode') from None
     if len(content.encode('utf-8'))>1_000_000:raise SafetyError('iCalendar export exceeds one million bytes')
-    return {'format':'text/calendar','content':content,'coverage':{'restorable':False,'complete_backup':False,'timestamp_precision':'whole_seconds_subseconds_discarded',
+    return {'format':'text/calendar','content':content,'coverage':{'restorable':False,'complete_backup':False,'timestamp_precision':'whole_seconds_subseconds_discarded','absolute_display_alarms':len(alarms),
             'native_metadata_included':False,'limitations':['Native tags, attachments, hierarchy and advanced metadata are omitted.',
-             'Unknown timestamps and original time-zone labels are omitted; fractional timestamp seconds are discarded. Collaboration metadata is omitted.','Only one nonrecurring reminder without alarms and with supported date semantics is represented; clients may interpret date-only due dates differently.',
+             'Unknown timestamps and original time-zone labels are omitted; fractional timestamp seconds are discarded. Collaboration metadata is omitted.','Only one nonrecurring reminder with supported date semantics and absolute display alarms is represented; clients may interpret date-only due dates differently.',
+             'Display-alarm text is generated from the reminder title; importing can schedule notifications.',
              'The generated UID is a pseudonymous identifier for this observation, not a promise of portable identity.']}}

@@ -1173,7 +1173,7 @@ def register_read_tools(mcp):
         @mcp.tool(annotations=annotations)
         @guard
         def reminders_export_ical(id: str) -> dict:
-            """Read one scoped reminder as a limited iCalendar VTODO. Zoned times become UTC; ambiguous dates, alarms and recurrence are refused; native metadata is omitted."""
+            """Read one scoped reminder as a limited iCalendar VTODO. Zoned times become UTC; only absolute display alarms are represented. Ambiguous dates and recurrence are refused; importing can schedule notifications."""
             from .native_reminder_ical import export_ical
             return export_ical(NativeReader('reminders'),id)
 
