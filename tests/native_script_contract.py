@@ -40,7 +40,7 @@ const fixtureApplication = name=>{
 def run():
     source = (ROOT/'src/icloud_for_agents/native/notes.js').read_text()
     with tempfile.TemporaryDirectory(prefix='icloud-native-fixtures-') as directory:
-        script=Path(directory)/'notes-fixture.js';script.write_text(FIXTURE+'\n'+source+"\nfunction run() { const req=readRequest();fixtureNoWalk=req.synthetic_no_walk===true;if(req.synthetic_no_attachments)fixtureNotes[0].attachments=()=>[];if(req.synthetic_many)for(let i=0;i<15;i++){let id='test-'+String(i).padStart(2,'0');fixtureNotes.push({id:()=>id,name:()=>id,container:()=>({id:()=> 'folder-1'}),passwordProtected:()=>false,shared:()=>false});}if(req.synthetic_excerpt_boundary)fixtureNotes[0].plaintext=()=> 'a'.repeat(4)+'🚀'+'a'.repeat(79)+'needle'+'b'.repeat(233)+'🚀';if(req.synthetic_long)fixtureNotes[0].plaintext=()=> 'A'.repeat(100005)+'🚀Z';if(req.synthetic_huge)fixtureNotes[0].plaintext=()=> 'A'.repeat(4999999)+'🚀Z';if(req.synthetic_modified)fixtureNotes[0].modificationDate=()=>new Date('2026-10-27T12:00:00.000Z');if(req.synthetic_title_only)fixtureNotes.forEach(n=>{n.body=()=>{throw Error('body_read');};n.plaintext=()=>{throw Error('body_read');};});return readNotes(fixtureApplication('Notes'),req); }\n")
+        script=Path(directory)/'notes-fixture.js';script.write_text(FIXTURE+'\n'+source+"\nfunction run() { const req=readRequest();fixtureNoWalk=req.synthetic_no_walk===true;if(req.synthetic_no_attachments)fixtureNotes[0].attachments=()=>[];if(req.synthetic_many)for(let i=0;i<15;i++){let id='test-'+String(i).padStart(2,'0');fixtureNotes.push({id:()=>id,name:()=>id,container:()=>({id:()=> 'folder-1'}),passwordProtected:()=>false,shared:()=>false});}if(req.synthetic_case_expansion)fixtureNotes[0].plaintext=()=> 'İ'.repeat(400)+'needle';if(req.synthetic_excerpt_boundary)fixtureNotes[0].plaintext=()=> 'a'.repeat(4)+'🚀'+'a'.repeat(79)+'needle'+'b'.repeat(233)+'🚀';if(req.synthetic_long)fixtureNotes[0].plaintext=()=> 'A'.repeat(100005)+'🚀Z';if(req.synthetic_huge)fixtureNotes[0].plaintext=()=> 'A'.repeat(4999999)+'🚀Z';if(req.synthetic_modified)fixtureNotes[0].modificationDate=()=>new Date('2026-10-27T12:00:00.000Z');if(req.synthetic_title_only)fixtureNotes.forEach(n=>{n.body=()=>{throw Error('body_read');};n.plaintext=()=>{throw Error('body_read');};});return readNotes(fixtureApplication('Notes'),req); }\n")
         def call(action, **fields):
             request={'protocol_version':1,'action':action,'source_ids':['selected'],**fields}
             process=subprocess.run(['/usr/bin/osascript','-l','JavaScript',str(script)],
@@ -105,6 +105,8 @@ print(result)
         assert [x['id'] for x in long_search['items']]==['note-1'] and '🚀Z' in long_search['items'][0]['excerpt'] and long_search['truncated_bodies']==0
         unicode_excerpt=call('search',text='needle',folder_id='folder-1',limit=1,offset=0,synthetic_excerpt_boundary=True)['items'][0]['excerpt']
         assert unicode_excerpt.startswith('🚀') and unicode_excerpt.endswith('🚀')
+        case_expansion=call('search',text='needle',folder_id='folder-1',limit=1,offset=0,synthetic_case_expansion=True)['items'][0]['excerpt']
+        assert 'needle' in case_expansion and case_expansion.startswith('İ')
         capped_search=call('search',text='🚀',folder_id='folder-1',limit=10,offset=0,synthetic_huge=True)
         assert capped_search['items']==[] and capped_search['truncated_bodies']==1
         search=call('search',text='absent',limit=100,offset=0)

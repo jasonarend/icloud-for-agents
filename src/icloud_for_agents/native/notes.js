@@ -162,10 +162,18 @@ function readNotes(app, req) {
                     if(cap<full.length && cap>0 && full.charCodeAt(cap-1)>=0xD800 && full.charCodeAt(cap-1)<=0xDBFF && full.charCodeAt(cap)>=0xDC00 && full.charCodeAt(cap)<=0xDFFF)cap--;
                     body=full.slice(0,cap);if(full.length>cap)truncatedBodies++;
                 }
-                const index=body.toLowerCase().indexOf(needle);
+                const lowerBody=body.toLowerCase(), index=lowerBody.indexOf(needle);
+                let sourceIndex=index;
+                if(index>=0 && lowerBody.length!==body.length) {
+                    // Lowercasing can expand characters (for example, U+0130).
+                    // Locate the original code unit containing the match start.
+                    let low=0,high=body.length;
+                    while(low<high){const mid=Math.floor((low+high)/2);if(body.slice(0,mid).toLowerCase().length>index)high=mid;else low=mid+1;}
+                    sourceIndex=Math.max(0,low-1);
+                }
                 const excerpt=()=>{
                     if(index<0)return '';
-                    let start=Math.max(0,index-80), end=Math.min(body.length,index+240);
+                    let start=Math.max(0,sourceIndex-80), end=Math.min(body.length,sourceIndex+240);
                     const high=c=>c>=0xD800 && c<=0xDBFF,low=c=>c>=0xDC00 && c<=0xDFFF;
                     if(start>0 && low(body.charCodeAt(start)) && high(body.charCodeAt(start-1)))start--;
                     if(end<body.length && end>0 && high(body.charCodeAt(end-1)) && low(body.charCodeAt(end)))end++;
