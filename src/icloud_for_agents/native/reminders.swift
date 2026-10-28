@@ -355,7 +355,7 @@ if action == "request_access" {
     RunLoop.current.run(until: Date(timeIntervalSinceNow: 60))
     fail("permission_timeout")
 }
-let actions = ["status", "sources", "lists", "default_list", "list_sections", "list_features", "list_parent", "group_lists", "templates", "template_sections", "smart_lists", "query", "get", "list_membership", "recovery_lookup", "recovery_tree", "recovery_list", "apply"]
+let actions = ["status", "sources", "lists", "default_list", "list_sections", "list_features", "list_parent", "list_hierarchy", "group_lists", "templates", "template_sections", "smart_lists", "query", "get", "list_membership", "recovery_lookup", "recovery_tree", "recovery_list", "apply"]
 guard actions.contains(action) else { fail("unsupported_action") }
 if action == "status" {
     respond(["protocol_version": 1, "service": "reminders", "access": permission,
@@ -451,6 +451,31 @@ func membershipRecord(_ values:[EKReminder],_ list:EKCalendar)->[String:Any] {
             "sha256":SHA256.hash(data:data).map {String(format:"%02x",$0)}.joined()]
 }
 if action == "default_list" {respond(defaultListRecord(store.defaultCalendarForNewReminders(),lists))}
+if action == "list_hierarchy" {
+    guard let id=req["list_id"] as? String,let list=lists.first(where:{$0.calendarIdentifier==id}),
+          let payload=try? JSONSerialization.data(withJSONObject:["source_id":list.source.sourceIdentifier,"list_id":id]),
+          let native=(try? JSONSerialization.jsonObject(with:ICloudRemindersListHierarchy(payload))) as? [String:Any] else {fail("not_found_in_scope")}
+    if native["error"] != nil {respond(native)}
+    guard let nodes=native["nodes"] as? [[String:Any]],nodes.count<=200 else {fail("unsupported_list_hierarchy")}
+    store.fetchReminders(matching:store.predicateForReminders(in:[list])) { values in
+        guard let values=values,values.count<=200,values.count==nodes.count else {fail("hierarchy_membership_disagrees")}
+        var publicItems:[String:EKReminder]=[:]
+        for value in values {
+            guard value.calendar.calendarIdentifier==id,value.calendar.source.sourceIdentifier==list.source.sourceIdentifier,
+                  let identifier=UUID(uuidString:value.calendarItemIdentifier)?.uuidString,publicItems[identifier]==nil,
+                  let title=value.title,title.count<=1000,title.utf8.count<=4000 else {fail("hierarchy_membership_disagrees")}
+            publicItems[identifier]=value
+        }
+        let nativeIDs=nodes.compactMap{$0["id"] as? String}
+        guard nativeIDs.count==nodes.count,Set(nativeIDs)==Set(publicItems.keys) else {fail("hierarchy_membership_disagrees")}
+        var result=native
+        result["nodes"]=nodes.map { node -> [String:Any] in
+            var result=node;let value=publicItems[node["id"] as! String]!;result["title"]=value.title;result["completed"]=value.isCompleted;return result
+        }
+        result["membership_verified"]=true;result["hierarchy_complete"]=true;result["observation_consistency"]="separate_provider_reads";result["coverage"]="native_list_and_subtasks_matching_eventkit";respond(result)
+    }
+    RunLoop.current.run(until:Date(timeIntervalSinceNow:30));fail("query_timeout")
+}
 if action == "list_sections" || action == "list_features" || action == "list_parent" {
     guard let id=req["list_id"] as? String,let list=lists.first(where:{$0.calendarIdentifier==id}) else {fail("not_found_in_scope")}
     var identity:[String:Any]=["source_id":list.source.sourceIdentifier,"list_id":id]

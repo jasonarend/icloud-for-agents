@@ -31,4 +31,5 @@ FOUNDATION_EXPORT NSData *ICloudRemindersCreateSubtask(NSData *request,BOOL (^en
 FOUNDATION_EXPORT NSData *ICloudRemindersRecoveryLookup(NSData *identity);
 FOUNDATION_EXPORT NSData *ICloudRemindersRecoveryTree(NSData *identity);
 FOUNDATION_EXPORT NSData *ICloudRemindersRecoveryList(NSData *request);
+FOUNDATION_EXPORT NSData *ICloudRemindersListHierarchy(NSData *request);
 NS_ASSUME_NONNULL_END

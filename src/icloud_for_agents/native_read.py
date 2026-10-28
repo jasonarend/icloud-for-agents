@@ -14,7 +14,7 @@ from .services import enabled
 
 
 READ_ACTIONS = {'notes': {'status', 'sources', 'folders', 'default_folder', 'folder_get', 'folder_inventory', 'folder_role', 'recovery_folder', 'model_folder_role', 'query', 'get', 'text_page', 'search', 'attachments', 'diagnose_note', 'contains'},
-                'reminders': {'status', 'sources', 'lists', 'default_list', 'list_sections', 'list_features', 'list_parent', 'group_lists', 'templates', 'template_sections', 'smart_lists', 'query', 'get','list_membership','recovery_lookup','recovery_tree','recovery_list'}}
+                'reminders': {'status', 'sources', 'lists', 'default_list', 'list_sections', 'list_features', 'list_parent', 'list_hierarchy', 'group_lists', 'templates', 'template_sections', 'smart_lists', 'query', 'get','list_membership','recovery_lookup','recovery_tree','recovery_list'}}
 MAX_OUTPUT = 2_000_000
 
 
@@ -124,7 +124,7 @@ class NativeReader:
             except (ValueError,UnicodeEncodeError):raise SafetyError('Tag filtering requires one exact bounded native tag name') from None
             if config.get('advanced_backend')!='reminderkit' or not config.get('helper_path'):raise SafetyError('Tag filtering requires the explicitly selected ReminderKit backend and signed helper')
         if 'source_id' in fields and action not in {'recovery_lookup','recovery_tree','recovery_list','recovery_folder','templates','template_sections','smart_lists','group_lists','model_folder_role','default_folder'}:raise SafetyError('Source selector is only supported for exact role or recovery lookup')
-        if action in {'list_sections','list_features','list_parent'}:
+        if action in {'list_sections','list_features','list_parent','list_hierarchy'}:
             if self.name!='reminders' or set(fields)!={'list_id'} or not isinstance(fields.get('list_id'),str) or not fields['list_id']:
                 raise SafetyError('Native list inspection requires one exact list ID')
             if config.get('advanced_backend')!='reminderkit' or not config.get('helper_path'):
@@ -327,6 +327,10 @@ class NativeReader:
                 raise SafetyError('Configured helper did not verify the scoped Notes title page')
             result={'protocol_version':1,'items':[{k:row[k] for k in ('id','title','source_id','folder_id')} for row in rows],
                     'done':result['done'],'next_offset':result['next_offset'],'pagination_consistency':'live_offset_may_shift'}
+        if self.name=='reminders' and action=='list_hierarchy':
+            if native_config('reminders')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode:raise SafetyError('Reminder access changed during hierarchy read')
+            from .native_reminder_list_graph import validate_list_graph
+            result=validate_list_graph(result,fields['list_id'],sources)
         if action=='list_sections':
             import uuid
             rows=result.get('sections') if isinstance(result,dict) else None
@@ -1144,6 +1148,12 @@ def register_read_tools(mcp):
         def reminders_list_parent(list_id: str) -> dict:
             """Observe one selected list's provider-reported parent group; complete hierarchy and ordering are unverified."""
             return NativeReader('reminders').read('list_parent',list_id=list_id)
+
+        @mcp.tool(annotations=annotations)
+        @guard
+        def reminders_list_hierarchy(list_id:str)->dict:
+            """Read a complete bounded selected-list graph when native list-and-subtask IDs exactly match EventKit. At most 200 nodes and depth 32; no body, mutation, ordering or cloud-sync guarantee."""
+            return NativeReader('reminders').read('list_hierarchy',list_id=list_id)
 
         @mcp.tool(annotations=annotations)
         @guard

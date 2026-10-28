@@ -1041,3 +1041,47 @@ NSData *ICloudRemindersRecoveryList(NSData *data){
         return EncodeFlag(@{@"protocol_version":@1,@"source_id":source,@"items":items,@"done":@((BOOL)(end==identities.count)),@"next_offset":@([offset integerValue]+items.count),@"view":@"provider_recently_deleted_roots",@"pagination_consistency":@"live_offset_may_shift",@"data_mutated":@NO});
     }@catch(NSException *exception){return EncodeFlag(FlagFailure(@"private_read_exception"));}
 }
+
+
+// One bounded physical list and all provider-reported subtasks. Swift separately
+// compares every ID with the complete EventKit list before returning the graph.
+NSData *ICloudRemindersListHierarchy(NSData *data){
+    @try {
+        id identity=[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
+        if(![identity isKindOfClass:NSDictionary.class] || [identity count]!=2)return EncodeFlag(FlagFailure(@"invalid_public_identity"));
+        for(NSString *key in @[@"source_id",@"list_id"]){id value=identity[key];NSUUID *uuid=[value isKindOfClass:NSString.class]?[[NSUUID alloc]initWithUUIDString:value]:nil;if(!uuid || !UUIDEqual(uuid.UUIDString,value))return EncodeFlag(FlagFailure(@"unsupported_public_identity"));}
+        if(!FlagReadInterface())return EncodeFlag(FlagFailure(@"unsupported_interface"));
+        Class ids=NSClassFromString(@"REMObjectID"),storeClass=NSClassFromString(@"REMStore");
+        if(!MethodMatches(storeClass,@"fetchListWithObjectID:error:",@"@@:@^@",NO))return EncodeFlag(FlagFailure(@"unsupported_list_hierarchy"));
+        id store=[storeClass new],oid=((id(*)(id,SEL,id))objc_msgSend)((id)ids,NSSelectorFromString(@"objectIDWithURL:"),[NSURL URLWithString:[@"x-apple-reminderkit://REMCDList/" stringByAppendingString:identity[@"list_id"]]]);NSError *error=nil;
+        id list=((id(*)(id,SEL,id,NSError **))objc_msgSend)(store,NSSelectorFromString(@"fetchListWithObjectID:error:"),oid,&error);
+        if(error || !list)return EncodeFlag(FlagFailure(@"private_read_denied_or_unavailable"));
+        if(!UUIDEqual(ObjectUUID(list,@"REMCDList"),identity[@"list_id"]) || !UUIDEqual(ObjectUUID(ObjectValue(list,@"account"),@"REMCDAccount"),identity[@"source_id"]))return EncodeFlag(FlagFailure(@"native_identity_mismatch"));
+        if(!MethodMatches([list class],@"fetchRemindersAndSubtasksWithError:",@"@@:^@",NO))return EncodeFlag(FlagFailure(@"unsupported_list_hierarchy"));
+        error=nil;id collection=((id(*)(id,SEL,NSError **))objc_msgSend)(list,NSSelectorFromString(@"fetchRemindersAndSubtasksWithError:"),&error);NSArray *values=nil;
+        if([collection isKindOfClass:NSArray.class])values=collection;else if([collection isKindOfClass:NSSet.class])values=[collection allObjects];else if([collection isKindOfClass:NSOrderedSet.class])values=[collection array];
+        if(error || !values || values.count>200)return EncodeFlag(FlagFailure(@"unsupported_list_hierarchy"));
+        NSMutableArray *nodes=[NSMutableArray array];NSMutableSet *seen=[NSMutableSet set];NSMutableDictionary *parents=[NSMutableDictionary dictionary];
+        for(id reminder in values){
+            NSString *identifier=ObjectUUID(reminder,@"REMCDReminder");id parent=ObjectValue(reminder,@"parentReminder");
+            if(!identifier || [seen containsObject:identifier] || !MethodMatches([reminder class],@"isSubtask",@"B@:",NO) || !MethodMatches([reminder class],@"parentReminder",@"@@:",NO)
+                    || !UUIDEqual(ObjectUUID(ObjectValue(reminder,@"list"),@"REMCDList"),identity[@"list_id"]) || !UUIDEqual(ObjectUUID(ObjectValue(reminder,@"account"),@"REMCDAccount"),identity[@"source_id"]))return EncodeFlag(FlagFailure(@"native_identity_mismatch"));
+            BOOL subtask=((BOOL(*)(id,SEL))objc_msgSend)(reminder,NSSelectorFromString(@"isSubtask"));id parentID=[NSNull null];
+            if(subtask!=(parent!=nil))return EncodeFlag(FlagFailure(@"hierarchy_parent_inconsistent"));
+            if(parent){
+                parentID=ObjectUUID(parent,@"REMCDReminder");
+                if(!parentID || UUIDEqual(parentID,identifier) || !UUIDEqual(ObjectUUID(ObjectValue(parent,@"list"),@"REMCDList"),identity[@"list_id"]) || !UUIDEqual(ObjectUUID(ObjectValue(parent,@"account"),@"REMCDAccount"),identity[@"source_id"]))return EncodeFlag(FlagFailure(@"native_identity_mismatch"));
+            }
+            [seen addObject:identifier];parents[identifier]=parentID;[nodes addObject:@{@"id":identifier,@"parent_id":parentID}];
+        }
+        for(NSDictionary *node in nodes){
+            NSMutableSet *chain=[NSMutableSet set];id current=node[@"id"];
+            while(current!=[NSNull null]){
+                if(![seen containsObject:current] || [chain containsObject:current] || chain.count>=32)return EncodeFlag(FlagFailure(@"hierarchy_parent_inconsistent"));
+                [chain addObject:current];current=parents[current];
+            }
+        }
+        [nodes sortUsingComparator:^NSComparisonResult(NSDictionary *a,NSDictionary *b){return [a[@"id"] compare:b[@"id"]];}];
+        return EncodeFlag(@{@"protocol_version":@1,@"source_id":identity[@"source_id"],@"list_id":identity[@"list_id"],@"nodes":nodes,@"data_mutated":@NO,@"backend":@"reminderkit-list-hierarchy-v1"});
+    }@catch(NSException *exception){return EncodeFlag(FlagFailure(@"private_read_exception"));}
+}

@@ -27,6 +27,8 @@ FIXTURE=r'''
 @implementation FixtureListStorage
 @end
 @interface FixtureList:NSObject
+@property NSArray *graphReminders;
+-(id)fetchRemindersAndSubtasksWithError:(NSError **)error;
 @property FixtureID *remObjectID;
 @property FixtureAccount *account;
 @property FixtureListStorage *storage;
@@ -37,6 +39,7 @@ FIXTURE=r'''
 @property id parentList;
 @end
 @implementation FixtureList
+-(id)fetchRemindersAndSubtasksWithError:(NSError **)error{return self.graphReminders;}
 @end
 @interface FixtureFlag:NSObject
 @property NSInteger flagged;
@@ -264,6 +267,14 @@ int main(){@autoreleasepool{
  NSString *task=@"11111111-1111-4111-8111-111111111111",*list=@"22222222-2222-4222-8222-222222222222",*source=@"33333333-3333-4333-8333-333333333333",*other=@"44444444-4444-4444-8444-444444444444";
  fixture=[FixtureReminder new];fixture.remObjectID=Identity(@"REMCDReminder",task);fixture.account=[FixtureAccount new];fixture.account.remObjectID=Identity(@"REMCDAccount",source);fixture.list=[FixtureList new];fixture.list.remObjectID=Identity(@"REMCDList",list);fixture.list.account=fixture.account;FixtureFlag *flag=[FixtureFlag new];fixture.flaggedContext=flag;
  fixture.list.storage=[FixtureListStorage new];fixture.list.storage.accountID=fixture.account.remObjectID;NSData *listData=[NSJSONSerialization dataWithJSONObject:@{@"source_id":source,@"list_id":list} options:0 error:NULL];NSDictionary *(^listFeatures)(void)=^NSDictionary *{return [NSJSONSerialization JSONObjectWithData:ICloudRemindersReadListFeatures(listData) options:0 error:NULL];};
+ fixture.list.graphReminders=@[fixture];NSDictionary *(^listGraph)(void)=^NSDictionary *{return [NSJSONSerialization JSONObjectWithData:ICloudRemindersListHierarchy(listData) options:0 error:NULL];};
+ NSCAssert([listGraph()[@"nodes"] count]==1,@"one exact physical reminder graph");
+ FixtureReminder *graphChild=[FixtureReminder new];graphChild.remObjectID=Identity(@"REMCDReminder",other);graphChild.list=fixture.list;graphChild.account=fixture.account;graphChild.isSubtask=YES;graphChild.parentReminder=fixture;fixture.list.graphReminders=@[graphChild,fixture];
+ NSCAssert([listGraph()[@"nodes"] count]==2,@"complete native list and child graph");
+ fixture.list.graphReminders=@[graphChild];NSCAssert(listGraph()[@"error"],@"missing parent refused");fixture.list.graphReminders=@[graphChild,fixture,graphChild];NSCAssert(listGraph()[@"error"],@"duplicate graph identity refused");
+ fixture.list.graphReminders=@[graphChild,fixture];fixture.isSubtask=YES;fixture.parentReminder=graphChild;NSCAssert(listGraph()[@"error"],@"native graph cycle refused");fixture.isSubtask=NO;fixture.parentReminder=nil;
+ graphChild.account=[FixtureAccount new];graphChild.account.remObjectID=Identity(@"REMCDAccount",other);NSCAssert(listGraph()[@"error"],@"foreign graph node refused");graphChild.account=fixture.account;
+ fixture.list.graphReminders=@[];NSCAssert([listGraph()[@"nodes"] count]==0,@"empty native list graph");fixture.list.graphReminders=@[fixture];
  NSData *pinData=[NSJSONSerialization dataWithJSONObject:@{@"source_id":source,@"list_id":list,@"include_pinned":@YES} options:0 error:NULL];NSDictionary *(^pinFeatures)(void)=^NSDictionary *{return [NSJSONSerialization JSONObjectWithData:ICloudRemindersReadListFeatures(pinData) options:0 error:NULL];};
  NSCAssert([pinFeatures()[@"backend"] isEqual:@"reminderkit-list-features-v3"] && ![pinFeatures()[@"pinned"] boolValue],@"unpinned state observed");fixture.list.isPinned=YES;NSCAssert([pinFeatures()[@"pinned"] boolValue] && listFeatures()[@"pinned"]==nil,@"pinned state opt-in");fixture.list.isPinned=NO;
  NSData *badPinData=[NSJSONSerialization dataWithJSONObject:@{@"source_id":source,@"list_id":list,@"include_pinned":@1} options:0 error:NULL];NSDictionary *badPin=[NSJSONSerialization JSONObjectWithData:ICloudRemindersReadListFeatures(badPinData) options:0 error:NULL];NSCAssert(badPin[@"error"],@"pin selection requires a true Boolean");
