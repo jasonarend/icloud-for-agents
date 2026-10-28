@@ -305,6 +305,14 @@ def register_change_tools(mcp):
             check_plan_scope('reminders',plan_id)
             return PlanStore().status(plan_id)
 
+        @mcp.tool(annotations=READ)
+        @guard
+        def reminders_inspect_uncertain_change(plan_id:str)->dict:
+            """Read the exact reminder after one uncertain change; this cannot settle it or prove dispatch."""
+            from .native_reminder_observation import inspect_uncertain_reminder
+            check_plan_scope('reminders',plan_id)
+            return inspect_uncertain_reminder(editor('reminders'),plan_id)
+
         @mcp.tool(annotations=WRITE)
         @guard
         def reminders_reconcile_created(plan_id:str)->dict:

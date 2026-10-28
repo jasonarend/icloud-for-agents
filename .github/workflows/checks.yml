@@ -48,6 +48,7 @@ jobs:
           .venv/bin/python tests/native_grant_stdio_smoke.py
           .venv/bin/python tests/native_move_recovery_stdio_smoke.py
           .venv/bin/python tests/native_edit_recovery_stdio_smoke.py
+          .venv/bin/python tests/native_reminder_observation_stdio.py
           .venv/bin/python tests/native_creation_recovery_stdio_smoke.py
           .venv/bin/python tests/native_correction_stdio_smoke.py
           .venv/bin/python tests/native_urgent_correction_stdio_smoke.py
