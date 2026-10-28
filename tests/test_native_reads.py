@@ -69,6 +69,19 @@ class NativeReadTests(unittest.TestCase):
         with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',side_effect=AssertionError('No helper')):
             with self.assertRaises(SafetyError):NativeReader('reminders').read('list_sections',list_id='list')
 
+    def test_attachment_details_require_exact_scope_and_typed_fields(self):
+        config={'notes':{'source_ids':['selected']}}
+        metadata={'created':{'status':'available','value':None},'modified':{'status':'unavailable','value':None},'url':{'status':'available','value':'https://example.com'},'shared':{'status':'available','value':False}}
+        row={'id':'attachment','name':None,'content_identifier':'cid:synthetic','note_id':'note','native_metadata':metadata}
+        result={'protocol_version':1,'attachments':[row],'done':True,'next_offset':1,'content_downloaded':False,'metadata_complete':False,'metadata_requested':True,'source_id':'selected','folder_id':'folder','note_id':'note'}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=result) as backend:
+            self.assertEqual(NativeReader('notes').read('attachments',folder_id='folder',id='note',limit=10,offset=0,include_attachment_metadata=True),result)
+            for bad in (dict(result,source_id='foreign'),dict(result,note_id='other'),dict(result,metadata_requested=False),dict(result,next_offset=2),dict(result,attachments=[dict(row,native_metadata=dict(metadata,shared={'status':'available','value':1}))]),dict(result,attachments=[row,row])):
+                backend.return_value=bad
+                with self.assertRaises(SafetyError):NativeReader('notes').read('attachments',folder_id='folder',id='note',limit=10,offset=0,include_attachment_metadata=True)
+            backend.return_value={'protocol_version':1,'attachments':[],'done':True,'locked':True,'content_available':False,'excluded_locked_note':True,'metadata_requested':True,'source_id':'selected','folder_id':'folder','note_id':'note'}
+            self.assertTrue(NativeReader('notes').read('attachments',folder_id='folder',id='note',limit=10,offset=0,include_attachment_metadata=True)['locked'])
+
     def test_list_feature_reads_require_scoped_typed_provider_flags(self):
         config={'reminders':{'source_ids':['selected'],'advanced_backend':'reminderkit','helper_path':'/synthetic/helper'}}
         result={'protocol_version':1,'source_id':'selected','list_id':'list','grocery_categorization':True,'grocery_shopping_session':False,'is_group':False,'shared':False,'shared_to_me':False,'can_be_shared':True,'sharing_metadata_complete':False,'list_type_verified':False,'data_mutated':False,'backend':'reminderkit-list-features-v2'}

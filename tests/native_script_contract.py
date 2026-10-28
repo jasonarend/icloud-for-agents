@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = r'''
 const fixtureNotes = [
  {id:()=> 'note-1',name:()=> 'Synthetic plain',container:()=>({id:()=> 'folder-1'}),passwordProtected:()=> false,shared:()=>false,
-  attachments:()=>[{id:()=> 'attachment-1',name:()=> null,contentIdentifier:()=> 'cid:synthetic'}],body:()=> '<div>Synthetic content</div><object><table><tr><td>Table-only token</td></tr></table></object>',plaintext:()=> 'Synthetic content',
+  attachments:()=>[{id:()=> 'attachment-1',name:()=> null,contentIdentifier:()=> 'cid:synthetic',creationDate:()=>new Date('2026-01-01T00:00:00Z'),modificationDate:()=>null,url:()=>{throw Error('missing_url')},shared:()=>false}],body:()=> '<div>Synthetic content</div><object><table><tr><td>Table-only token</td></tr></table></object>',plaintext:()=> 'Synthetic content',
   creationDate:()=> new Date('2026-01-01T00:00:00Z'),modificationDate:()=> null},
  {id:()=> 'note-2',name:()=> 'Synthetic locked',container:()=>({id:()=> 'folder-1'}),passwordProtected:()=> true,
   body:()=> {throw Error('locked_content_was_read');},plaintext:()=> {throw Error('locked_content_was_read');}}
@@ -120,8 +120,12 @@ print(result)
         attachments=call('attachments',folder_id='folder-1',id='note-1',limit=1,offset=0)
         assert attachments['attachments'][0]['id']=='attachment-1' and attachments['content_downloaded'] is False
         assert attachments['attachments'][0]['name'] is None
+        detailed=call('attachments',folder_id='folder-1',id='note-1',limit=1,offset=0,include_attachment_metadata=True);meta=detailed['attachments'][0]['native_metadata']
+        assert detailed['metadata_requested'] and detailed['source_id']=='selected' and meta['created']=={'status':'available','value':'2026-01-01T00:00:00.000Z'} and meta['modified']=={'status':'available','value':None} and meta['url']=={'status':'unavailable','value':None} and meta['shared']=={'status':'available','value':False}
+
         locked_attachments=call('attachments',folder_id='folder-1',id='note-2',limit=1,offset=0)
         assert locked_attachments['locked'] is True and locked_attachments['content_available'] is False
+        detailed_locked=call('attachments',folder_id='folder-1',id='note-2',limit=1,offset=0,include_attachment_metadata=True);assert detailed_locked['metadata_requested'] and detailed_locked['attachments']==[]
         invalid=subprocess.run(['/usr/bin/osascript','-l','JavaScript',str(script)],
             input=json.dumps({'protocol_version':1,'action':'get','source_ids':['selected'],
                               'folder_id':'missing','id':'note-1'}),capture_output=True,text=True,timeout=10)

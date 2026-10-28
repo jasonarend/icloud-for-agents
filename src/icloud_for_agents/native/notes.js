@@ -183,7 +183,7 @@ function readNotes(app, req) {
         try { locked = n.passwordProtected(); } catch (_) { throw Error('lock_status_unavailable'); }
         if (locked) {
             if(req.action==='text_page')return JSON.stringify({protocol_version:1,id:req.id,source_id:folder.source,folder_id:req.folder_id,locked:true,content_available:false,data_mutated:false});
-            if(req.action==='attachments')return JSON.stringify({protocol_version:1,attachments:[],locked:true,content_available:false,done:true,excluded_locked_note:true});
+            if(req.action==='attachments')return JSON.stringify(Object.assign({protocol_version:1,attachments:[],locked:true,content_available:false,done:true,excluded_locked_note:true},req.include_attachment_metadata===true?{metadata_requested:true,source_id:folder.source,folder_id:req.folder_id,note_id:req.id}:{}));
             return JSON.stringify({protocol_version:1,item:{id:req.id,locked:true,content_available:false}});
         }
         if(req.action==='text_page') {
@@ -221,10 +221,18 @@ function readNotes(app, req) {
         }
         if(req.action==='attachments') {
             if(!Number.isInteger(req.limit) || req.limit<1 || req.limit>100 || !Number.isInteger(req.offset) || req.offset<0 || req.offset>100000)throw Error('invalid_page');
+            if(req.include_attachment_metadata!==undefined && typeof req.include_attachment_metadata!=='boolean')throw Error('invalid_fields');
             const all=n.attachments().slice().sort((a,b)=>a.id().localeCompare(b.id()));
-            const page=all.slice(req.offset,req.offset+req.limit).map(a=>{const name=a.name();return {id:a.id(),name:typeof name==='string'?name.slice(0,1000):null,content_identifier:a.contentIdentifier(),note_id:req.id};});
-            return JSON.stringify({protocol_version:1,attachments:page,done:req.offset+page.length>=all.length,
-                next_offset:req.offset+page.length,content_downloaded:false,metadata_complete:false});
+            const page=all.slice(req.offset,req.offset+req.limit).map(a=>{
+                const name=a.name(),row={id:a.id(),name:typeof name==='string'?name.slice(0,1000):null,content_identifier:a.contentIdentifier(),note_id:req.id};
+                if(req.include_attachment_metadata===true){
+                    const observe=(read,kind)=>{try {let value=read();if(value===undefined)value=null;if(value!==null){if(kind==='date'){if(!(value instanceof Date)||isNaN(value.getTime()))throw Error('bad_date');value=value.toISOString();}else if(kind==='bool'){if(typeof value!=='boolean')throw Error('bad_bool');}else if(typeof value!=='string'||value.length>4096)throw Error('bad_string');}return {status:'available',value:value};}catch(_){return {status:'unavailable',value:null};}};
+                    row.native_metadata={created:observe(()=>a.creationDate(),'date'),modified:observe(()=>a.modificationDate(),'date'),url:observe(()=>a.url(),'text'),shared:observe(()=>a.shared(),'bool')};
+                }
+                return row;
+            });
+            return JSON.stringify(Object.assign({protocol_version:1,attachments:page,done:req.offset+page.length>=all.length,
+                next_offset:req.offset+page.length,content_downloaded:false,metadata_complete:false},req.include_attachment_metadata===true?{metadata_requested:true,source_id:folder.source,folder_id:req.folder_id,note_id:req.id}:{}));
         }
         const body = n.body();
         const plain = n.plaintext();

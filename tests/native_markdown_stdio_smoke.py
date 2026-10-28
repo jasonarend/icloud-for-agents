@@ -38,6 +38,7 @@ def run():
                 titles=data(rpc('tools/call',{'name':'notes_search','arguments':{'text':'Title','folder_id':'folder','match_scope':'title'}})['result']);assert titles['items'][0]['title']=='Synthetic Title' and titles['items'][0]['excerpt']==''
                 recent=data(rpc('tools/call',{'name':'notes_search','arguments':{'text':'','folder_id':'folder','match_scope':'title'}})['result']);assert recent['items'][0]['id']=='synthetic-note'
                 assert rpc('tools/call',{'name':'notes_search','arguments':{'text':'','folder_id':'folder'}})['result'].get('isError')
+                attachments=data(rpc('tools/call',{'name':'notes_attachments','arguments':{'folder_id':'folder','id':'synthetic-note','include_attachment_metadata':True}})['result']);assert attachments['metadata_requested'] is True and attachments['attachments'][0]['native_metadata']['url']=={'status':'unavailable','value':None} and attachments['content_downloaded'] is False
                 args={'folder_id':'folder','id':'synthetic-note'};native=data(call(args));assert 'markdown' not in native['item']
                 projected=data(call(dict(args,representation='markdown')));item=projected['item'];assert item['html']==native['item']['html'];assert 'Priority' in item['markdown'] and '| ---' in item['markdown'];assert item['markdown_projection']['round_trip_safe'] is False
                 text_tool=next(t for t in tools if t['name']=='notes_read_text');assert text_tool['annotations']['readOnlyHint'] is True
