@@ -65,7 +65,9 @@ class NativeChanges:
         payload = {'account':self.account,'context':context,'changes':prepared,
                    'transaction':'per-item; no atomic backend transaction or automatic rollback'}
         if _review_context is not None:
-            if self.name!='reminders' or not _temporary or _grant is not None or not isinstance(_review_context,dict):
+            expected={'reminders':'create_lossy_copies_from_user_supplied_observation','notes':'create_lossy_note_copy_from_user_supplied_observation'}
+            if (not _temporary or _grant is not None or not isinstance(_review_context,dict)
+                    or _review_context.get('operation')!=expected[self.name]):
                 raise SafetyError('Invalid scoped copy review')
             payload['copy_review']=_review_context
         if _grant is not None:

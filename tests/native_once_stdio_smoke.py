@@ -59,6 +59,16 @@ def run(policy):
                     with os.fdopen(fd,'w') as stream:json.dump({'plan_id':copied['plan_id'],'sha256':copied['sha256']},stream)
                 assert data(call('reminders_execute_approved',{'plan_id':copied['plan_id']}))['status']=='applied'
                 assert call('reminders_execute_approved',{'plan_id':copied['plan_id']}).get('isError')
+                note={'format':'icloud-for-agents-note-observation','version':1,'item':{'id':'old-note','title':'Synthetic note','html':'<div>Synthetic note</div><div>Body</div>','locked':False,'truncated':False,'content_complete':False}}
+                assert call('notes_prepare_observation_copy',{'snapshot':note,'source_id':'selected','folder_id':'destination','accept_omissions':False}).get('isError')
+                note_plan=data(call('notes_prepare_observation_copy',{'snapshot':note,'source_id':'selected','folder_id':'destination','accept_omissions':True}))
+                assert 'attachments' in note_plan['review']['payload']['copy_review']['effects'][2]
+                if policy=='local-receipt':
+                    assert call('notes_execute_approved',{'plan_id':note_plan['plan_id']}).get('isError')
+                    receipt=runtime/(note_plan['plan_id']+'.approved');fd=os.open(receipt,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+                    with os.fdopen(fd,'w') as stream:json.dump({'plan_id':note_plan['plan_id'],'sha256':note_plan['sha256']},stream)
+                assert data(call('notes_execute_approved',{'plan_id':note_plan['plan_id']}))['status']=='applied'
+                assert call('notes_execute_approved',{'plan_id':note_plan['plan_id']}).get('isError')
             finally:
                 process.stdin.close()
                 try:process.wait(timeout=10)

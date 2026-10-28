@@ -102,6 +102,11 @@ def register_change_tools(mcp):
         if enabled(name):register_permissions(name)
 
     if enabled('notes'):
+        def prepare_note_observation_copy(snapshot:dict,source_id:str,folder_id:str,accept_omissions:bool)->dict:
+            """Review one lossy copy of a supplied unlocked, nontruncated Notes observation. One-time approval required; native objects are not preserved."""
+            from .native_note_import import prepare_copy
+            return prepare_copy(editor('notes'),snapshot,source_id,folder_id,accept_omissions=accept_omissions)
+        mcp.tool(name='notes_prepare_observation_copy',annotations=WRITE)(guard(prepare_note_observation_copy))
         from .native_move_recovery import NotesMoveRecovery
         from .native_edit_recovery import NotesEditRecovery
         @mcp.tool(annotations=READ)

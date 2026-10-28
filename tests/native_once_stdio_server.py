@@ -24,7 +24,19 @@ class CopyAdapter(Adapter):
         require_write('reminders',item);self.calls+=1;self.value=dict(item['fields']);return {'id':'synthetic-new'}
     def verify(self,item,result):
         return result.get('id')=='synthetic-new' and self.value==item['fields'] if item['operation']=='create_reminder' else super().verify(item,result)
-notes=Adapter('notes');reminders=CopyAdapter('reminders')
+class NoteCopyAdapter(Adapter):
+    operations={'update','create_note'}
+    def prepare(self,change):
+        if change.get('operation')!='create_note':return super().prepare(change)
+        return dict(change,before={'folder':'synthetic'},fidelity_verified=True,effects={})
+    def snapshot(self,item):return {'folder':'synthetic'} if item['operation']=='create_note' else super().snapshot(item)
+    def apply(self,item):
+        if item['operation']!='create_note':return super().apply(item)
+        from icloud_for_agents.native_access import require_write
+        require_write('notes',item);self.calls+=1;self.value=dict(item['fields']);return {'id':'synthetic-new-note'}
+    def verify(self,item,result):
+        return result.get('id')=='synthetic-new-note' and self.value==item['fields'] if item['operation']=='create_note' else super().verify(item,result)
+notes=NoteCopyAdapter('notes');reminders=CopyAdapter('reminders')
 native_tools.NotesCreateAdapter=lambda:notes
 native_tools.RemindersCreateAdapter=lambda:reminders
 from icloud_for_agents.server import main
