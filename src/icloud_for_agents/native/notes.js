@@ -184,7 +184,7 @@ function readNotes(app, req) {
         if (locked) {
             if(req.action==='text_page')return JSON.stringify({protocol_version:1,id:req.id,source_id:folder.source,folder_id:req.folder_id,locked:true,content_available:false,data_mutated:false});
             if(req.action==='attachments')return JSON.stringify(Object.assign({protocol_version:1,attachments:[],locked:true,content_available:false,done:true,excluded_locked_note:true},req.include_attachment_metadata===true?{metadata_requested:true,source_id:folder.source,folder_id:req.folder_id,note_id:req.id}:{}));
-            return JSON.stringify({protocol_version:1,item:{id:req.id,locked:true,content_available:false}});
+            return JSON.stringify({protocol_version:1,item:{id:req.id,source_id:folder.source,folder_id:req.folder_id,locked:true,content_available:false}});
         }
         if(req.action==='text_page') {
             if(!Number.isInteger(req.limit) || req.limit<1 || req.limit>10000 || !Number.isInteger(req.offset) || req.offset<0 || req.offset>5000000 || (req.expected_modified!==undefined && (typeof req.expected_modified!=='string' || !req.expected_modified.length || req.expected_modified.length>100)))throw Error('invalid_page');

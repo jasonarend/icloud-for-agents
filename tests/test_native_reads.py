@@ -130,15 +130,23 @@ class NativeReadTests(unittest.TestCase):
     def test_markdown_is_local_read_projection_and_never_forwarded_to_helper(self):
         config={'notes':{'source_ids':['selected']}};calls=[]
         def dispatch(request,config):
-            calls.append(request);return {'protocol_version':1,'item':{'id':'synthetic','html':'<h1>Title</h1><p><b>Decision</b></p>','truncated':False}}
+            calls.append(request);return {'protocol_version':1,'item':{'id':'synthetic','source_id':'selected','folder_id':'folder','locked':False,'html':'<h1>Title</h1><p><b>Decision</b></p>','truncated':False}}
         with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',side_effect=dispatch):
             result=NativeReader('notes').read('get',folder_id='folder',id='synthetic',representation='markdown')
         self.assertNotIn('representation',calls[0]);self.assertIn('**Decision**',result['item']['markdown']);self.assertFalse(result['item']['markdown_projection']['round_trip_safe']);self.assertIn('html',result['item'])
     def test_markdown_does_not_turn_missing_or_locked_html_into_an_empty_export(self):
         config={'notes':{'source_ids':['selected']}}
-        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value={'protocol_version':1,'item':{'locked':True}}):
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value={'protocol_version':1,'item':{'id':'synthetic','source_id':'selected','folder_id':'folder','locked':True,'content_available':False}}):
             result=NativeReader('notes').read('get',folder_id='folder',id='synthetic',representation='markdown')
         self.assertNotIn('markdown',result['item']);self.assertEqual(result['item']['markdown_projection']['status'],'unavailable')
+    def test_exact_note_requires_selected_identity_even_when_locked(self):
+        config={'notes':{'source_ids':['selected']}}
+        item={'id':'synthetic','source_id':'selected','folder_id':'folder','locked':True,'content_available':False}
+        invalid=[{**item,'source_id':'foreign'}, {**item,'folder_id':'other'}, {**item,'id':'other'},
+                 {k:v for k,v in item.items() if k!='source_id'}, {**item,'content_available':True}]
+        for value in invalid:
+            with self.subTest(value=value),self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value={'item':value}),self.assertRaises(SafetyError):
+                NativeReader('notes').read('get',folder_id='folder',id='synthetic')
     def test_representation_type_scope_and_value_refused_before_helper(self):
         config={name:{'source_ids':['selected']} for name in ('notes','reminders')}
         with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',side_effect=AssertionError('No helper')):

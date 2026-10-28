@@ -211,6 +211,15 @@ class NativeReader:
             from .native_note_store import folder_role
             return folder_role(fields['folder_id'],sources)
         result = self._dispatch(request, config)
+        if self.name=='notes' and action=='get':
+            item=result.get('item') if isinstance(result,dict) else None
+            if (native_config('notes')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode
+                    or not isinstance(item,dict) or not isinstance(fields.get('id'),str) or not isinstance(fields.get('folder_id'),str)
+                    or item.get('id')!=fields['id'] or item.get('folder_id')!=fields['folder_id'] or item.get('source_id') not in sources
+                    or type(item.get('locked')) is not bool or (item['locked'] and item.get('content_available') is not False)):
+                raise SafetyError('Configured helper did not verify the exact scoped note')
+            allowed=('id','source_id','folder_id','locked','content_available') if item['locked'] else ('id','source_id','folder_id','title','html','text','truncated','created','modified','locked','shared','content_complete','omitted_features')
+            result={'protocol_version':1,'item':{k:item[k] for k in allowed if k in item}}
         if self.name=='notes' and action=='query':
             rows=result.get('items') if isinstance(result,dict) else None
             if (native_config('notes')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode

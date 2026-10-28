@@ -38,7 +38,7 @@ def dispatch(self,request,config):
         try:page=raw[offset*2:end*2].decode('utf-16-le')
         except UnicodeDecodeError:end+=1;page=raw[offset*2:end*2].decode('utf-16-le')
         return {**base,'locked':False,'content_available':True,'text':page,'offset':offset,'next_offset':end,'done':end>=len(raw)//2,'source_truncated':False,'content_complete':False,'modified':modified,'pagination_consistency':'live_note_may_change','offset_unit':'utf16_code_units','request_id':'must-not-leak'}
-    if request.get('id')=='synthetic-locked':return {'protocol_version':1,'item':{'id':'synthetic-locked','locked':True,'content_available':False}}
+    if request.get('id')=='synthetic-locked':return {'protocol_version':1,'item':{'id':'synthetic-locked','source_id':'selected','folder_id':'folder','locked':True,'content_available':False,'html':'must-not-leak'}}
     if request.get('id')=='foreign-note':return {'protocol_version':1,'item':{'id':'foreign-note','folder_id':'folder','source_id':'foreign','locked':False,'text':'inaccessible','truncated':False}}
     return {'protocol_version':1,'item':{'id':'synthetic-note','folder_id':'folder','source_id':'selected','html':'<h1>Product spec</h1><p><strong>Decision</strong></p><object><table><tr><td>Priority</td><td>High</td></tr></table></object>','truncated':False,'locked':False,'text':'Synthetic text café 🚀','modified':'2026-10-27T12:30:00Z'}}
 NativeReader._dispatch=dispatch

@@ -40,6 +40,8 @@ def run():
                 assert rpc('tools/call',{'name':'notes_search','arguments':{'text':'','folder_id':'folder'}})['result'].get('isError')
                 attachments=data(rpc('tools/call',{'name':'notes_attachments','arguments':{'folder_id':'folder','id':'synthetic-note','include_attachment_metadata':True}})['result']);assert attachments['metadata_requested'] is True and attachments['attachments'][0]['native_metadata']['url']=={'status':'unavailable','value':None} and attachments['content_downloaded'] is False
                 args={'folder_id':'folder','id':'synthetic-note'};native=data(call(args));assert 'markdown' not in native['item']
+                assert call(dict(args,id='foreign-note')).get('isError')
+                locked_native=data(call(dict(args,id='synthetic-locked')))['item'];assert locked_native['locked'] is True and 'html' not in locked_native
                 projected=data(call(dict(args,representation='markdown')));item=projected['item'];assert item['html']==native['item']['html'];assert 'Priority' in item['markdown'] and '| ---' in item['markdown'];assert item['markdown_projection']['round_trip_safe'] is False
                 text_tool=next(t for t in tools if t['name']=='notes_read_text');assert text_tool['annotations']['readOnlyHint'] is True
                 first=data(rpc('tools/call',{'name':'notes_read_text','arguments':dict(args,limit=10)})['result']);assert first['text']=='Synthetic ' and first['next_offset']==10 and first['done'] is False and 'html' not in first and 'request_id' not in first
