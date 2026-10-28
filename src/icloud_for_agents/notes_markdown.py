@@ -109,15 +109,25 @@ class Renderer:
                     start=int(attrs['start'])
                     if not 1<=start<=999999:raise ValueError()
                 except (TypeError,ValueError):start=1;self.losses.add('list_numbering')
-            result=[]
+            result=[];last_item_prefix=None
             for child in children:
                 if isinstance(child,str):
-                    if child.strip():result.append(escape(child.strip()))
+                    if child.strip():result.append([escape(child.strip())]);last_item_prefix=None
                     continue
-                if child[0]!='li':result.append(self.render(child));continue
+                if child[0] in {'ul','ol'}:
+                    nested=self.render(child).strip()
+                    if last_item_prefix is not None:
+                        # Notes exports child lists beside the preceding li,
+                        # inside its list container. Preserve container depth.
+                        result[-1].append('\n'+'\n'.join(' '*len(last_item_prefix)+line for line in nested.splitlines()))
+                    else:
+                        self.losses.add('list_structure');result.append([nested])
+                    continue
+                if child[0]!='li':result.append([self.render(child)]);last_item_prefix=None;continue
                 text=self.children(child).strip();lines=text.splitlines() or [''];prefix=str(start)+'. ' if tag=='ol' else '- ';start+=1
-                result.append(prefix+lines[0]+''.join('\n'+' '*len(prefix)+line for line in lines[1:]))
-            return '\n\n'+'\n'.join(result)+'\n\n'
+                result.append([prefix+lines[0]+''.join('\n'+' '*len(prefix)+line for line in lines[1:])])
+                last_item_prefix=prefix
+            return '\n\n'+'\n'.join(''.join(parts) for parts in result)+'\n\n'
         text=self.children(node)
         if tag in {'b','strong'}:return '**'+text+'**'
         if tag in {'em','i'}:return '*'+text+'*'

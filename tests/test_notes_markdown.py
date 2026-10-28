@@ -3,6 +3,18 @@ import unittest
 from icloud_for_agents.notes_markdown import project_markdown
 
 class MarkdownTests(unittest.TestCase):
+    def test_notes_normalized_nested_lists_preserve_container_indentation(self):
+        p=project_markdown('<ul><li>Parent</li><ol><li>Child</li><li>Another</li></ol><li>Sibling</li></ul>')
+        self.assertEqual(p['text'],'- Parent\n  1. Child\n  2. Another\n- Sibling')
+        self.assertTrue(p['formatting_complete'])
+        p=project_markdown('<ol start="10"><li>Parent</li><ul><li>Child</li><ol><li>Grandchild</li></ol></ul></ol>')
+        self.assertEqual(p['text'],'10. Parent\n    - Child\n      1. Grandchild')
+
+    def test_orphan_nested_list_reports_unknown_parent_structure(self):
+        p=project_markdown('<ul><ol><li>Orphan</li></ol></ul>')
+        self.assertIn('Orphan',p['text']);self.assertIn('list_structure',p['losses'])
+        self.assertFalse(p['formatting_complete'])
+
     def test_headings_emphasis_links_lists_and_code_are_semantic(self):
         html='<h1>Product spec</h1><p><b>Decision</b>: <i>ship</i> <a href="https://example.com/spec">source</a>.</p><ul><li>First</li><li>Second<ul><li>Child</li></ul></li></ul><pre>literal ``` code</pre>'
         p=project_markdown(html);self.assertIn('# Product spec',p['text']);self.assertIn('**Decision**',p['text']);self.assertIn('*ship*',p['text']);self.assertIn('[source](<https://example.com/spec>)',p['text']);self.assertIn('- First',p['text']);self.assertIn('  - Child',p['text']);self.assertIn('````\nliteral ``` code\n````',p['text']);self.assertTrue(p['text_complete']);self.assertFalse(p['round_trip_safe']);self.assertEqual(p['native_fidelity'],'unverified')
