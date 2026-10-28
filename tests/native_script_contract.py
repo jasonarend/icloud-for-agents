@@ -138,8 +138,8 @@ print(result)
         assert [x['id'] for x in created['items']]==['note-1'] and created['items'][0]['created']=='2026-01-01T00:00:00.000Z' and created['created_filter']['semantics']=='utc_inclusive_from_exclusive_before'
         exclusive=call('search',text='Synthetic',folder_id='folder-1',limit=10,offset=0,match_scope='title',synthetic_title_only=True,created_before='2026-01-01T00:00:00Z')
         assert exclusive['items']==[]
-        combined=call('search',text='',folder_id='folder-1',limit=10,offset=0,match_scope='title',synthetic_title_only=True,synthetic_modified=True,locked=False,shared=False,created_from='2026-01-01T00:00:00Z',created_before='2026-01-02T00:00:00Z',modified_from='2026-10-27T12:00:00Z',modified_before='2026-10-28T00:00:00Z')
-        assert [x['id'] for x in combined['items']]==['note-1'] and combined['locked_filter'] is False and combined['shared_filter'] is False and combined['created_filter']['from']=='2026-01-01T00:00:00Z' and combined['modified_filter']['from']=='2026-10-27T12:00:00Z'
+        combined=call('search',text='',folder_id='folder-1',limit=10,offset=0,match_scope='title',synthetic_title_only=True,synthetic_modified=True,locked=False,shared=False,has_attachments=True,created_from='2026-01-01T00:00:00Z',created_before='2026-01-02T00:00:00Z',modified_from='2026-10-27T12:00:00Z',modified_before='2026-10-28T00:00:00Z')
+        assert [x['id'] for x in combined['items']]==['note-1'] and combined['locked_filter'] is False and combined['shared_filter'] is False and combined['attachment_filter'] is True and combined['created_filter']['from']=='2026-01-01T00:00:00Z' and combined['modified_filter']['from']=='2026-10-27T12:00:00Z'
         attachments=call('attachments',folder_id='folder-1',id='note-1',limit=1,offset=0)
         assert attachments['attachments'][0]['id']=='attachment-1' and attachments['content_downloaded'] is False
         assert attachments['attachments'][0]['name'] is None
