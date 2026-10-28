@@ -20,6 +20,8 @@ FIXTURE=r'''
 @property BOOL shouldCategorizeGroceryItems;
 @property BOOL shouldSupportGroceryShoppingSession;
 @property BOOL isGroup;
+@property id parentListID;
+@property NSString *name;
 @end
 @implementation FixtureListStorage
 @end
@@ -31,6 +33,7 @@ FIXTURE=r'''
 @property BOOL isSharedToMe;
 @property BOOL canBeShared;
 @property BOOL isPinned;
+@property id parentList;
 @end
 @implementation FixtureList
 @end
@@ -253,6 +256,11 @@ int main(){@autoreleasepool{
  NSData *badPinData=[NSJSONSerialization dataWithJSONObject:@{@"source_id":source,@"list_id":list,@"include_pinned":@1} options:0 error:NULL];NSDictionary *badPin=[NSJSONSerialization JSONObjectWithData:ICloudRemindersReadListFeatures(badPinData) options:0 error:NULL];NSCAssert(badPin[@"error"],@"pin selection requires a true Boolean");
  NSCAssert(![listFeatures()[@"grocery_categorization"] boolValue] && ![listFeatures()[@"list_type_verified"] boolValue],@"ordinary provider flags do not claim type");fixture.list.storage.shouldCategorizeGroceryItems=YES;NSCAssert([listFeatures()[@"grocery_categorization"] boolValue],@"native grocery flag read");fixture.list.isShared=YES;fixture.list.isSharedToMe=YES;NSCAssert([listFeatures()[@"shared"] boolValue] && [listFeatures()[@"shared_to_me"] boolValue] && ![listFeatures()[@"sharing_metadata_complete"] boolValue],@"sharing flags do not claim participant details");fixture.list.account.remObjectID=Identity(@"REMCDAccount",other);NSCAssert(listFeatures()[@"error"],@"foreign list account refused");fixture.list.account.remObjectID=Identity(@"REMCDAccount",source);
  FixtureSection *section=[FixtureSection new];section.remObjectID=Identity(@"REMCDListSection",other);section.list=fixture.list;section.storage=[FixtureSectionStorage new];section.storage.accountID=fixture.account.remObjectID;section.storage.listID=fixture.list.remObjectID;section.storage.displayName=@"Synthetic";fixtureSections=@[section];
+ NSDictionary *parentReq=@{@"source_id":source,@"list_id":list};NSData *parentData=[NSJSONSerialization dataWithJSONObject:parentReq options:0 error:NULL];NSDictionary *(^parentRead)(void)=^NSDictionary *{return [NSJSONSerialization JSONObjectWithData:ICloudRemindersReadListParent(parentData) options:0 error:NULL];};
+ NSCAssert([parentRead()[@"parent_status"] isEqual:@"provider_not_reported"],@"unreported parent observed");
+ FixtureList *group=[FixtureList new];group.remObjectID=Identity(@"REMCDList",other);group.account=fixture.account;group.storage=[FixtureListStorage new];group.storage.isGroup=YES;group.storage.name=@"Synthetic group";fixture.list.parentList=group;fixture.list.storage.parentListID=group.remObjectID;
+ NSCAssert([parentRead()[@"parent"][@"title"] isEqual:@"Synthetic group"],@"scoped parent observed");
+ group.account=[FixtureAccount new];group.account.remObjectID=Identity(@"REMCDAccount",other);NSCAssert(parentRead()[@"error"],@"foreign parent refused");group.account=fixture.account;fixture.list.parentList=nil;NSCAssert(parentRead()[@"error"],@"inconsistent parent refused");fixture.list.storage.parentListID=nil;
  NSDictionary *sectionRequest=@{@"source_id":source,@"list_id":list};NSData *sectionData=[NSJSONSerialization dataWithJSONObject:sectionRequest options:0 error:NULL];NSDictionary *(^readSections)(void)=^NSDictionary *{return [NSJSONSerialization JSONObjectWithData:ICloudRemindersListSections(sectionData) options:0 error:NULL];};
  NSCAssert([readSections()[@"sections"] count]==1 && [readSections()[@"sections"][0][@"title"] isEqual:@"Synthetic"],@"exact section read");
  NSData *membershipData=[NSJSONSerialization dataWithJSONObject:@{@"id":task,@"source_id":source,@"list_id":list} options:0 error:NULL];NSDictionary *(^membership)(void)=^NSDictionary *{return [NSJSONSerialization JSONObjectWithData:ICloudRemindersReadSection(membershipData) options:0 error:NULL];};

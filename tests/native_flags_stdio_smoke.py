@@ -24,6 +24,7 @@ def run():
             try:
                 rpc('initialize',{'protocolVersion':'2025-11-25','capabilities':{},'clientInfo':{'name':'synthetic-flags','version':'1'}});process.stdin.write(b'{"jsonrpc":"2.0","method":"notifications/initialized"}\n');process.stdin.flush()
                 template_sections=data(rpc('tools/call',{'name':'reminders_template_sections','arguments':{'source_id':'selected','id':'33333333-3333-4333-8333-333333333333'}})['result']);assert template_sections['sections'][0]['title']=='Synthetic section' and template_sections['membership_verified'] is False
+                parent=data(rpc('tools/call',{'name':'reminders_list_parent','arguments':{'list_id':'33333333-3333-4333-8333-333333333333'}})['result']);assert parent['parent']['title']=='Synthetic group' and parent['hierarchy_complete'] is False
                 smart_page=data(rpc('tools/call',{'name':'reminders_smart_lists','arguments':{'source_id':'selected','limit':1}})['result']);assert smart_page['smart_lists'][0]['title']=='Synthetic' and smart_page['filter_rules_complete'] is False
                 template_page=data(rpc('tools/call',{'name':'reminders_templates','arguments':{'source_id':'selected','limit':1}})['result']);assert template_page['templates'][0]['title']=='Synthetic' and template_page['template_contents_complete'] is False
                 tools=rpc('tools/list',{})['result']['tools'];tool=next(t for t in tools if t['name']=='reminders_get');assert tool['annotations']['readOnlyHint'] is True

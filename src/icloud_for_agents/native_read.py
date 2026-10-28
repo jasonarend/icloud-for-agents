@@ -14,7 +14,7 @@ from .services import enabled
 
 
 READ_ACTIONS = {'notes': {'status', 'sources', 'folders', 'default_folder', 'folder_get', 'folder_inventory', 'folder_role', 'model_folder_role', 'query', 'get', 'text_page', 'search', 'attachments', 'diagnose_note', 'contains'},
-                'reminders': {'status', 'sources', 'lists', 'default_list', 'list_sections', 'list_features', 'templates', 'template_sections', 'smart_lists', 'query', 'get','list_membership','recovery_lookup','recovery_tree','recovery_list'}}
+                'reminders': {'status', 'sources', 'lists', 'default_list', 'list_sections', 'list_features', 'list_parent', 'templates', 'template_sections', 'smart_lists', 'query', 'get','list_membership','recovery_lookup','recovery_tree','recovery_list'}}
 MAX_OUTPUT = 2_000_000
 
 
@@ -123,7 +123,7 @@ class NativeReader:
             except (ValueError,UnicodeEncodeError):raise SafetyError('Tag filtering requires one exact bounded native tag name') from None
             if config.get('advanced_backend')!='reminderkit' or not config.get('helper_path'):raise SafetyError('Tag filtering requires the explicitly selected ReminderKit backend and signed helper')
         if 'source_id' in fields and action not in {'recovery_lookup','recovery_tree','recovery_list','templates','template_sections','smart_lists','model_folder_role','default_folder'}:raise SafetyError('Source selector is only supported for exact role or recovery lookup')
-        if action in {'list_sections','list_features'}:
+        if action in {'list_sections','list_features','list_parent'}:
             if self.name!='reminders' or set(fields)!={'list_id'} or not isinstance(fields.get('list_id'),str) or not fields['list_id']:
                 raise SafetyError('Native list inspection requires one exact list ID')
             if config.get('advanced_backend')!='reminderkit' or not config.get('helper_path'):
@@ -416,6 +416,10 @@ class NativeReader:
             if native_config('reminders')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode:raise SafetyError('Reminder access changed during Smart List discovery')
             validate_smart_list_page(result,fields['source_id'],limit,offset)
             result={key:result[key] for key in ('protocol_version','source_id','smart_lists','next_offset','done','pagination_consistency','filter_rules_complete','data_mutated','backend') if key in result}
+        if action=='list_parent':
+            if native_config('reminders')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode:raise SafetyError('Reminder access changed during list parent inspection')
+            validate_list_parent(result,fields['list_id'],sources)
+            result={key:result[key] for key in ('protocol_version','source_id','list_id','parent','parent_status','hierarchy_complete','data_mutated','backend') if key in result}
         if action=='templates':
             if native_config('reminders')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode:raise SafetyError('Reminder access changed during template discovery')
             validate_template_list(result,fields['source_id'],limit,offset)
@@ -727,7 +731,7 @@ class NativeReader:
             if self.name == 'notes' and code == 'permission_required':
                 raise SafetyError('Notes Automation permission is required; the user must approve access in macOS Privacy & Security.')
             detail=''
-            if code=='private_metadata_unavailable' and response.get('category') in {'unsupported_public_identity','unsupported_interface','private_store_unavailable','private_read_denied_or_unavailable','private_reminder_not_found','native_identity_mismatch','unsupported_flag_metadata','unsupported_assignment_metadata','unsupported_attachment_metadata','unsupported_template_metadata','unsupported_smart_list_metadata','unsupported_tag_metadata','unsupported_hierarchy_metadata','unsupported_children_metadata','children_read_unavailable','hierarchy_parent_unavailable','hierarchy_parent_inconsistent','hierarchy_read_unavailable','unknown_flag_state','private_read_exception'}:detail=' ('+response['category']+')'
+            if code=='private_metadata_unavailable' and response.get('category') in {'unsupported_public_identity','unsupported_interface','private_store_unavailable','private_read_denied_or_unavailable','private_reminder_not_found','native_identity_mismatch','unsupported_flag_metadata','unsupported_assignment_metadata','unsupported_attachment_metadata','unsupported_template_metadata','unsupported_smart_list_metadata','unsupported_list_parent','unsupported_tag_metadata','unsupported_hierarchy_metadata','unsupported_children_metadata','children_read_unavailable','hierarchy_parent_unavailable','hierarchy_parent_inconsistent','hierarchy_read_unavailable','unknown_flag_state','private_read_exception'}:detail=' ('+response['category']+')'
             if code=='private_metadata_unavailable' and response.get('native_error_domain') in {'com.apple.reminderkit','NSCocoaErrorDomain','NSPOSIXErrorDomain','EKErrorDomain','NSOSStatusErrorDomain','other'} and type(response.get('native_error_code')) is int:detail+=' [SDK '+response['native_error_domain']+' '+str(response['native_error_code'])+']'
             raise SafetyError('Native read refused: ' + (code if code in allowed else 'helper_error')+detail)
         return response
@@ -775,6 +779,23 @@ def inspect_reminder_hierarchy(reader, identity, max_nodes=10, max_depth=3):
     return {'root_id':identity,'source_id':source,'list_id':list_id,'nodes':nodes,'unexpanded':unexpanded,
             'hierarchy_complete':False,'observation_consistency':'separate_provider_reads',
             'scope_note':'Provider-reported edges only; concealed descendants and concurrent changes remain unverified.'}
+
+
+def validate_list_parent(result,list_id,sources):
+    import uuid
+    if (not isinstance(result,dict) or result.get('source_id') not in sources or result.get('list_id')!=list_id or result.get('backend')!='reminderkit-list-parent-v1'
+            or result.get('data_mutated') is not False or result.get('hierarchy_complete') is not False or result.get('parent_status') not in {'provider_reported','provider_not_reported'} or 'parent' not in result):
+        raise SafetyError('Helper did not provide scoped list parent observation')
+    parent=result['parent']
+    if result['parent_status']=='provider_not_reported':
+        if parent is not None:raise SafetyError('Invalid list parent observation')
+    else:
+        if not isinstance(parent,dict) or set(parent)!={'id','title'} or not isinstance(parent['title'],str) or len(parent['title'])>1000:raise SafetyError('Invalid list parent')
+        try:
+            parent_id=uuid.UUID(parent['id']);child_id=uuid.UUID(list_id)
+            if parent_id==child_id:raise ValueError()
+        except (ValueError,TypeError,AttributeError):raise SafetyError('Invalid list parent identity') from None
+    return result
 
 
 def validate_smart_list_page(result,source_id,limit,offset):
@@ -1006,6 +1027,12 @@ def register_read_tools(mcp):
         def reminders_list_sections(list_id: str) -> dict:
             """Read bounded native section IDs and titles for one selected list; ordering and membership are not verified."""
             return NativeReader('reminders').read('list_sections',list_id=list_id)
+
+        @mcp.tool(annotations=annotations)
+        @guard
+        def reminders_list_parent(list_id: str) -> dict:
+            """Observe one selected list's provider-reported parent group; complete hierarchy and ordering are unverified."""
+            return NativeReader('reminders').read('list_parent',list_id=list_id)
 
         @mcp.tool(annotations=annotations)
         @guard

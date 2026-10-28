@@ -202,6 +202,30 @@ NSData *ICloudRemindersReadListFeatures(NSData *data){
         return EncodeFlag(result);
     }@catch(NSException *exception){return EncodeFlag(FlagFailure(@"private_read_exception"));}
 }
+// Observe a list's provider-reported parent group without changing hierarchy.
+NSData *ICloudRemindersReadListParent(NSData *data){
+    @try {
+        id identity=[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
+        if(![identity isKindOfClass:NSDictionary.class] || [identity count]!=2)return EncodeFlag(FlagFailure(@"invalid_public_identity"));
+        for(NSString *key in @[@"source_id",@"list_id"]){id value=identity[key];NSUUID *uuid=[value isKindOfClass:NSString.class]?[[NSUUID alloc]initWithUUIDString:value]:nil;if(!uuid || !UUIDEqual(uuid.UUIDString,value))return EncodeFlag(FlagFailure(@"unsupported_public_identity"));}
+        if(NSProcessInfo.processInfo.operatingSystemVersion.majorVersion!=27 || !dlopen("/System/Library/PrivateFrameworks/ReminderKit.framework/ReminderKit",RTLD_LAZY|RTLD_LOCAL))return EncodeFlag(FlagFailure(@"unsupported_interface"));
+        Class ids=NSClassFromString(@"REMObjectID"),storeClass=NSClassFromString(@"REMStore");
+        if(!MethodMatches(ids,@"objectIDWithURL:",@"@@:@",YES) || !MethodMatches(storeClass,@"fetchListWithObjectID:error:",@"@@:@^@",NO))return EncodeFlag(FlagFailure(@"unsupported_list_parent"));
+        id store=[storeClass new];NSURL *url=[NSURL URLWithString:[@"x-apple-reminderkit://REMCDList/" stringByAppendingString:identity[@"list_id"]]];id oid=((id(*)(id,SEL,id))objc_msgSend)((id)ids,NSSelectorFromString(@"objectIDWithURL:"),url);NSError *error=nil;
+        if(!store || !oid)return EncodeFlag(FlagFailure(@"private_store_unavailable"));id list=((id(*)(id,SEL,id,NSError**))objc_msgSend)(store,NSSelectorFromString(@"fetchListWithObjectID:error:"),oid,&error);
+        if(error || !UUIDEqual(ObjectUUID(list,@"REMCDList"),identity[@"list_id"]) || !UUIDEqual(ObjectUUID(ObjectValue(list,@"account"),@"REMCDAccount"),identity[@"source_id"]))return EncodeFlag(FlagFailure(@"native_identity_mismatch"));
+        id storage=ObjectValue(list,@"storage");if(!MethodMatches([list class],@"parentList",@"@@:",NO) || !MethodMatches([storage class],@"parentListID",@"@@:",NO))return EncodeFlag(FlagFailure(@"unsupported_list_parent"));
+        id parent=ObjectValue(list,@"parentList"),parentID=ObjectValue(storage,@"parentListID"),observed=[NSNull null];
+        if((parent==nil)!=(parentID==nil))return EncodeFlag(FlagFailure(@"unsupported_list_parent"));
+        if(parent){
+            NSString *pid=ObjectUUID(parent,@"REMCDList");id parentUUID=ObjectValue(parentID,@"uuid"),parentStorage=ObjectValue(parent,@"storage"),name=ObjectValue(parentStorage,@"name");
+            if(!pid || UUIDEqual(pid,identity[@"list_id"]) || ![ObjectValue(parentID,@"entityName") isEqual:@"REMCDList"] || ![parentUUID isKindOfClass:NSUUID.class] || !UUIDEqual([parentUUID UUIDString],pid) || !UUIDEqual(ObjectUUID(ObjectValue(parent,@"account"),@"REMCDAccount"),identity[@"source_id"]) || !MethodMatches([parentStorage class],@"isGroup",@"B@:",NO) || !((BOOL(*)(id,SEL))objc_msgSend)(parentStorage,NSSelectorFromString(@"isGroup")) || ![name isKindOfClass:NSString.class] || [name length]>1000 || [name lengthOfBytesUsingEncoding:NSUTF8StringEncoding]>4000)return EncodeFlag(FlagFailure(@"native_identity_mismatch"));
+            observed=@{@"id":pid,@"title":name};
+        }
+        return EncodeFlag(@{@"protocol_version":@1,@"source_id":identity[@"source_id"],@"list_id":identity[@"list_id"],@"parent":observed,@"parent_status":parent?@"provider_reported":@"provider_not_reported",@"hierarchy_complete":@NO,@"data_mutated":@NO,@"backend":@"reminderkit-list-parent-v1"});
+    }@catch(NSException *exception){return EncodeFlag(FlagFailure(@"private_read_exception"));}
+}
+
 // Fixed single-section creation with a preassigned ID and exact prior inventory.
 NSData *ICloudRemindersCreateSection(NSData *data,BOOL (^enterMutation)(void)){
     __block BOOL dispatched=NO;

@@ -333,7 +333,7 @@ if action == "request_access" {
     RunLoop.current.run(until: Date(timeIntervalSinceNow: 60))
     fail("permission_timeout")
 }
-let actions = ["status", "sources", "lists", "default_list", "list_sections", "list_features", "templates", "template_sections", "smart_lists", "query", "get", "list_membership", "recovery_lookup", "recovery_tree", "recovery_list", "apply"]
+let actions = ["status", "sources", "lists", "default_list", "list_sections", "list_features", "list_parent", "templates", "template_sections", "smart_lists", "query", "get", "list_membership", "recovery_lookup", "recovery_tree", "recovery_list", "apply"]
 guard actions.contains(action) else { fail("unsupported_action") }
 if action == "status" {
     respond(["protocol_version": 1, "service": "reminders", "access": permission,
@@ -423,7 +423,7 @@ func membershipRecord(_ values:[EKReminder],_ list:EKCalendar)->[String:Any] {
             "sha256":SHA256.hash(data:data).map {String(format:"%02x",$0)}.joined()]
 }
 if action == "default_list" {respond(defaultListRecord(store.defaultCalendarForNewReminders(),lists))}
-if action == "list_sections" || action == "list_features" {
+if action == "list_sections" || action == "list_features" || action == "list_parent" {
     guard let id=req["list_id"] as? String,let list=lists.first(where:{$0.calendarIdentifier==id}) else {fail("not_found_in_scope")}
     var identity:[String:Any]=["source_id":list.source.sourceIdentifier,"list_id":id]
     if let pinned=req["include_pinned"] {
@@ -431,7 +431,7 @@ if action == "list_sections" || action == "list_features" {
         identity["include_pinned"]=true
     }
     guard let payload=try? JSONSerialization.data(withJSONObject:identity),
-          let result=(try? JSONSerialization.jsonObject(with:action == "list_sections" ? ICloudRemindersListSections(payload) : ICloudRemindersReadListFeatures(payload))) as? [String:Any] else {fail("not_found_in_scope")}
+          let result=(try? JSONSerialization.jsonObject(with:action == "list_parent" ? ICloudRemindersReadListParent(payload) : action == "list_sections" ? ICloudRemindersListSections(payload) : ICloudRemindersReadListFeatures(payload))) as? [String:Any] else {fail("not_found_in_scope")}
     respond(result)
 }
 if action == "list_membership" {
