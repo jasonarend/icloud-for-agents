@@ -602,6 +602,8 @@ class NativeReader:
                         raise _confirmed_refusal(self.name,request,response)
                     if response['error']=='permission_check_timed_out':
                         raise SafetyError('Notes permission check timed out; OS access is unverified. No automatic retry.')
+                    if response['error']=='notes_read_timeout':
+                        raise SafetyError('Notes read timed out. Narrow the folder or investigate the native app before continuing; no automatic retry was made.')
                     if response['error']=='notes_not_running':
                         raise SafetyError('Open Notes before validating native Automation access')
                     if response['error']=='permission_required':

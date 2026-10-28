@@ -32,6 +32,17 @@ class NativeReadTests(unittest.TestCase):
         injected=_confirmed_refusal('notes',request,{'error':'notes_model_refused','category':'untrusted arbitrary content','mutation_dispatched':False})
         self.assertEqual(injected.evidence['reason'],'helper_validation');self.assertNotIn('untrusted arbitrary content',str(injected))
 
+    def test_notes_timeout_reports_specific_error_without_retry(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as directory:
+            helper=Path(directory)/'helper';helper.write_text('synthetic');helper.chmod(0o700)
+            config={'notes':{'source_ids':['selected'],'helper_path':str(helper)}}
+            with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch('icloud_for_agents.native_app.bundle_fingerprint',return_value='synthetic'),patch('icloud_for_agents.native_app.application_request',return_value={'error':'notes_read_timeout'}) as request:
+                with self.assertRaisesRegex(SafetyError,'Notes read timed out.*no automatic retry'):
+                    NativeReader('notes').read('search',text='',match_scope='title',locked=True)
+                self.assertEqual(request.call_count,1)
+
     def test_default_reminder_list_is_scoped_and_older_helpers_fail_closed(self):
         config={'reminders':{'source_ids':['selected']}}
         valid={'protocol_version':1,'state':'available','list':{'id':'list','title':'List','source_id':'selected','writable':True,'color':None}}
