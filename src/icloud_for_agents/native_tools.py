@@ -76,7 +76,7 @@ def register_change_tools(mcp):
         mcp.tool(name=name+'_finalize_stopped_plan',annotations=WRITE)(guard(finalize_stopped_plan))
         from .native_grants import NativeGrants
         def prepare_grant(scope:dict)->dict:
-            """Propose ongoing/scenario native permission with exact rules, optional expiry/cap, and revocation. No data writes."""
+            """Propose ongoing/scenario native permission with exact rules, optional expiry/cap, and revocation. copy_observation is a separate operation for the reviewed copy tools. No data writes."""
             return NativeGrants(editor(name)).prepare(scope)
         def prepare_grant_replacement(grant_id:str,scope:dict)->dict:
             """Review replacement scenario scope; activation retires prior authority and carries quota history forward."""
@@ -102,10 +102,10 @@ def register_change_tools(mcp):
         if enabled(name):register_permissions(name)
 
     if enabled('notes'):
-        def prepare_note_observation_copy(snapshot:dict,source_id:str,folder_id:str,accept_omissions:bool)->dict:
-            """Review one lossy copy of a supplied unlocked, nontruncated Notes observation. One-time approval required; native objects are not preserved."""
+        def prepare_note_observation_copy(snapshot:dict,source_id:str,folder_id:str,accept_omissions:bool,grant_id:str|None=None)->dict:
+            """Review one lossy copy of an unlocked, nontruncated Notes observation. One-time approval or an explicitly scoped copy_observation grant is required."""
             from .native_note_import import prepare_copy
-            return prepare_copy(editor('notes'),snapshot,source_id,folder_id,accept_omissions=accept_omissions)
+            return prepare_copy(editor('notes'),snapshot,source_id,folder_id,accept_omissions=accept_omissions,grant_id=grant_id)
         mcp.tool(name='notes_prepare_observation_copy',annotations=WRITE)(guard(prepare_note_observation_copy))
         from .native_move_recovery import NotesMoveRecovery
         from .native_edit_recovery import NotesEditRecovery
@@ -250,10 +250,10 @@ def register_change_tools(mcp):
             return NotesCreationRecovery(owner()).finalize(plan_id)
 
     if enabled('reminders'):
-        def prepare_observation_copy(snapshot:dict,source_id:str,list_id:str,accept_omissions:bool,include_dates:bool=False,include_urls:bool=False)->dict:
-            """Review up to 10 lossy copies of a supplied Reminder observation; originals, completion and native metadata are not preserved. One-time approval required."""
+        def prepare_observation_copy(snapshot:dict,source_id:str,list_id:str,accept_omissions:bool,include_dates:bool=False,include_urls:bool=False,grant_id:str|None=None)->dict:
+            """Review up to 10 lossy copies; originals, completion and native metadata are not preserved. Requires one-time approval or an explicitly scoped copy_observation grant."""
             from .native_reminder_import import prepare_copy
-            return prepare_copy(editor('reminders'),snapshot,source_id,list_id,accept_omissions=accept_omissions,include_dates=include_dates,include_urls=include_urls)
+            return prepare_copy(editor('reminders'),snapshot,source_id,list_id,accept_omissions=accept_omissions,include_dates=include_dates,include_urls=include_urls,grant_id=grant_id)
         mcp.tool(name='reminders_prepare_observation_copy',annotations=WRITE)(guard(prepare_observation_copy))
         @mcp.tool(annotations=WRITE)
         @guard

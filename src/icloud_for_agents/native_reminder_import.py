@@ -16,7 +16,7 @@ def _date(value):
             fields[key]=value[key]
     return validate_date(fields)
 
-def prepare_copy(engine,snapshot,source_id,list_id,*,accept_omissions,include_dates=False,include_urls=False):
+def prepare_copy(engine,snapshot,source_id,list_id,*,accept_omissions,include_dates=False,include_urls=False,grant_id=None):
     if engine.name!='reminders' or accept_omissions is not True or type(include_dates) is not bool or type(include_urls) is not bool:
         raise SafetyError('Explicit acceptance of copy limitations and Boolean options are required')
     if any(not isinstance(value,str) or not 1<=len(value)<=1000 for value in (source_id,list_id)):raise SafetyError('Select an exact destination source and list')
@@ -54,4 +54,7 @@ def prepare_copy(engine,snapshot,source_id,list_id,*,accept_omissions,include_da
                        'Native tags, hierarchy, attachments, recurrence, alarms, location, sharing and timestamps are not copied.',
                        'Copies can duplicate existing reminders; the source observation is user-supplied and may be stale or incomplete.',
                        'Dates, if selected, can affect due-date behavior; notification delivery remains controlled by Apple.']}
+    if grant_id is not None:
+        if not isinstance(grant_id,str) or not grant_id:raise SafetyError('Use one exact active copy scenario grant')
+        return engine.prepare_with_grant(grant_id,changes,_review_context=review)
     return engine.prepare_once(changes,_review_context=review)

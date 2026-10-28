@@ -74,6 +74,26 @@ def run(policy):
                     assert data(call(name+'_grant_status',{'grant_id':identity}))['status']=='revoked'
                     assert call(name+'_execute_approved',{'plan_id':pending['plan_id']}).get('isError')
                     assert call(name+'_prepare_with_grant',{'grant_id':identity,'changes':changes}).get('isError')
+                    copy_fields=['title','body','format'] if name=='notes' else ['title','notes','priority']
+                    copy_scope={'scenario':'Synthetic observation copies','rules':[{'operation':'copy_observation','source_id':'selected','container_id':'folder','fields':copy_fields,'destinations':[]}],'max_batch':1,'max_24h':2,'expires':None}
+                    copy_grant=data(call(name+'_prepare_grant',{'scope':copy_scope}));assert 'lossy copies' in copy_grant['review']['payload']['effects']['observation_copy']
+                    if policy=='local-receipt':
+                        assert call(name+'_activate_grant',{'grant_id':copy_grant['plan_id']}).get('isError')
+                        receipt=runtime/(copy_grant['plan_id']+'.approved');fd=os.open(receipt,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+                        with os.fdopen(fd,'w') as stream:json.dump({'plan_id':copy_grant['plan_id'],'sha256':copy_grant['sha256']},stream)
+                    assert data(call(name+'_activate_grant',{'grant_id':copy_grant['plan_id']}))['grant_active']
+                    assert call(name+'_prepare_with_grant',{'grant_id':copy_grant['plan_id'],'changes':changes}).get('isError')
+                    if name=='notes':
+                        snapshot={'format':'icloud-for-agents-note-observation','version':1,'item':{'id':'old','title':'Synthetic','html':'<div>Synthetic</div><div>Body</div>','locked':False,'truncated':False,'content_complete':False}}
+                        args={'snapshot':snapshot,'source_id':'selected','folder_id':'folder','accept_omissions':True,'grant_id':copy_grant['plan_id']}
+                    else:
+                        snapshot={'format':'icloud-for-agents-reminders-observation','version':1,'list_id':'old-list','page':{'done':True},'items':[{'id':'old','list_id':'old-list','title':'Synthetic','notes':'Text','priority':1,'completed':False}]}
+                        args={'snapshot':snapshot,'source_id':'selected','list_id':'folder','accept_omissions':True,'grant_id':copy_grant['plan_id']}
+                    copied=data(call(name+'_prepare_observation_copy',args));assert copied['authorization_path']=='standing-native' and copied['review']['payload']['copy_review']['accepted_omissions'] is True
+                    assert data(call(name+'_execute_approved',{'plan_id':copied['plan_id']}))['status']=='applied'
+                    assert call(name+'_execute_approved',{'plan_id':copied['plan_id']}).get('isError')
+                    assert data(call(name+'_revoke_grant',{'grant_id':copy_grant['plan_id']}))['status']=='revoked'
+                    assert call(name+'_prepare_observation_copy',args).get('isError')
             finally:
                 process.stdin.close()
                 try:process.wait(timeout=10)

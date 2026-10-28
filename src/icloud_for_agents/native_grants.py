@@ -14,9 +14,9 @@ from .native_once import selected_read_access
 from .native_read import native_config
 
 FIELDS={
- 'notes':{'create_note':{'title','body','format'},'append_note':{'body','format'},'prepend_note':{'body','format'},'replace_text':{'find','replacement','expected_matches'},
+ 'notes':{'copy_observation':{'title','body','format'},'create_note':{'title','body','format'},'append_note':{'body','format'},'prepend_note':{'body','format'},'replace_text':{'find','replacement','expected_matches'},
           'update_note':{'title','body','format'},'move_note':{'destination_folder_id'},'create_folder':{'title'},'rename_folder':{'title'}},
- 'reminders':{'create_subtask':{'title'},'create_section':{'title'},'rename_section':{'title'},'create_reminder':{'title','notes','priority','due','start','url','alarms','location_alarms','recurrence'},'update_reminder':{'title','notes','priority','due','start','url','alarms','location_alarms'},
+ 'reminders':{'copy_observation':{'title','notes','priority','due','start','url'},'create_subtask':{'title'},'create_section':{'title'},'rename_section':{'title'},'create_reminder':{'title','notes','priority','due','start','url','alarms','location_alarms','recurrence'},'update_reminder':{'title','notes','priority','due','start','url','alarms','location_alarms'},
               'set_completed':{'completed'},'set_flagged':{'flagged'},'set_urgent':{'urgent'},'add_early':{'unit','count'},'remove_tag':{'tag_id'},'add_tag':{'tag_name'},'replace_tag':{'tag_id','tag_name'},'move_reminder':{'list_id'},'create_list':{'title'},'rename_list':{'title'},'set_list_color':{'color'},'set_recurrence':{'recurrence','recurrence_scope'}}}
 
 
@@ -89,7 +89,7 @@ class NativeGrants:
             if not root and rule['container_id']==rule['source_id']:raise SafetyError('An item operation needs a real container ID')
             if rule['operation']=='create_list' and rule['container_id']!=rule['source_id']:raise SafetyError('List creation targets its selected source root')
             source=self.container(rule['source_id'],rule['container_id'])
-            if (self.name=='notes' and rule['operation'] in {'create_note','append_note','prepend_note','replace_text','update_note','create_folder'}
+            if (self.name=='notes' and rule['operation'] in {'copy_observation','create_note','append_note','prepend_note','replace_text','update_note','create_folder'}
                     and rule['container_id']!=rule['source_id']):
                 source=self.engine.adapter.checked_content_folder_role(source,rule['source_id'])
             if rule['operation'] in {'rename_folder','rename_list'}:source={k:v for k,v in source.items() if k!='title'}
@@ -134,6 +134,9 @@ class NativeGrants:
                  'sharing':'Notes private ancestors checked; EventKit does not expose reminder-list participant state.',
                  'quotas':'All admitted batch items count, including uncertain or refused items; no automatic refund.'}}
         if self.name=='notes':payload['effects']['folder_role']=('The optional native model checks selected content folders and their ancestors before admission; separate provider reads are not atomic.' if native_config('notes').get('folder_write_backend')=='notes-shared' else 'Notes content authority is limited to the account default creation folder; its identity is rechecked before dispatch.')
+        if any(rule['operation']=='copy_observation' for rule in scope['rules']):
+            payload['effects']['observation_copy']='Allows new lossy copies from caller-supplied observations in this exact scope; originals are unchanged, and copies do not retain original identity, native metadata or attachments. Duplicates may result. Each batch discloses its omissions and selected fields.'
+            if self.name=='reminders':payload['effects']['observation_copy']+=' Reminder copies start incomplete; copied dates can affect notifications controlled by Apple.'
         if _replaces is not None:
             payload['replaces']={'grant_id':_replaces['plan_id'],'sha256':digest(_replaces)}
             payload['previous_scope']=_replaces['payload']['scope']
@@ -247,6 +250,10 @@ class NativeGrants:
                 'container_state':'not_refreshed','configuration_changed':False,'replaces':plan['payload'].get('replaces')}
     def match(self,grant,item):
         scope=grant['payload']['scope'];op=item['operation']
+        if op=='copy_observation':raise SafetyError('Observation copies must use the reviewed copy preparation path')
+        marker=item.get('standing_operation');scope_op=op if marker is None else marker
+        if marker is not None and (marker!='copy_observation' or op!=('create_note' if self.name=='notes' else 'create_reminder')):
+            raise SafetyError('Invalid observation copy grant operation')
         container=(item.get('parent_folder_id',item['source_id']) if op=='create_folder' else item['source_id'] if op=='create_list'
                    else item.get('folder_id') if self.name=='notes' else item.get('list_id') if op in {'create_reminder','create_section','rename_section','rename_list','set_list_color'}
                    else item.get('before',{}).get('item',{}).get('list_id'))
@@ -259,7 +266,7 @@ class NativeGrants:
             if not isinstance(requested,list) or not isinstance(prior,list):raise SafetyError('Location-alarm scope cannot be verified')
             requires_location=any(isinstance(x,dict) and 'location' in x for x in requested) or any(isinstance(x,dict) and x.get('structured_location') is not None for x in prior)
         for rule in scope['rules']:
-            if (op==rule['operation'] and item['source_id']==rule['source_id'] and container==rule['container_id']
+            if (scope_op==rule['operation'] and item['source_id']==rule['source_id'] and container==rule['container_id']
                     and set(fields)<=set(rule['fields'])):
                 if requires_location and 'location_alarms' not in rule['fields']:continue
                 dest=item['fields'].get('destination_folder_id' if self.name=='notes' else 'list_id')
@@ -273,6 +280,11 @@ class NativeGrants:
         if binding!={'grant_id':grant['plan_id'],'sha256':digest(grant)}:raise SafetyError('Native standing batch does not bind the active grant')
         items=plan['payload']['changes']
         if not 1<=len(items)<=grant['payload']['scope']['max_batch']:raise SafetyError('Native standing batch exceeds its approved bound')
+        copy=plan['payload'].get('copy_review');marked=[item.get('standing_operation')=='copy_observation' for item in items]
+        expected={'notes':'create_lossy_note_copy_from_user_supplied_observation','reminders':'create_lossy_copies_from_user_supplied_observation'}[self.name]
+        if any(marked) or copy is not None:
+            if not all(marked) or not isinstance(copy,dict) or copy.get('operation')!=expected or copy.get('accepted_omissions') is not True:
+                raise SafetyError('Observation copy batch lacks its exact reviewed omissions')
         for item in items:self.match(grant,item)
     def consume(self,plan_id):
         # The engine holds the native-execution lock. This lock serializes grant

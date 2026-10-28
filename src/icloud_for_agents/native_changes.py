@@ -33,14 +33,18 @@ class NativeChanges:
         from .native_once import planning
         with planning(self.name):return self.prepare(changes,_temporary=True,_review_context=_review_context)
 
-    def prepare_with_grant(self,grant_id,changes):
+    def prepare_with_grant(self,grant_id,changes,*,_review_context=None):
         from .native_grants import NativeGrants
         from .native_once import planning
         manager=NativeGrants(self);grant=manager.checked(grant_id)
-        with planning(self.name):return self.prepare(changes,_temporary=True,_grant=grant)
+        with planning(self.name):return self.prepare(changes,_temporary=True,_grant=grant,_review_context=_review_context)
 
     def prepare(self, changes, *, _temporary=False,_grant=None,_review_context=None):
         context = self.context(_temporary)
+        if _review_context is not None:
+            expected={'reminders':'create_lossy_copies_from_user_supplied_observation','notes':'create_lossy_note_copy_from_user_supplied_observation'}
+            if (not _temporary or not isinstance(_review_context,dict) or _review_context.get('operation')!=expected[self.name]):
+                raise SafetyError('Invalid scoped copy review')
         if not isinstance(changes,list) or not 1 <= len(changes) <= 20:
             raise SafetyError('Prepare 1..20 exact native changes')
         if len(canonical(changes)) > 100000:
@@ -54,6 +58,7 @@ class NativeChanges:
             if _grant is not None:
                 from .native_grants import NativeGrants
                 item['requested_fields']=sorted(change['fields'])
+                if _review_context is not None:item['standing_operation']='copy_observation'
                 NativeGrants(self).match(_grant,item)
             self.check_item(item,context)
             identity = item.get('id')
@@ -65,10 +70,6 @@ class NativeChanges:
         payload = {'account':self.account,'context':context,'changes':prepared,
                    'transaction':'per-item; no atomic backend transaction or automatic rollback'}
         if _review_context is not None:
-            expected={'reminders':'create_lossy_copies_from_user_supplied_observation','notes':'create_lossy_note_copy_from_user_supplied_observation'}
-            if (not _temporary or _grant is not None or not isinstance(_review_context,dict)
-                    or _review_context.get('operation')!=expected[self.name]):
-                raise SafetyError('Invalid scoped copy review')
             payload['copy_review']=_review_context
         if _grant is not None:
             from .native_grants import NativeGrants

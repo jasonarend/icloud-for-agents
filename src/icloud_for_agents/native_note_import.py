@@ -2,7 +2,7 @@
 from .core import SafetyError, canonical, digest
 from .notes_edit import split_title
 
-def prepare_copy(engine,snapshot,source_id,folder_id,*,accept_omissions):
+def prepare_copy(engine,snapshot,source_id,folder_id,*,accept_omissions,grant_id=None):
     if engine.name!='notes' or accept_omissions is not True:
         raise SafetyError('Explicit acceptance of Notes copy limitations is required')
     if any(not isinstance(value,str) or not 1<=len(value)<=1000 for value in (source_id,folder_id)):
@@ -26,4 +26,7 @@ def prepare_copy(engine,snapshot,source_id,folder_id,*,accept_omissions):
             'effects':['Creates a new note; the original identity is not preserved and duplicates may result.',
                        'The supplied observation may be stale or incomplete. HTML is copied only when supported; formatting may change.',
                        'Native objects, attachments, collaboration, sharing and timestamps are not preserved.']}
+    if grant_id is not None:
+        if not isinstance(grant_id,str) or not grant_id:raise SafetyError('Use one exact active copy scenario grant')
+        return engine.prepare_with_grant(grant_id,[change],_review_context=review)
     return engine.prepare_once([change],_review_context=review)
