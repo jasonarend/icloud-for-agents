@@ -252,6 +252,13 @@ class NativeNotesTests(unittest.TestCase):
                 roles.side_effect=lambda identity,sources,change=change:dict(original(identity,sources),**(change if identity=='ancestor' else {}))
                 with self.subTest(change=change),self.assertRaises(SafetyError):self.move()
 
+    def test_metadata_move_refuses_special_endpoint_before_scripting_reads(self):
+        with self.metadata_move_scope() as roles,patch.object(self.reader,'read',wraps=self.reader.read) as reads:
+            ordinary=roles.side_effect
+            roles.side_effect=lambda identity,sources:dict(ordinary(identity,sources),storage_kind='special_smart_or_deleted' if identity=='destination' else 'regular')
+            with self.assertRaises(SafetyError):self.move()
+            reads.assert_not_called()
+
     def test_historical_move_readback_retains_content_checks(self):
         before=self.adapter.note_snapshot({'operation':'move_note','source_id':'selected','folder_id':'folder','id':'created'},rewrite=False)
         before['destination']=self.adapter.private_folder('destination','selected')

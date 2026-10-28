@@ -248,16 +248,21 @@ class NotesCreateAdapter:
             raise SafetyError('Notes moves require verification of special folder roles through explicitly selected read-only metadata')
         from .native_note_store import folder_role
         source=item['source_id'];destination=item['fields']['destination_folder_id']
+        def checked_role(identity):
+            role=folder_role(identity,[source])
+            if (role.get('folder_id')!=identity or role.get('source_id')!=source
+                    or role.get('storage_kind')!='regular' or role.get('marked_for_deletion') is not False
+                    or role.get('has_smart_query') is not False or role.get('native_folder_type')!=0):
+                raise SafetyError('Move requires verified ordinary nondeleted source, destination and ancestors')
+            return role
+        # Special/deleted folders may not be accessible through scripting at
+        # all. Reject their fixed metadata before asking Notes to traverse them.
+        for identity in (item['folder_id'],destination):checked_role(identity)
         origin=self.private_folder(item['folder_id'],source);target=self.private_folder(destination,source)
         roles={}
         for folder in (origin,target):
             for node in [folder,*folder.get('private_ancestors',[])]:
-                role=folder_role(node['id'],[source])
-                if (role.get('folder_id')!=node['id'] or role.get('source_id')!=source
-                        or role.get('storage_kind')!='regular' or role.get('marked_for_deletion') is not False
-                        or role.get('has_smart_query') is not False or role.get('native_folder_type')!=0):
-                    raise SafetyError('Move requires verified ordinary nondeleted source, destination and ancestors')
-                roles[node['id']]=role
+                roles[node['id']]=checked_role(node['id'])
         return origin,target,[roles[key] for key in sorted(roles)]
 
     def move_snapshot(self,item):
