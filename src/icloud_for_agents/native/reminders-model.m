@@ -249,8 +249,9 @@ NSData *ICloudRemindersGroupLists(NSData *data){
         NSMutableArray *out=[NSMutableArray array];NSMutableSet *seen=[NSMutableSet set];
         for(id child in children){
             NSString *cid=ObjectUUID(child,@"REMCDList");id storage=ObjectValue(child,@"storage"),name=ObjectValue(storage,@"name"),parent=ObjectValue(storage,@"parentListID"),parentUUID=ObjectValue(parent,@"uuid");
-            if(!cid || UUIDEqual(cid,identity[@"group_id"]) || [seen containsObject:cid] || !UUIDEqual(ObjectUUID(ObjectValue(child,@"account"),@"REMCDAccount"),identity[@"source_id"]) || !StorageMatchesAccount(storage,identity[@"source_id"]) || ![ObjectValue(parent,@"entityName") isEqual:@"REMCDList"] || ![parentUUID isKindOfClass:NSUUID.class] || !UUIDEqual([parentUUID UUIDString],identity[@"group_id"]) || ![name isKindOfClass:NSString.class] || [name length]>1000 || [name lengthOfBytesUsingEncoding:NSUTF8StringEncoding]>4000)return EncodeFlag(FlagFailure(@"native_identity_mismatch"));
-            [seen addObject:cid];[out addObject:@{@"id":cid,@"title":name}];
+            if(!cid || UUIDEqual(cid,identity[@"group_id"]) || [seen containsObject:cid] || !UUIDEqual(ObjectUUID(ObjectValue(child,@"account"),@"REMCDAccount"),identity[@"source_id"]) || !StorageMatchesAccount(storage,identity[@"source_id"]) || ![ObjectValue(parent,@"entityName") isEqual:@"REMCDList"] || ![parentUUID isKindOfClass:NSUUID.class] || !UUIDEqual([parentUUID UUIDString],identity[@"group_id"]) || !MethodMatches([storage class],@"isGroup",@"B@:",NO) || ![name isKindOfClass:NSString.class] || [name length]>1000 || [name lengthOfBytesUsingEncoding:NSUTF8StringEncoding]>4000)return EncodeFlag(FlagFailure(@"native_identity_mismatch"));
+            BOOL childGroup=((BOOL(*)(id,SEL))objc_msgSend)(storage,NSSelectorFromString(@"isGroup"));
+            [seen addObject:cid];[out addObject:@{@"id":cid,@"title":name,@"is_group":@((BOOL)childGroup)}];
         }
         [out sortUsingComparator:^NSComparisonResult(NSDictionary *a,NSDictionary *b){return [a[@"id"] compare:b[@"id"]];}];
         return EncodeFlag(@{@"protocol_version":@1,@"source_id":identity[@"source_id"],@"group_id":identity[@"group_id"],@"lists":out,@"membership_complete":@NO,@"ordering_verified":@NO,@"data_mutated":@NO,@"backend":@"reminderkit-group-lists-v1"});

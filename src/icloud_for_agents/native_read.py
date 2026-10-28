@@ -799,7 +799,7 @@ def validate_group_lists(result,source_id,group_id):
     except (ValueError,TypeError,AttributeError):raise SafetyError('Invalid group identity') from None
     seen=set()
     for row in lists:
-        if not isinstance(row,dict) or set(row)!={'id','title'} or not isinstance(row['title'],str) or len(row['title'])>1000:raise SafetyError('Invalid group child list')
+        if not isinstance(row,dict) or set(row)!={'id','title','is_group'} or type(row.get('is_group')) is not bool or not isinstance(row['title'],str) or len(row['title'])>1000:raise SafetyError('Invalid group child list')
         try:identity=uuid.UUID(row['id'])
         except (ValueError,TypeError,AttributeError):raise SafetyError('Invalid group child identity') from None
         if identity==group or identity in seen:raise SafetyError('Duplicate or cyclic group child')
