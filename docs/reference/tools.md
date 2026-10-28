@@ -1,7 +1,7 @@
 # Tools and everyday workflows
 
 
-Mail registers ten tools when selected. Calendar registers two reads and one preparation tool; Contacts registers three reads and one preparation tool. The shared DAV execution tool registers if either DAV service is enabled, and refuses plans targeting the disabled service. All three selected gives 18 schemas. Explicit service switches override the legacy combined DAV fallback. `ICLOUD_MAIL_ACCESS=read-only` permits the four mail reads/status plus five DAV reads; every mutation and write proposal is refused. Do not mistake an advertised write tool for permission or an enabled capability.
+Mail registers ten tools when selected. Calendar registers two reads and one preparation tool; Contacts registers three reads and one preparation tool. The shared DAV execution tool registers if either DAV service is enabled, and refuses plans targeting the disabled service. Those three services together give 18 schemas; independently enabled Notes and Reminders add their own tools. See [native-service setup](../getting-started/native-services.md) for their current operations, permission model and limitations. Explicit Mail/Calendar/Contacts switches override the legacy combined DAV fallback. `ICLOUD_MAIL_ACCESS=read-only` permits the four mail reads/status plus five DAV reads; Mail and DAV mutations and write proposals are refused. Native services have separate access and approval controls. Do not mistake an advertised write tool for permission or an enabled capability.
 
 ## Mail tools
 

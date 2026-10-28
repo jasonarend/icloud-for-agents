@@ -17,7 +17,7 @@ Installation downloads dependencies. A different platform needs its own reviewed
 
 ## Apple credential
 
-Create an Apple app-specific password yourself through Apple's account security interface. In macOS Keychain Access create a generic password item:
+Mail, Calendar and Contacts require an Apple app-specific password. If you select any of those services, create one yourself through Apple's account security interface. In macOS Keychain Access create a generic password item:
 
 | Field | Value |
 | --- | --- |
@@ -26,6 +26,8 @@ Create an Apple app-specific password yourself through Apple's account security 
 | Password | Your app-specific password, entered personally |
 
 Never use your main Apple Account password. Do not paste credentials into chat, terminal commands, screenshots, source, `.env` or JSON files. Handle Keychain access/unlock prompts personally. The bridge reads the existing item when required; it never provisions it. A trusted launcher can alternatively supply a bounded secret through an inherited descriptor; see [security](../security/model.md) for that trust boundary.
+
+Notes and Reminders use separate macOS permissions rather than this credential. They are optional and disabled by default; see [native-service setup](native-services.md) for their development setup, verification and current limits.
 
 ## Nonsecret configuration
 
@@ -53,4 +55,4 @@ For a new approved OpenAI tunnel, the same utility accepts optional `--tunnel-id
 
 The [ChatGPT executable installation steps](chatgpt.md#install-and-select-the-tunnel-executable) document the reviewed client version and optional absolute `tunnel_client_path` setting. The launcher does not discover an executable from PATH or download it automatically.
 
-Verify actual read-only folder/message access first, then calendar/address-book reads if enabled. Schema discovery is not account authentication. Claude Desktop and Claude Code are tested and supported through local stdio MCP, alongside ChatGPT through the private tunnel. See the [client setup guide](clients.md) for the status of other clients. HTTP/SSE-only clients are unsupported; the bridge implements stdio, not an HTTP MCP server.
+Verify read-only access for each selected service: folder/message access for Mail, calendar/address-book reads when enabled, and the scoped checks in [native-service setup](native-services.md) for Notes and Reminders. Schema discovery is not account authentication. Claude Desktop and Claude Code are tested and supported through local stdio MCP, alongside ChatGPT through the private tunnel. See the [client setup guide](clients.md) for the status of other clients. HTTP/SSE-only clients are unsupported; the bridge implements stdio, not an HTTP MCP server.
