@@ -5,6 +5,10 @@ and cannot settle or replay it. No title, notes or other contents are returned.
 """
 from .core import SafetyError, digest
 
+OBSERVABLE_CHANGES = {'update_reminder', 'set_completed', 'set_recurrence', 'set_flagged',
+                      'remove_tag', 'add_tag', 'replace_tag', 'set_urgent', 'add_early',
+                      'clear_early', 'move_reminder'}
+
 
 def inspect_uncertain_reminder(engine, plan_id):
     if engine.name != 'reminders':
@@ -28,7 +32,8 @@ def inspect_uncertain_reminder(engine, plan_id):
         raise SafetyError('The original reminder snapshot is unavailable')
     before = item.get('before')
     identity, source = item.get('id'), item.get('source_id')
-    if (not isinstance(identity, str) or not identity or not isinstance(source, str) or source not in context['source_ids']
+    if (not isinstance(item.get('operation'), str) or item['operation'] not in OBSERVABLE_CHANGES
+            or not isinstance(identity, str) or not identity or not isinstance(source, str) or source not in context['source_ids']
             or not isinstance(before, dict) or not isinstance(before.get('item'), dict)
             or before['item'].get('id') != identity or before['item'].get('source_id') != source
             or not isinstance(before.get('list'), dict) or before['list'].get('id') != before['item'].get('list_id')

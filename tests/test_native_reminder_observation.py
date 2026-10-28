@@ -90,3 +90,12 @@ class ReminderObservationTests(unittest.TestCase):
         self.adapter.snapshot = drift
         with self.assertRaises(SafetyError): self.inspect()
         self.assertFalse(self.store.operation_settled(self.identity))
+
+    def test_child_creation_and_unknown_operations_are_not_treated_as_single_object_edits(self):
+        from icloud_for_agents.core import digest
+        for operation in ('create_subtask', 'unknown'):
+            plan = copy.deepcopy(self.store.read(self.store.path(self.identity, '.json')))
+            plan['payload']['changes'][0]['operation'] = operation
+            with patch.object(self.store, 'read', side_effect=lambda path: {'sha256': digest(plan)} if str(path).endswith('.started') else plan if str(path).endswith('.json') else {'status': 'failed_or_uncertain', 'phase': 'mutation'}):
+                with self.subTest(operation=operation), self.assertRaises(SafetyError): self.inspect()
+        self.assertEqual(self.adapter.calls, 0)
