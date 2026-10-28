@@ -32,6 +32,10 @@ static NSString *ObjectUUID(id object,NSString *entity){
     return [uuid UUIDString];
 }
 static BOOL UUIDEqual(NSString *a,NSString *b){return a && b && [a caseInsensitiveCompare:b]==NSOrderedSame;}
+static BOOL StorageMatchesAccount(id storage,NSString *source){
+    id account=ObjectValue(storage,@"accountID"),uuid=ObjectValue(account,@"uuid");
+    return [ObjectValue(account,@"entityName") isEqual:@"REMCDAccount"] && [uuid isKindOfClass:NSUUID.class] && UUIDEqual([uuid UUIDString],source);
+}
 static id SelectedFailure(NSDictionary **failure,NSString *category){*failure=FlagFailure(category);return nil;}
 static id SelectedReminderWithStore(NSData *data,NSDictionary **failureResult,id __strong *storeResult){
         NSDictionary *identity=[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
@@ -214,12 +218,12 @@ NSData *ICloudRemindersReadListParent(NSData *data){
         id store=[storeClass new];NSURL *url=[NSURL URLWithString:[@"x-apple-reminderkit://REMCDList/" stringByAppendingString:identity[@"list_id"]]];id oid=((id(*)(id,SEL,id))objc_msgSend)((id)ids,NSSelectorFromString(@"objectIDWithURL:"),url);NSError *error=nil;
         if(!store || !oid)return EncodeFlag(FlagFailure(@"private_store_unavailable"));id list=((id(*)(id,SEL,id,NSError**))objc_msgSend)(store,NSSelectorFromString(@"fetchListWithObjectID:error:"),oid,&error);
         if(error || !UUIDEqual(ObjectUUID(list,@"REMCDList"),identity[@"list_id"]) || !UUIDEqual(ObjectUUID(ObjectValue(list,@"account"),@"REMCDAccount"),identity[@"source_id"]))return EncodeFlag(FlagFailure(@"native_identity_mismatch"));
-        id storage=ObjectValue(list,@"storage");if(!MethodMatches([list class],@"parentList",@"@@:",NO) || !MethodMatches([storage class],@"parentListID",@"@@:",NO))return EncodeFlag(FlagFailure(@"unsupported_list_parent"));
+        id storage=ObjectValue(list,@"storage");if(!StorageMatchesAccount(storage,identity[@"source_id"]))return EncodeFlag(FlagFailure(@"native_identity_mismatch"));if(!MethodMatches([list class],@"parentList",@"@@:",NO) || !MethodMatches([storage class],@"parentListID",@"@@:",NO))return EncodeFlag(FlagFailure(@"unsupported_list_parent"));
         id parent=ObjectValue(list,@"parentList"),parentID=ObjectValue(storage,@"parentListID"),observed=[NSNull null];
         if((parent==nil)!=(parentID==nil))return EncodeFlag(FlagFailure(@"unsupported_list_parent"));
         if(parent){
             NSString *pid=ObjectUUID(parent,@"REMCDList");id parentUUID=ObjectValue(parentID,@"uuid"),parentStorage=ObjectValue(parent,@"storage"),name=ObjectValue(parentStorage,@"name");
-            if(!pid || UUIDEqual(pid,identity[@"list_id"]) || ![ObjectValue(parentID,@"entityName") isEqual:@"REMCDList"] || ![parentUUID isKindOfClass:NSUUID.class] || !UUIDEqual([parentUUID UUIDString],pid) || !UUIDEqual(ObjectUUID(ObjectValue(parent,@"account"),@"REMCDAccount"),identity[@"source_id"]) || !MethodMatches([parentStorage class],@"isGroup",@"B@:",NO) || !((BOOL(*)(id,SEL))objc_msgSend)(parentStorage,NSSelectorFromString(@"isGroup")) || ![name isKindOfClass:NSString.class] || [name length]>1000 || [name lengthOfBytesUsingEncoding:NSUTF8StringEncoding]>4000)return EncodeFlag(FlagFailure(@"native_identity_mismatch"));
+            if(!pid || UUIDEqual(pid,identity[@"list_id"]) || ![ObjectValue(parentID,@"entityName") isEqual:@"REMCDList"] || ![parentUUID isKindOfClass:NSUUID.class] || !UUIDEqual([parentUUID UUIDString],pid) || !UUIDEqual(ObjectUUID(ObjectValue(parent,@"account"),@"REMCDAccount"),identity[@"source_id"]) || !StorageMatchesAccount(parentStorage,identity[@"source_id"]) || !MethodMatches([parentStorage class],@"isGroup",@"B@:",NO) || !((BOOL(*)(id,SEL))objc_msgSend)(parentStorage,NSSelectorFromString(@"isGroup")) || ![name isKindOfClass:NSString.class] || [name length]>1000 || [name lengthOfBytesUsingEncoding:NSUTF8StringEncoding]>4000)return EncodeFlag(FlagFailure(@"native_identity_mismatch"));
             observed=@{@"id":pid,@"title":name};
         }
         return EncodeFlag(@{@"protocol_version":@1,@"source_id":identity[@"source_id"],@"list_id":identity[@"list_id"],@"parent":observed,@"parent_status":parent?@"provider_reported":@"provider_not_reported",@"hierarchy_complete":@NO,@"data_mutated":@NO,@"backend":@"reminderkit-list-parent-v1"});
@@ -238,13 +242,14 @@ NSData *ICloudRemindersGroupLists(NSData *data){
         id store=[storeClass new];NSURL *url=[NSURL URLWithString:[@"x-apple-reminderkit://REMCDList/" stringByAppendingString:identity[@"group_id"]]];id oid=((id(*)(id,SEL,id))objc_msgSend)((id)ids,NSSelectorFromString(@"objectIDWithURL:"),url);NSError *error=nil;
         if(!store || !oid)return EncodeFlag(FlagFailure(@"private_store_unavailable"));id group=((id(*)(id,SEL,id,NSError**))objc_msgSend)(store,NSSelectorFromString(@"fetchListWithObjectID:error:"),oid,&error);id groupStorage=ObjectValue(group,@"storage");
         if(error || !UUIDEqual(ObjectUUID(group,@"REMCDList"),identity[@"group_id"]) || !UUIDEqual(ObjectUUID(ObjectValue(group,@"account"),@"REMCDAccount"),identity[@"source_id"]))return EncodeFlag(FlagFailure(@"native_identity_mismatch"));
+        if(!StorageMatchesAccount(groupStorage,identity[@"source_id"]))return EncodeFlag(FlagFailure(@"native_identity_mismatch"));
         if(!MethodMatches([groupStorage class],@"isGroup",@"B@:",NO) || !((BOOL(*)(id,SEL))objc_msgSend)(groupStorage,NSSelectorFromString(@"isGroup")))return EncodeFlag(FlagFailure(@"unsupported_group_metadata"));
         id view=((id(*)(id,SEL,id))objc_msgSend)([viewClass alloc],NSSelectorFromString(@"initWithStore:"),store);error=nil;id children=((id(*)(id,SEL,id,NSError**))objc_msgSend)(view,NSSelectorFromString(@"fetchListsInGroup:error:"),group,&error);
         if(error || ![children isKindOfClass:NSArray.class] || [children count]>100)return EncodeFlag(FlagFailure(@"unsupported_group_metadata"));
         NSMutableArray *out=[NSMutableArray array];NSMutableSet *seen=[NSMutableSet set];
         for(id child in children){
             NSString *cid=ObjectUUID(child,@"REMCDList");id storage=ObjectValue(child,@"storage"),name=ObjectValue(storage,@"name"),parent=ObjectValue(storage,@"parentListID"),parentUUID=ObjectValue(parent,@"uuid");
-            if(!cid || UUIDEqual(cid,identity[@"group_id"]) || [seen containsObject:cid] || !UUIDEqual(ObjectUUID(ObjectValue(child,@"account"),@"REMCDAccount"),identity[@"source_id"]) || ![ObjectValue(parent,@"entityName") isEqual:@"REMCDList"] || ![parentUUID isKindOfClass:NSUUID.class] || !UUIDEqual([parentUUID UUIDString],identity[@"group_id"]) || ![name isKindOfClass:NSString.class] || [name length]>1000 || [name lengthOfBytesUsingEncoding:NSUTF8StringEncoding]>4000)return EncodeFlag(FlagFailure(@"native_identity_mismatch"));
+            if(!cid || UUIDEqual(cid,identity[@"group_id"]) || [seen containsObject:cid] || !UUIDEqual(ObjectUUID(ObjectValue(child,@"account"),@"REMCDAccount"),identity[@"source_id"]) || !StorageMatchesAccount(storage,identity[@"source_id"]) || ![ObjectValue(parent,@"entityName") isEqual:@"REMCDList"] || ![parentUUID isKindOfClass:NSUUID.class] || !UUIDEqual([parentUUID UUIDString],identity[@"group_id"]) || ![name isKindOfClass:NSString.class] || [name length]>1000 || [name lengthOfBytesUsingEncoding:NSUTF8StringEncoding]>4000)return EncodeFlag(FlagFailure(@"native_identity_mismatch"));
             [seen addObject:cid];[out addObject:@{@"id":cid,@"title":name}];
         }
         [out sortUsingComparator:^NSComparisonResult(NSDictionary *a,NSDictionary *b){return [a[@"id"] compare:b[@"id"]];}];
