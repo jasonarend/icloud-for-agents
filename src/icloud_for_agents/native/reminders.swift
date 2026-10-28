@@ -951,6 +951,13 @@ let modifiedFrom=modifiedFromText.flatMap {completionFormatter.date(from:$0)}
 let modifiedBefore=modifiedBeforeText.flatMap {completionFormatter.date(from:$0)}
 if (modifiedFromText != nil && modifiedFrom == nil) || (modifiedBeforeText != nil && modifiedBefore == nil) || (modifiedFrom != nil && modifiedBefore != nil && modifiedFrom! >= modifiedBefore!) {fail("invalid_date_filter")}
 let modificationEvidence:[String:Any]? = (modifiedFromText != nil || modifiedBeforeText != nil) ? ["from":modifiedFromText ?? NSNull() as Any,"before":modifiedBeforeText ?? NSNull() as Any,"semantics":"utc_inclusive_from_exclusive_before","unknown_modified_excluded":true] : nil
+let createdFromText=req["created_from"] as? String
+let createdBeforeText=req["created_before"] as? String
+if (req["created_from"] != nil && createdFromText == nil) || (req["created_before"] != nil && createdBeforeText == nil) {fail("invalid_date_filter")}
+let createdFrom=createdFromText.flatMap {completionFormatter.date(from:$0)}
+let createdBefore=createdBeforeText.flatMap {completionFormatter.date(from:$0)}
+if (createdFromText != nil && createdFrom == nil) || (createdBeforeText != nil && createdBefore == nil) || (createdFrom != nil && createdBefore != nil && createdFrom! >= createdBefore!) {fail("invalid_date_filter")}
+let creationEvidence:[String:Any]? = (createdFromText != nil || createdBeforeText != nil) ? ["from":createdFromText ?? NSNull() as Any,"before":createdBeforeText ?? NSNull() as Any,"semantics":"utc_inclusive_from_exclusive_before","unknown_created_excluded":true] : nil
 func completionInRange(_ completed:Bool,_ value:Date?,_ from:Date?,_ before:Date?)->Bool {
     if from == nil && before == nil {return true}
     guard completed,let value=value else {return false}
@@ -973,12 +980,14 @@ guard !selected.isEmpty else {
         if nativeAttachment != nil {response["native_attachment_filter"]=evidence}
         if let completionEvidence=completionEvidence {response["completion_filter"]=completionEvidence}
         if let modificationEvidence=modificationEvidence {response["modification_filter"]=modificationEvidence}
+        if let creationEvidence=creationEvidence {response["creation_filter"]=creationEvidence}
         respond(response)
     }
     var response:[String:Any]=["protocol_version": 1, "items": [], "done": true, "next_offset": offset,
              "pagination_consistency": "live_offset_may_shift"]
     if let completionEvidence=completionEvidence {response["completion_filter"]=completionEvidence}
     if let modificationEvidence=modificationEvidence {response["modification_filter"]=modificationEvidence}
+    if let creationEvidence=creationEvidence {response["creation_filter"]=creationEvidence}
     respond(response)
 }
 let dueFilter = req["due_date"] as? String
@@ -1020,7 +1029,7 @@ store.fetchReminders(matching: predicate) { reminders in
             (req["include_overdue"] as? Bool == true ? day! <= dueFilter! : day! == dueFilter!))
         let rangeMatches=(dueFrom == nil && dueThrough == nil) || (day != nil &&
             (dueFrom == nil || day! >= dueFrom!) && (dueThrough == nil || day! <= dueThrough!))
-        return dueMatches && rangeMatches && completionInRange(r.isCompleted,r.completionDate,completionFrom,completionBefore) && modificationInRange(r.lastModifiedDate,modifiedFrom,modifiedBefore) && (priorities == nil || priorities!.contains(r.priority)) && (completed == nil || r.isCompleted == completed) &&
+        return dueMatches && rangeMatches && completionInRange(r.isCompleted,r.completionDate,completionFrom,completionBefore) && modificationInRange(r.lastModifiedDate,modifiedFrom,modifiedBefore) && modificationInRange(r.creationDate,createdFrom,createdBefore) && (priorities == nil || priorities!.contains(r.priority)) && (completed == nil || r.isCompleted == completed) &&
         (text == nil || ((r.title ?? "") + "\n" + (r.notes ?? "")).localizedCaseInsensitiveContains(text!))
     }.sorted { $0.calendarItemIdentifier < $1.calendarItemIdentifier }
     if nativeFlag != nil || nativeTag != nil || nativeUrgent != nil || nativeAssignment != nil || nativeAttachment != nil {
@@ -1061,6 +1070,7 @@ store.fetchReminders(matching: predicate) { reminders in
         if nativeAttachment != nil {response["native_attachment_filter"]=evidence}
         if let completionEvidence=completionEvidence {response["completion_filter"]=completionEvidence}
         if let modificationEvidence=modificationEvidence {response["modification_filter"]=modificationEvidence}
+        if let creationEvidence=creationEvidence {response["creation_filter"]=creationEvidence}
         respond(response)
     }
     let page = Array(filtered.dropFirst(offset).prefix(limit)).map(object)
@@ -1069,6 +1079,7 @@ store.fetchReminders(matching: predicate) { reminders in
              "next_offset": next, "pagination_consistency": "live_offset_may_shift"]
     if let completionEvidence=completionEvidence {response["completion_filter"]=completionEvidence}
     if let modificationEvidence=modificationEvidence {response["modification_filter"]=modificationEvidence}
+    if let creationEvidence=creationEvidence {response["creation_filter"]=creationEvidence}
     respond(response)
 }
 RunLoop.current.run(until: Date(timeIntervalSinceNow: 30))

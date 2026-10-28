@@ -40,11 +40,27 @@ class NativeReadTests(unittest.TestCase):
                 with self.subTest(invalid=invalid),self.assertRaises(SafetyError):
                     NativeReader('reminders').read('query',list_id='list',modified_from=evidence['from'],modified_before=evidence['before'])
             with self.assertRaises(SafetyError):NativeReader('reminders').read('query',modified_from=evidence['before'],modified_before=evidence['from'])
-            with self.assertRaises(SafetyError):NativeReader('reminders').read('query',created_from=evidence['from'])
+            with self.assertRaises(SafetyError):NativeReader('reminders').read('get',id='task',created_from=evidence['from'])
             dispatch.return_value={**page,'items':[dict(row,completed=True,completion_date=1793102400.0)],
                 'completion_filter':{'from':evidence['from'],'before':evidence['before'],'semantics':'utc_inclusive_from_exclusive_before'}}
             result=NativeReader('reminders').read('query',completed=True,modified_from=evidence['from'],modified_before=evidence['before'],completed_from=evidence['from'],completed_before=evidence['before'])
             self.assertEqual(len(result['items']),1)
+
+    def test_reminder_creation_filter_excludes_unknown_and_composes_with_modification(self):
+        config={'reminders':{'source_ids':['selected']}}
+        created={'from':'2026-10-27T12:00:00Z','before':'2026-10-27T13:00:00Z','semantics':'utc_inclusive_from_exclusive_before','unknown_created_excluded':True}
+        modified={'from':created['from'],'before':created['before'],'semantics':created['semantics'],'unknown_modified_excluded':True}
+        row={'id':'task','source_id':'selected','list_id':'list','created':1793102400.0,'modified':1793102400.0}
+        page={'protocol_version':1,'items':[row],'done':True,'next_offset':1,'pagination_consistency':'live_offset_may_shift','creation_filter':created,'modification_filter':modified}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=page) as dispatch:
+            fields={'created_from':created['from'],'created_before':created['before'],'modified_from':created['from'],'modified_before':created['before']}
+            self.assertEqual(NativeReader('reminders').read('query',**fields)['items'],[row])
+            for invalid in ({**page,'creation_filter':None},{**page,'creation_filter':dict(created,unknown_created_excluded=1)},
+                            {**page,'items':[dict(row,created=None)]},{**page,'items':[dict(row,created=True)]},
+                            {**page,'items':[dict(row,created=1793106000.0)]}):
+                dispatch.return_value=invalid
+                with self.subTest(invalid=invalid),self.assertRaises(SafetyError):NativeReader('reminders').read('query',**fields)
+            with self.assertRaises(SafetyError):NativeReader('reminders').read('query',created_from=created['before'],created_before=created['from'])
 
     def tearDown(self):
         importlib.reload(server)
