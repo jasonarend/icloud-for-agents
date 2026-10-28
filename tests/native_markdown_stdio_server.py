@@ -22,6 +22,8 @@ def dispatch(self,request,config):
         if request.get('include_attachment_metadata'):result.update(metadata_requested=True)
         return result
     if request['action']=='search':
+        if request.get('match_scope')=='plaintext':
+            return {'protocol_version':1,'items':[{'id':'synthetic-note','title':'Synthetic','source_id':'selected','folder_id':'folder','locked':False,'excerpt':'needle','content_complete':False}], 'table_projection_candidates':[], 'match_scope':'plaintext','done':True,'next_offset':1,'plaintext_search_limit':5000000,'plaintext_search_unit':'utf16_code_units'}
         if request.get('match_scope')=='title':
             rows=[] if request.get('locked') is True or request.get('shared') is True or request.get('has_attachments') is False else [{'id':'synthetic-note','title':'Synthetic Title','source_id':'selected','folder_id':'folder','locked':False,'excerpt':'','content_complete':False}]
             result={'protocol_version':1,'items':rows,'table_projection_candidates':[],'match_scope':'title','done':True,'next_offset':1}

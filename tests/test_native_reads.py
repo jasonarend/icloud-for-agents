@@ -55,6 +55,22 @@ class NativeReadTests(unittest.TestCase):
                     NativeReader('notes').read('search',text='',match_scope='title',locked=True)
                 self.assertEqual(request.call_count,1)
 
+    def test_plaintext_search_refuses_unverified_helper_and_table_candidates(self):
+        config={'notes': {'source_ids': ['selected']}}
+        row={'id':'note','title':'Synthetic','source_id':'selected','folder_id':'folder',
+             'locked':False,'excerpt':'needle','content_complete':False}
+        page={'items':[row], 'table_projection_candidates':[], 'match_scope':'plaintext', **BODY_SEARCH_EVIDENCE}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)), patch('platform.system',return_value='Darwin'), patch.object(NativeReader,'_dispatch',return_value=page) as backend:
+            result=NativeReader('notes').read('search',text='needle',folder_id='folder',match_scope='plaintext')
+            self.assertEqual(backend.call_args.args[0]['match_scope'],'plaintext')
+            self.assertEqual(result['match_scope'],'plaintext')
+            self.assertIn('not separately searched',result['search_coverage'])
+            for invalid in ({**page,'match_scope':'title'}, {k:v for k,v in page.items() if k!='match_scope'},
+                            {**page,'table_projection_candidates':[{'html':'unexpected'}]}):
+                backend.return_value=invalid
+                with self.assertRaises(SafetyError):
+                    NativeReader('notes').read('search',text='needle',folder_id='folder',match_scope='plaintext')
+
     def test_default_reminder_list_is_scoped_and_older_helpers_fail_closed(self):
         config={'reminders':{'source_ids':['selected']}}
         valid={'protocol_version':1,'state':'available','list':{'id':'list','title':'List','source_id':'selected','writable':True,'color':None}}

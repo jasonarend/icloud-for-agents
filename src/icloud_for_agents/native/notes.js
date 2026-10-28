@@ -95,7 +95,7 @@ function readNotes(app, req) {
     } else selected.forEach(a => walk(a,a.id(),0));
     if (req.action==='search') {
         if(typeof req.text!=='string' || (req.text.length<1 && req.match_scope!=='title') || req.text.length>1000 || !Number.isInteger(req.limit) || req.limit<1 || req.limit>100 || !Number.isInteger(req.offset) || req.offset<0 || req.offset>100000)throw Error('invalid_page');
-        if(req.match_scope!==undefined && req.match_scope!=='title')throw Error('invalid_fields');
+        if(req.match_scope!==undefined && !['title','plaintext'].includes(req.match_scope))throw Error('invalid_fields');
         if(req.locked!==undefined && typeof req.locked!=='boolean')throw Error('invalid_fields');
         if(req.shared!==undefined && typeof req.shared!=='boolean')throw Error('invalid_fields');
         if(req.has_attachments!==undefined && typeof req.has_attachments!=='boolean')throw Error('invalid_fields');
@@ -182,7 +182,7 @@ function readNotes(app, req) {
                 if(title.toLowerCase().includes(needle) || index>=0)items.push({id:ref.id,title:title.slice(0,1000),
                     source_id:ref.folder.source,folder_id:ref.folder.object.id(),locked:locked,
                     excerpt:excerpt(),content_complete:false,...(req.shared!==undefined?{shared:shared}:{}),...(req.has_attachments!==undefined?{has_attachments:hasAttachments}:{}),...(hasModified?{modified:modified}:{}),...(hasCreated?{created:created}:{})});
-                else if(!locked) {
+                else if(!locked && req.match_scope!=='plaintext') {
                     const html=note.body();
                     if(html.includes('<table')) {
                         const bounded=html.slice(0,100000);
@@ -196,8 +196,8 @@ function readNotes(app, req) {
         }
         return JSON.stringify({protocol_version:1,items:items,table_projection_candidates:projections,done:offset>=refs.length,next_offset:offset,
             scanned:scanned,unavailable:unavailable,locked_bodies_excluded:lockedSkipped,truncated_bodies:truncatedBodies,
-            search_coverage:titleOnly?'bounded title only; no note bodies read':'title, bounded plaintext and exported table text; no native OCR/attachment/semantic index',pagination_consistency:'live_offset_may_shift',
-            ...(titleOnly?{match_scope:'title'}:{}),
+            search_coverage:titleOnly?'bounded title only; no note bodies read':req.match_scope==='plaintext'?'title and bounded plaintext; exported table text not separately searched':'title, bounded plaintext and exported table text; no native OCR/attachment/semantic index',pagination_consistency:'live_offset_may_shift',
+            ...(req.match_scope?{match_scope:req.match_scope}:{}),
             ...(!titleOnly?{plaintext_search_limit:5000000,plaintext_search_unit:'utf16_code_units'}:{}),
             ...(req.locked!==undefined?{locked_filter:req.locked}:{}),
             ...(req.shared!==undefined?{shared_filter:req.shared}:{}),

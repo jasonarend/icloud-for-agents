@@ -170,7 +170,7 @@ class NativeReader:
         if (not isinstance(representation,str) or representation not in {'native','markdown'} or
                 (representation!='native' and (self.name!='notes' or action!='get'))):raise SafetyError('Markdown is a read-only Notes get representation')
         match_scope=fields.pop('match_scope','all')
-        if not isinstance(match_scope,str) or match_scope not in {'all','title'} or (match_scope!='all' and (self.name!='notes' or action!='search')):
+        if not isinstance(match_scope,str) or match_scope not in {'all','title','plaintext'} or (match_scope!='all' and (self.name!='notes' or action!='search')):
             raise SafetyError('Title-only search is supported only for Notes search')
         if set(fields) - {'id', 'folder_id', 'list_id', 'group_id', 'limit', 'offset', 'completed', 'locked', 'shared', 'has_attachments', 'text', 'due_date', 'timezone', 'include_overdue', 'due_from', 'due_through', 'priorities', 'flagged', 'tag', 'urgent', 'has_current_assignment', 'has_native_attachments', 'source_id', 'modified_from', 'modified_before', 'created_from', 'created_before', 'expected_modified', 'completed_from', 'completed_before'}:
             raise SafetyError('Unknown native read fields')
@@ -237,7 +237,7 @@ class NativeReader:
             raise SafetyError('Invalid overdue filter')
         request = {'protocol_version': 1, 'action': action, 'source_ids': sources,
                    **{k: v for k, v in fields.items() if v is not None}}
-        if match_scope=='title':request['match_scope']='title'
+        if match_scope!='all':request['match_scope']=match_scope
         if attachment_metadata:request['include_attachment_metadata']=True
         if include_pinned:request['include_pinned']=True
         if action=='model_folder_role':request['source_ids']=[fields['source_id']]
@@ -555,6 +555,8 @@ class NativeReader:
                                or type(row.get('locked')) is not bool or row.get('content_complete') is not False
                                or row.get('excerpt')!='' for row in result['items'])):
                     raise SafetyError('Configured helper did not verify title-only Notes search')
+            if match_scope=='plaintext' and (result.get('match_scope')!='plaintext' or candidates):
+                raise SafetyError('Configured helper did not verify plaintext-only Notes search')
             for bounds,kind in ((modified,'modified'),(created,'created')):
                 if not bounds:continue
                 if (native_config('notes')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode
@@ -630,7 +632,11 @@ class NativeReader:
                 result['unavailable']=[{key:row[key] for key in ('id','category') if key in row} for row in unavailable]
                 keys=('protocol_version','items','unavailable','done','next_offset','scanned','locked_bodies_excluded','truncated_bodies','pagination_consistency','plaintext_search_limit','plaintext_search_unit','modified_filter','created_filter','locked_filter','shared_filter','attachment_filter')
                 result={key:result[key] for key in keys if key in result}
-                result['search_coverage']='title, plaintext up to five million UTF-16 code units and bounded exported table text; no native OCR/attachment/semantic index'
+                if match_scope=='plaintext':
+                    result['match_scope']='plaintext'
+                    result['search_coverage']='title and plaintext up to five million UTF-16 code units; exported table text is not separately searched; no native OCR/attachment/semantic index'
+                else:
+                    result['search_coverage']='title, plaintext up to five million UTF-16 code units and bounded exported table text; no native OCR/attachment/semantic index'
         if self.name == 'notes' and action == 'get' and 'html' in result.get('item', {}):
             from .notes_content import project_html
             try:
@@ -1253,9 +1259,9 @@ def register_read_tools(mcp):
         @guard
         def notes_search(text: str, folder_id: str | None = None, limit: int = 50, offset: int = 0,
                          modified_from: str | None = None, modified_before: str | None = None,
-                         match_scope: Literal['all','title'] = 'all', locked: bool | None = None, shared: bool | None = None,
+                         match_scope: Literal['all','title','plaintext'] = 'all', locked: bool | None = None, shared: bool | None = None,
                          created_from: str | None = None, created_before: str | None = None, has_attachments: bool | None = None) -> dict:
-            """Search titles, up to five million UTF-16 plaintext units per note and bounded exported table text, or titles only without reading bodies. An empty title-only query lists scoped notes; locked, shared and has_attachments filter observed app metadata without unlocking or downloading files. Creation and modification bounds use UTC YYYY-MM-DDTHH:MM:SSZ, inclusive from and exclusive before. Reduce limit to scan fewer notes per page if a search is slow; follow next_offset even after empty pages."""
+            """Search titles, bounded plaintext and exported table text; select plaintext to omit separate table HTML reads, or title to avoid body reads. An empty title-only query lists scoped notes; locked, shared and has_attachments filter observed app metadata without unlocking or downloading files. Creation and modification bounds use UTC YYYY-MM-DDTHH:MM:SSZ, inclusive from and exclusive before. Reduce limit to scan fewer notes per page if a search is slow; follow next_offset even after empty pages."""
             return NativeReader('notes').read('search', text=text, folder_id=folder_id, limit=limit, offset=offset, modified_from=modified_from, modified_before=modified_before,match_scope=match_scope,locked=locked,shared=shared,created_from=created_from,created_before=created_before,has_attachments=has_attachments)
 
         @mcp.tool(annotations=annotations)
