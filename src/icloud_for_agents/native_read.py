@@ -521,8 +521,17 @@ class NativeReader:
             for candidate in candidates:
                 try:
                     projected=project_html(candidate['html'])
-                    index=projected['text'].lower().find(fields['text'].lower())
+                    text=projected['text'];lower=text.lower();index=lower.find(fields['text'].lower())
                     if index>=0:
+                        if len(lower)!=len(text):
+                            # Lowercasing can expand a character; map the match back
+                            # to the original text before selecting the excerpt.
+                            low,high=0,len(text)
+                            while low<high:
+                                mid=(low+high)//2
+                                if len(text[:mid].lower())>index:high=mid
+                                else:low=mid+1
+                            index=max(0,low-1)
                         result.setdefault('items',[]).append({key:candidate[key] for key in ('id','title','source_id','folder_id')})
                         result['items'][-1].update(excerpt=projected['text'][max(0,index-80):index+240],
                             locked=False,content_complete=False,match_source='exported_table_text',
@@ -1029,7 +1038,7 @@ def register_read_tools(mcp):
                          modified_from: str | None = None, modified_before: str | None = None,
                          match_scope: Literal['all','title'] = 'all', locked: bool | None = None, shared: bool | None = None,
                          created_from: str | None = None, created_before: str | None = None, has_attachments: bool | None = None) -> dict:
-            """Search titles, up to five million UTF-16 plaintext units per note and bounded exported table text, or titles only without reading bodies. An empty title-only query lists scoped notes; locked, shared and has_attachments filter observed app metadata without unlocking or downloading files. Creation and modification bounds use UTC YYYY-MM-DDTHH:MM:SSZ, inclusive from and exclusive before; follow next_offset even after empty pages."""
+            """Search titles, up to five million UTF-16 plaintext units per note and bounded exported table text, or titles only without reading bodies. An empty title-only query lists scoped notes; locked, shared and has_attachments filter observed app metadata without unlocking or downloading files. Creation and modification bounds use UTC YYYY-MM-DDTHH:MM:SSZ, inclusive from and exclusive before. Reduce limit to scan fewer notes per page if a search is slow; follow next_offset even after empty pages."""
             return NativeReader('notes').read('search', text=text, folder_id=folder_id, limit=limit, offset=offset, modified_from=modified_from, modified_before=modified_before,match_scope=match_scope,locked=locked,shared=shared,created_from=created_from,created_before=created_before,has_attachments=has_attachments)
 
         @mcp.tool(annotations=annotations)

@@ -34,6 +34,7 @@ def run():
                 search=next(t for t in tools if t['name']=='notes_search');assert search['annotations']['readOnlyHint'] is True
                 args_search={'text':'Priority','modified_from':'2026-10-27T12:00:00Z','modified_before':'2026-10-27T13:00:00Z'}
                 matched=data(rpc('tools/call',{'name':'notes_search','arguments':args_search})['result']);assert matched['items'][0]['modified']=='2026-10-27T12:30:00.000Z' and matched['items'][0]['match_source']=='exported_table_text'
+                expanded=data(rpc('tools/call',{'name':'notes_search','arguments':dict(args_search,text='needle')})['result']);assert 'needle' in expanded['items'][0]['excerpt']
                 assert rpc('tools/call',{'name':'notes_search','arguments':dict(args_search,modified_before='2026-10-27T11:00:00Z')})['result'].get('isError')
                 titles=data(rpc('tools/call',{'name':'notes_search','arguments':{'text':'Title','folder_id':'folder','match_scope':'title'}})['result']);assert titles['items'][0]['title']=='Synthetic Title' and titles['items'][0]['excerpt']==''
                 recent=data(rpc('tools/call',{'name':'notes_search','arguments':{'text':'','folder_id':'folder','match_scope':'title'}})['result']);assert recent['items'][0]['id']=='synthetic-note'
