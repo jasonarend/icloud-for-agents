@@ -73,7 +73,7 @@ def dispatch(self,request,config):
         metadata.update(early_alerts=[{'native_unit':0,'native_count':-5},{'native_unit':3,'native_count':-1},{'native_unit':4,'native_count':-1},{'native_unit':9,'native_count':-1}],early_payload_fingerprint='a'*64);metadata['coverage'].append('early')
     if request.get('include_native_assignment'):
         metadata=item.setdefault('native_metadata',{'id':item['id'],'source_id':item['source_id'],'list_id':item['list_id'],'coverage':[],'native_metadata_complete':False})
-        metadata.update(current_assignment_reported=False,assignment_record_count=0,assignment_metadata_complete=False);metadata['coverage'].append('assignment')
+        metadata.update(current_assignment_reported=item['id']=='synthetic-assigned',assignment_record_count=int(item['id']=='synthetic-assigned'),assignment_metadata_complete=False);metadata['coverage'].append('assignment')
     return {'protocol_version':1,'item':item}
 NativeReader._dispatch=dispatch
 from icloud_for_agents.server import main
