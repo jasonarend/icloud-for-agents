@@ -112,6 +112,10 @@ print(result)
         assert outside['items']==[]
         titles=call('search',text='Synthetic',folder_id='folder-1',limit=10,offset=0,match_scope='title',synthetic_title_only=True)
         assert [x['id'] for x in titles['items']]==['note-1','note-2'] and titles['unavailable']==[] and titles['table_projection_candidates']==[] and titles['match_scope']=='title'
+        locked_titles=call('search',text='',folder_id='folder-1',limit=10,offset=0,match_scope='title',locked=True,synthetic_title_only=True)
+        assert [x['id'] for x in locked_titles['items']]==['note-2'] and locked_titles['locked_filter'] is True
+        unlocked_titles=call('search',text='',folder_id='folder-1',limit=10,offset=0,match_scope='title',locked=False,synthetic_title_only=True)
+        assert [x['id'] for x in unlocked_titles['items']]==['note-1'] and unlocked_titles['locked_filter'] is False
         recent=call('search',text='',folder_id='folder-1',limit=10,offset=0,match_scope='title',synthetic_title_only=True,synthetic_modified=True,modified_from='2026-10-27T12:00:00Z')
         assert [x['id'] for x in recent['items']]==['note-1'] and recent['match_scope']=='title'
         filtered_titles=call('search',text='Synthetic',folder_id='folder-1',limit=10,offset=0,match_scope='title',synthetic_title_only=True,synthetic_modified=True,modified_from='2026-10-27T12:00:00Z',modified_before='2026-10-27T12:00:01Z')

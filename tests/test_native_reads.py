@@ -470,6 +470,18 @@ class NativeReadTests(unittest.TestCase):
             result=NativeReader('notes').read('search',text='test',folder_id='folder')
             self.assertNotIn('html',result['items'][0]);self.assertNotIn('body',result['unavailable'][0]);self.assertNotIn('private_body',result)
 
+    def test_notes_lock_filter_requires_evidence_and_matching_results(self):
+        config={'notes':{'source_ids':['selected']}}
+        row={'id':'note','title':'Synthetic','source_id':'selected','folder_id':'folder','locked':True,'excerpt':'','content_complete':False}
+        page={'items':[row],'table_projection_candidates':[],'match_scope':'title','locked_filter':True}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=page) as backend:
+            result=NativeReader('notes').read('search',text='',match_scope='title',locked=True)
+            self.assertTrue(result['locked_filter']);self.assertTrue(result['items'][0]['locked'])
+            for value in ({'items':[row],'match_scope':'title'}, {**page,'locked_filter':False}, {**page,'items':[{**row,'locked':False}]}):
+                backend.return_value=value
+                with self.subTest(value=value),self.assertRaises(SafetyError):NativeReader('notes').read('search',text='',match_scope='title',locked=True)
+            with self.assertRaises(SafetyError):NativeReader('notes').read('search',text='',match_scope='title',locked=1)
+
     def test_notes_modification_filter_rejects_old_helpers_and_out_of_range_rows(self):
         config={'notes':{'source_ids':['selected']}}
         fields={'text':'table','modified_from':'2026-10-27T12:00:00Z','modified_before':'2026-10-27T13:00:00Z'}

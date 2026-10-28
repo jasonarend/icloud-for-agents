@@ -96,6 +96,7 @@ function readNotes(app, req) {
     if (req.action==='search') {
         if(typeof req.text!=='string' || (req.text.length<1 && req.match_scope!=='title') || req.text.length>1000 || !Number.isInteger(req.limit) || req.limit<1 || req.limit>100 || !Number.isInteger(req.offset) || req.offset<0 || req.offset>100000)throw Error('invalid_page');
         if(req.match_scope!==undefined && req.match_scope!=='title')throw Error('invalid_fields');
+        if(req.locked!==undefined && typeof req.locked!=='boolean')throw Error('invalid_fields');
         const titleOnly=req.match_scope==='title';
         const hasModified=req.modified_from!==undefined || req.modified_before!==undefined;
         for(const value of [req.modified_from,req.modified_before])if(value!==undefined) {
@@ -126,6 +127,8 @@ function readNotes(app, req) {
                     if((req.modified_from && modified<req.modified_from.slice(0,-1)+'.000Z') || (req.modified_before && modified>=req.modified_before.slice(0,-1)+'.000Z'))continue;
                 }
                 const title=note.name(), locked=note.passwordProtected();
+                if(typeof locked!=='boolean')throw Error('lock_status_unavailable');
+                if(req.locked!==undefined && locked!==req.locked)continue;
                 if(titleOnly) {
                     const boundedTitle=title.slice(0,1000);
                     if(boundedTitle.toLowerCase().includes(needle))items.push({id:ref.id,title:boundedTitle,source_id:ref.folder.source,folder_id:ref.folder.object.id(),locked:locked,excerpt:'',content_complete:false,...(hasModified?{modified:modified}:{})});
@@ -154,6 +157,7 @@ function readNotes(app, req) {
             scanned:scanned,unavailable:unavailable,locked_bodies_excluded:lockedSkipped,truncated_bodies:truncatedBodies,
             search_coverage:titleOnly?'bounded title only; no note bodies read':'title, bounded plaintext and exported table text; no native OCR/attachment/semantic index',pagination_consistency:'live_offset_may_shift',
             ...(titleOnly?{match_scope:'title'}:{}),
+            ...(req.locked!==undefined?{locked_filter:req.locked}:{}),
             ...(hasModified?{modified_filter:{from:req.modified_from||null,before:req.modified_before||null,semantics:'utc_inclusive_from_exclusive_before'}}:{})});
     }
     if (req.action === 'folders') {

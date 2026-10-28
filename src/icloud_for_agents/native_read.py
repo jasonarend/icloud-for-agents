@@ -145,8 +145,11 @@ class NativeReader:
         match_scope=fields.pop('match_scope','all')
         if not isinstance(match_scope,str) or match_scope not in {'all','title'} or (match_scope!='all' and (self.name!='notes' or action!='search')):
             raise SafetyError('Title-only search is supported only for Notes search')
-        if set(fields) - {'id', 'folder_id', 'list_id', 'limit', 'offset', 'completed', 'text', 'due_date', 'timezone', 'include_overdue', 'due_from', 'due_through', 'priorities', 'flagged', 'tag', 'urgent', 'source_id', 'modified_from', 'modified_before', 'expected_modified', 'completed_from', 'completed_before'}:
+        if set(fields) - {'id', 'folder_id', 'list_id', 'limit', 'offset', 'completed', 'locked', 'text', 'due_date', 'timezone', 'include_overdue', 'due_from', 'due_through', 'priorities', 'flagged', 'tag', 'urgent', 'source_id', 'modified_from', 'modified_before', 'expected_modified', 'completed_from', 'completed_before'}:
             raise SafetyError('Unknown native read fields')
+        locked_filter=fields.get('locked')
+        if locked_filter is not None and (self.name!='notes' or action!='search' or type(locked_filter) is not bool):
+            raise SafetyError('Lock-state filtering requires a Boolean on Notes search')
         modified={k:fields[k] for k in ('modified_from','modified_before') if fields.get(k) is not None}
         if modified:
             import re
@@ -467,7 +470,9 @@ class NativeReader:
                            for row in items+candidates)
                     or any(type(row.get('locked')) is not bool or not isinstance(row.get('excerpt'),str)
                            or (row['locked'] and row['excerpt']!='') for row in items)
-                    or any(row.get('locked') is not False for row in candidates)):
+                    or any(row.get('locked') is not False for row in candidates)
+                    or (locked_filter is not None and (result.get('locked_filter') is not locked_filter
+                        or any(row.get('locked') is not locked_filter for row in items+candidates)))):
                 raise SafetyError('Invalid bounded Notes search projection')
             if match_scope=='title':
                 if (native_config('notes')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode
@@ -518,7 +523,7 @@ class NativeReader:
                 allowed=('id','title','source_id','folder_id','locked','excerpt','content_complete','modified')
                 result['items']=[{key:row[key] for key in allowed if key in row} for row in result['items']]
                 result['unavailable']=[{'id':row['id'],'category':row['category']} for row in unavailable]
-                keys=('items','unavailable','done','next_offset','scanned','locked_bodies_excluded','truncated_bodies','pagination_consistency','match_scope','modified_filter')
+                keys=('items','unavailable','done','next_offset','scanned','locked_bodies_excluded','truncated_bodies','pagination_consistency','match_scope','modified_filter','locked_filter')
                 result={key:result[key] for key in keys if key in result}
                 result['search_coverage']='bounded title only; no note bodies read'
             else:
@@ -530,7 +535,7 @@ class NativeReader:
                 allowed=('id','title','source_id','folder_id','locked','excerpt','content_complete','modified','match_source','text_projection_complete')
                 result['items']=[{key:row[key] for key in allowed if key in row} for row in result['items']]
                 result['unavailable']=[{key:row[key] for key in ('id','category') if key in row} for row in unavailable]
-                keys=('protocol_version','items','unavailable','done','next_offset','scanned','locked_bodies_excluded','truncated_bodies','pagination_consistency','modified_filter')
+                keys=('protocol_version','items','unavailable','done','next_offset','scanned','locked_bodies_excluded','truncated_bodies','pagination_consistency','modified_filter','locked_filter')
                 result={key:result[key] for key in keys if key in result}
                 result['search_coverage']='title, bounded plaintext and exported table text; no native OCR/attachment/semantic index'
         if self.name == 'notes' and action == 'get' and 'html' in result.get('item', {}):
@@ -994,9 +999,9 @@ def register_read_tools(mcp):
         @guard
         def notes_search(text: str, folder_id: str | None = None, limit: int = 50, offset: int = 0,
                          modified_from: str | None = None, modified_before: str | None = None,
-                         match_scope: Literal['all','title'] = 'all') -> dict:
-            """Search bounded title, plaintext and exported table text, or titles only without reading bodies. An empty title-only query lists scoped notes. UTC bounds are inclusive from and exclusive before; follow next_offset even after empty pages."""
-            return NativeReader('notes').read('search', text=text, folder_id=folder_id, limit=limit, offset=offset, modified_from=modified_from, modified_before=modified_before,match_scope=match_scope)
+                         match_scope: Literal['all','title'] = 'all', locked: bool | None = None) -> dict:
+            """Search bounded title, plaintext and exported table text, or titles only without reading bodies. An empty title-only query lists scoped notes; locked filters by observed lock state without unlocking. UTC bounds are inclusive from and exclusive before; follow next_offset even after empty pages."""
+            return NativeReader('notes').read('search', text=text, folder_id=folder_id, limit=limit, offset=offset, modified_from=modified_from, modified_before=modified_before,match_scope=match_scope,locked=locked)
 
         @mcp.tool(annotations=annotations)
         @guard
