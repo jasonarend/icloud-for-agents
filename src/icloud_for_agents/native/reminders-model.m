@@ -90,7 +90,10 @@ NSData *ICloudRemindersListSections(NSData *data){
 // Observe fixed list flags only after EventKit establishes exact list/source scope.
 NSData *ICloudRemindersReadListFeatures(NSData *data){
     @try {
-        id identity=[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];if(![identity isKindOfClass:NSDictionary.class] || [identity count]!=2)return EncodeFlag(FlagFailure(@"invalid_public_identity"));
+        id identity=[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
+        if(![identity isKindOfClass:NSDictionary.class])return EncodeFlag(FlagFailure(@"invalid_public_identity"));
+        id includePinned=identity[@"include_pinned"];BOOL wantsPinned=includePinned!=nil;
+        if((wantsPinned && ([identity count]!=3 || CFGetTypeID((__bridge CFTypeRef)includePinned)!=CFBooleanGetTypeID() || ![includePinned boolValue])) || (!wantsPinned && [identity count]!=2))return EncodeFlag(FlagFailure(@"invalid_public_identity"));
         for(NSString *key in @[@"source_id",@"list_id"]){id value=identity[key];NSUUID *uuid=[value isKindOfClass:NSString.class]?[[NSUUID alloc]initWithUUIDString:value]:nil;if(!uuid||!UUIDEqual(uuid.UUIDString,value))return EncodeFlag(FlagFailure(@"unsupported_public_identity"));}
         if(NSProcessInfo.processInfo.operatingSystemVersion.majorVersion!=27 || !dlopen("/System/Library/PrivateFrameworks/ReminderKit.framework/ReminderKit",RTLD_LAZY|RTLD_LOCAL))return EncodeFlag(FlagFailure(@"unsupported_interface"));
         Class ids=NSClassFromString(@"REMObjectID"),storeClass=NSClassFromString(@"REMStore");if(!MethodMatches(ids,@"objectIDWithURL:",@"@@:@",YES)||!MethodMatches(storeClass,@"fetchListWithObjectID:error:",@"@@:@^@",NO))return EncodeFlag(FlagFailure(@"unsupported_interface"));
@@ -102,7 +105,13 @@ NSData *ICloudRemindersReadListFeatures(NSData *data){
         id storage=ObjectValue(list,@"storage");NSArray *names=@[@"shouldCategorizeGroceryItems",@"shouldSupportGroceryShoppingSession",@"isGroup"];if(!storage)return EncodeFlag(FlagFailure(@"unsupported_list_features"));
         for(NSString *name in names)if(!MethodMatches([storage class],name,@"B@:",NO))return EncodeFlag(FlagFailure(@"unsupported_list_features"));
         BOOL categories=((BOOL(*)(id,SEL))objc_msgSend)(storage,NSSelectorFromString(names[0])),shopping=((BOOL(*)(id,SEL))objc_msgSend)(storage,NSSelectorFromString(names[1])),group=((BOOL(*)(id,SEL))objc_msgSend)(storage,NSSelectorFromString(names[2]));
-        return EncodeFlag(@{@"protocol_version":@1,@"source_id":identity[@"source_id"],@"list_id":identity[@"list_id"],@"grocery_categorization":@((BOOL)categories),@"grocery_shopping_session":@((BOOL)shopping),@"is_group":@((BOOL)group),@"shared":@((BOOL)shared),@"shared_to_me":@((BOOL)sharedToMe),@"can_be_shared":@((BOOL)shareable),@"sharing_metadata_complete":@NO,@"list_type_verified":@NO,@"data_mutated":@NO,@"backend":@"reminderkit-list-features-v2"});
+        NSMutableDictionary *result=[@{@"protocol_version":@1,@"source_id":identity[@"source_id"],@"list_id":identity[@"list_id"],@"grocery_categorization":@((BOOL)categories),@"grocery_shopping_session":@((BOOL)shopping),@"is_group":@((BOOL)group),@"shared":@((BOOL)shared),@"shared_to_me":@((BOOL)sharedToMe),@"can_be_shared":@((BOOL)shareable),@"sharing_metadata_complete":@NO,@"list_type_verified":@NO,@"data_mutated":@NO,@"backend":@"reminderkit-list-features-v2"} mutableCopy];
+        if(wantsPinned){
+            if(!MethodMatches([list class],@"isPinned",@"B@:",NO))return EncodeFlag(FlagFailure(@"unsupported_list_features"));
+            BOOL pinned=((BOOL(*)(id,SEL))objc_msgSend)(list,NSSelectorFromString(@"isPinned"));
+            result[@"pinned"]=@((BOOL)pinned);result[@"backend"]=@"reminderkit-list-features-v3";
+        }
+        return EncodeFlag(result);
     }@catch(NSException *exception){return EncodeFlag(FlagFailure(@"private_read_exception"));}
 }
 // Fixed single-section creation with a preassigned ID and exact prior inventory.

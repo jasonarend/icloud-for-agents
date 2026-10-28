@@ -406,8 +406,13 @@ func membershipRecord(_ values:[EKReminder],_ list:EKCalendar)->[String:Any] {
 }
 if action == "default_list" {respond(defaultListRecord(store.defaultCalendarForNewReminders(),lists))}
 if action == "list_sections" || action == "list_features" {
-    guard let id=req["list_id"] as? String,let list=lists.first(where:{$0.calendarIdentifier==id}),
-          let payload=try? JSONSerialization.data(withJSONObject:["source_id":list.source.sourceIdentifier,"list_id":id]),
+    guard let id=req["list_id"] as? String,let list=lists.first(where:{$0.calendarIdentifier==id}) else {fail("not_found_in_scope")}
+    var identity:[String:Any]=["source_id":list.source.sourceIdentifier,"list_id":id]
+    if let pinned=req["include_pinned"] {
+        guard action=="list_features",let value=pinned as? NSNumber,CFGetTypeID(value)==CFBooleanGetTypeID(),value.boolValue else {fail("invalid_request")}
+        identity["include_pinned"]=true
+    }
+    guard let payload=try? JSONSerialization.data(withJSONObject:identity),
           let result=(try? JSONSerialization.jsonObject(with:action == "list_sections" ? ICloudRemindersListSections(payload) : ICloudRemindersReadListFeatures(payload))) as? [String:Any] else {fail("not_found_in_scope")}
     respond(result)
 }

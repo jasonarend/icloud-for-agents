@@ -115,6 +115,12 @@ class NativeReadTests(unittest.TestCase):
         result={'protocol_version':1,'source_id':'selected','list_id':'list','grocery_categorization':True,'grocery_shopping_session':False,'is_group':False,'shared':False,'shared_to_me':False,'can_be_shared':True,'sharing_metadata_complete':False,'list_type_verified':False,'data_mutated':False,'backend':'reminderkit-list-features-v2'}
         with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=result) as backend:
             self.assertEqual(NativeReader('reminders').read('list_features',list_id='list'),result)
+            with self.assertRaises(SafetyError):NativeReader('reminders').read('list_features',list_id='list',include_pinned=True)
+            backend.return_value=dict(result,pinned=False,backend='reminderkit-list-features-v3')
+            self.assertIs(NativeReader('reminders').read('list_features',list_id='list',include_pinned=True)['pinned'],False)
+            for value in (dict(result,pinned=1,backend='reminderkit-list-features-v3'),dict(result,pinned=True,backend='reminderkit-list-features-v2')):
+                backend.return_value=value
+                with self.assertRaises(SafetyError):NativeReader('reminders').read('list_features',list_id='list',include_pinned=True)
             for bad in (dict(result,source_id='foreign'),dict(result,list_id='other'),dict(result,grocery_categorization=1),dict(result,shared=1),dict(result,sharing_metadata_complete=True),dict(result,list_type_verified=True),dict(result,data_mutated=True),dict(result,extra='untrusted')):
                 backend.return_value=bad
                 with self.assertRaises(SafetyError):NativeReader('reminders').read('list_features',list_id='list')

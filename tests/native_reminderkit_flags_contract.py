@@ -30,6 +30,7 @@ FIXTURE=r'''
 @property BOOL isShared;
 @property BOOL isSharedToMe;
 @property BOOL canBeShared;
+@property BOOL isPinned;
 @end
 @implementation FixtureList
 @end
@@ -220,6 +221,9 @@ int main(){@autoreleasepool{
  NSString *task=@"11111111-1111-4111-8111-111111111111",*list=@"22222222-2222-4222-8222-222222222222",*source=@"33333333-3333-4333-8333-333333333333",*other=@"44444444-4444-4444-8444-444444444444";
  fixture=[FixtureReminder new];fixture.remObjectID=Identity(@"REMCDReminder",task);fixture.account=[FixtureAccount new];fixture.account.remObjectID=Identity(@"REMCDAccount",source);fixture.list=[FixtureList new];fixture.list.remObjectID=Identity(@"REMCDList",list);fixture.list.account=fixture.account;FixtureFlag *flag=[FixtureFlag new];fixture.flaggedContext=flag;
  fixture.list.storage=[FixtureListStorage new];NSData *listData=[NSJSONSerialization dataWithJSONObject:@{@"source_id":source,@"list_id":list} options:0 error:NULL];NSDictionary *(^listFeatures)(void)=^NSDictionary *{return [NSJSONSerialization JSONObjectWithData:ICloudRemindersReadListFeatures(listData) options:0 error:NULL];};
+ NSData *pinData=[NSJSONSerialization dataWithJSONObject:@{@"source_id":source,@"list_id":list,@"include_pinned":@YES} options:0 error:NULL];NSDictionary *(^pinFeatures)(void)=^NSDictionary *{return [NSJSONSerialization JSONObjectWithData:ICloudRemindersReadListFeatures(pinData) options:0 error:NULL];};
+ NSCAssert([pinFeatures()[@"backend"] isEqual:@"reminderkit-list-features-v3"] && ![pinFeatures()[@"pinned"] boolValue],@"unpinned state observed");fixture.list.isPinned=YES;NSCAssert([pinFeatures()[@"pinned"] boolValue] && listFeatures()[@"pinned"]==nil,@"pinned state opt-in");fixture.list.isPinned=NO;
+ NSData *badPinData=[NSJSONSerialization dataWithJSONObject:@{@"source_id":source,@"list_id":list,@"include_pinned":@1} options:0 error:NULL];NSDictionary *badPin=[NSJSONSerialization JSONObjectWithData:ICloudRemindersReadListFeatures(badPinData) options:0 error:NULL];NSCAssert(badPin[@"error"],@"pin selection requires a true Boolean");
  NSCAssert(![listFeatures()[@"grocery_categorization"] boolValue] && ![listFeatures()[@"list_type_verified"] boolValue],@"ordinary provider flags do not claim type");fixture.list.storage.shouldCategorizeGroceryItems=YES;NSCAssert([listFeatures()[@"grocery_categorization"] boolValue],@"native grocery flag read");fixture.list.isShared=YES;fixture.list.isSharedToMe=YES;NSCAssert([listFeatures()[@"shared"] boolValue] && [listFeatures()[@"shared_to_me"] boolValue] && ![listFeatures()[@"sharing_metadata_complete"] boolValue],@"sharing flags do not claim participant details");fixture.list.account.remObjectID=Identity(@"REMCDAccount",other);NSCAssert(listFeatures()[@"error"],@"foreign list account refused");fixture.list.account.remObjectID=Identity(@"REMCDAccount",source);
  FixtureSection *section=[FixtureSection new];section.remObjectID=Identity(@"REMCDListSection",other);section.list=fixture.list;section.storage=[FixtureSectionStorage new];section.storage.accountID=fixture.account.remObjectID;section.storage.listID=fixture.list.remObjectID;section.storage.displayName=@"Synthetic";fixtureSections=@[section];
  NSDictionary *sectionRequest=@{@"source_id":source,@"list_id":list};NSData *sectionData=[NSJSONSerialization dataWithJSONObject:sectionRequest options:0 error:NULL];NSDictionary *(^readSections)(void)=^NSDictionary *{return [NSJSONSerialization JSONObjectWithData:ICloudRemindersListSections(sectionData) options:0 error:NULL];};
