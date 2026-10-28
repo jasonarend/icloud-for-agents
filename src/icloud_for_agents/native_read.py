@@ -852,10 +852,11 @@ def register_read_tools(mcp):
 
         @mcp.tool(annotations=annotations)
         @guard
-        def notes_read_text(folder_id: str, id: str, offset: int=0, limit: int=10000) -> dict:
-            """Read a bounded page of the note's exported plaintext. Follow next_offset; a truncated source cannot be paged beyond its observed prefix."""
+        def notes_read_text(folder_id: str, id: str, offset: int=0, limit: int=10000, expected_modified: str | None=None) -> dict:
+            """Read a bounded page of the note's exported plaintext. Follow next_offset and pass the returned modified value as expected_modified on later pages; a truncated source cannot be paged beyond its observed prefix."""
             if type(offset) is not int or not 0<=offset<=100000 or type(limit) is not int or not 1<=limit<=10000:
                 raise SafetyError('Text pages require offset 0..100000 and limit 1..10000')
+            if expected_modified is not None and (not isinstance(expected_modified,str) or not 1<=len(expected_modified)<=100):raise SafetyError('Expected modification timestamp must be bounded text')
             result=NativeReader('notes').read('get',folder_id=folder_id,id=id)
             item=result.get('item')
             if not isinstance(item,dict) or item.get('id')!=id:raise SafetyError('Exact note identity was not verified')
@@ -863,6 +864,7 @@ def register_read_tools(mcp):
                 return {'id':id,'folder_id':folder_id,'locked':True,'content_available':False,'data_mutated':False}
             if item.get('folder_id')!=folder_id or not isinstance(item.get('source_id'),str) or not isinstance(item.get('text'),str) or type(item.get('truncated')) is not bool:
                 raise SafetyError('Plaintext availability and scope could not be verified')
+            if expected_modified is not None and item.get('modified')!=expected_modified:raise SafetyError('Note changed since the preceding text page')
             text=item['text']
             if offset>len(text):raise SafetyError('Text offset is beyond the observed note content')
             page=text[offset:offset+limit];next_offset=offset+len(page);source_truncated=item['truncated']

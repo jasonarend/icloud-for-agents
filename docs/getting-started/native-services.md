@@ -216,7 +216,7 @@ With the owner-selected ReminderKit backend, `reminders_get` accepts `include_na
 
 **Read-only Markdown views**
 
-Use `notes_read_text` with the exact folder and note IDs to read the exported plaintext in bounded pages. Follow `next_offset` until `done`, and compare the returned modification timestamps between pages because the note can change while reading. `source_truncated` means the provider returned a bounded prefix; `done` refers only to that observed prefix. This does not reconstruct attachments or native objects.
+Use `notes_read_text` with the exact folder and note IDs to read the exported plaintext in bounded pages. Follow `next_offset` until `done`, passing the first page’s `modified` value as `expected_modified` on later pages when available. A changed timestamp refuses the page; a missing or unchanged timestamp does not guarantee an atomic snapshot. `source_truncated` means the provider returned a bounded prefix; `done` refers only to that observed prefix. This does not reconstruct attachments or native objects.
 
 Use `notes_get` with `representation: "markdown"` to request a Markdown view of the same exact selected account/folder/note. The default `"native"` response remains compatible with existing clients. The server retains the original HTML/text and structured exported table cells, adds `item.markdown`, and reports `item.markdown_projection` with text completeness, formatting completeness, observed losses and `round_trip_safe: false`. A locked note or unavailable/over-complex HTML produces an unavailable projection rather than an empty successful export.
 
