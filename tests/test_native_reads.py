@@ -384,10 +384,24 @@ class NativeReadTests(unittest.TestCase):
             with self.subTest(config=config), self.assertRaises(ValueError): validate_config(config)
 
     def test_implicit_page_defaults_are_sent_to_fixed_protocol(self):
-        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps({'notes':{'source_ids':['selected']}})), patch('platform.system',return_value='Darwin'), patch.object(NativeReader,'_dispatch',return_value={'items':[]}) as dispatch:
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps({'notes':{'source_ids':['selected']}})), patch('platform.system',return_value='Darwin'), patch.object(NativeReader,'_dispatch',return_value={'items':[],'done':True,'next_offset':0,'pagination_consistency':'live_offset_may_shift'}) as dispatch:
             NativeReader('notes').read('query',folder_id='folder')
             request=dispatch.call_args.args[0]
             self.assertEqual((request['limit'],request['offset']),(50,0))
+
+    def test_notes_title_page_requires_scope_and_bounded_progress(self):
+        config={'notes':{'source_ids':['selected']}}
+        row={'id':'note','title':'Synthetic','source_id':'selected','folder_id':'folder','body':'private'}
+        page={'items':[row],'done':True,'next_offset':1,'pagination_consistency':'live_offset_may_shift','private':'private'}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=page):
+            result=NativeReader('notes').read('query',folder_id='folder',limit=1)
+            self.assertNotIn('body',result['items'][0]);self.assertNotIn('private',result)
+        invalid=[{**page,'items':[{**row,'source_id':'foreign'}]}, {**page,'items':[{**row,'folder_id':'other'}]},
+                 {**page,'next_offset':2}, {**page,'items':[],'done':False,'next_offset':0}, {**page,'done':1},
+                 {**page,'pagination_consistency':'stable'}]
+        for value in invalid:
+            with self.subTest(value=value),self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=value),self.assertRaises(SafetyError):
+                NativeReader('notes').read('query',folder_id='folder',limit=1)
 
     def test_search_finds_table_text_and_keeps_raw_html_internal(self):
         page={'items':[],'table_projection_candidates':[{'id':'note','title':'Synthetic','source_id':'selected',

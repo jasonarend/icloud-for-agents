@@ -211,6 +211,20 @@ class NativeReader:
             from .native_note_store import folder_role
             return folder_role(fields['folder_id'],sources)
         result = self._dispatch(request, config)
+        if self.name=='notes' and action=='query':
+            rows=result.get('items') if isinstance(result,dict) else None
+            if (native_config('notes')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode
+                    or not isinstance(fields.get('folder_id'),str) or not fields['folder_id'] or not isinstance(rows,list)
+                    or type(result.get('done')) is not bool or type(result.get('next_offset')) is not int
+                    or not offset<=result['next_offset']<=offset+limit or len(rows)>result['next_offset']-offset
+                    or (not result['done'] and result['next_offset']==offset)
+                    or result.get('pagination_consistency')!='live_offset_may_shift'
+                    or any(not isinstance(row,dict) or not isinstance(row.get('id'),str) or not row['id']
+                           or row.get('source_id') not in sources or row.get('folder_id')!=fields['folder_id']
+                           or not isinstance(row.get('title'),str) or len(row['title'])>1000 for row in rows)):
+                raise SafetyError('Configured helper did not verify the scoped Notes title page')
+            result={'protocol_version':1,'items':[{k:row[k] for k in ('id','title','source_id','folder_id')} for row in rows],
+                    'done':result['done'],'next_offset':result['next_offset'],'pagination_consistency':'live_offset_may_shift'}
         if action=='list_sections':
             import uuid
             rows=result.get('sections') if isinstance(result,dict) else None
