@@ -481,6 +481,18 @@ class NativeReadTests(unittest.TestCase):
             result=NativeReader('notes').read('search',text='test',folder_id='folder')
             self.assertNotIn('html',result['items'][0]);self.assertNotIn('body',result['unavailable'][0]);self.assertNotIn('private_body',result)
 
+    def test_notes_attachment_filter_requires_evidence_and_excludes_locked_content(self):
+        config={'notes':{'source_ids':['selected']}}
+        candidate={'id':'note','title':'Synthetic','source_id':'selected','folder_id':'folder','locked':False,'has_attachments':True,'html':'<table><tr><td>needle</td></tr></table>','truncated':False}
+        def page(**extra):return {'items':[],'table_projection_candidates':[dict(candidate)],'attachment_filter':True,**extra}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=page()) as backend:
+            result=NativeReader('notes').read('search',text='needle',has_attachments=True)
+            self.assertTrue(result['attachment_filter']);self.assertTrue(result['items'][0]['has_attachments'])
+            for value in ({'items':[]}, {**page(),'attachment_filter':False}, {**page(),'table_projection_candidates':[{**candidate,'has_attachments':False}]}, {**page(),'table_projection_candidates':[{**candidate,'locked':True}]}):
+                backend.return_value=value
+                with self.subTest(value=value),self.assertRaises(SafetyError):NativeReader('notes').read('search',text='needle',has_attachments=True)
+            with self.assertRaises(SafetyError):NativeReader('notes').read('search',text='needle',has_attachments=1)
+
     def test_notes_shared_filter_requires_evidence_and_preserves_table_matches(self):
         config={'notes':{'source_ids':['selected']}}
         candidate={'id':'note','title':'Synthetic','source_id':'selected','folder_id':'folder','locked':False,'shared':True,'html':'<table><tr><td>needle</td></tr></table>','truncated':False}

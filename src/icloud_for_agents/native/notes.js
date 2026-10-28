@@ -98,6 +98,7 @@ function readNotes(app, req) {
         if(req.match_scope!==undefined && req.match_scope!=='title')throw Error('invalid_fields');
         if(req.locked!==undefined && typeof req.locked!=='boolean')throw Error('invalid_fields');
         if(req.shared!==undefined && typeof req.shared!=='boolean')throw Error('invalid_fields');
+        if(req.has_attachments!==undefined && typeof req.has_attachments!=='boolean')throw Error('invalid_fields');
         const titleOnly=req.match_scope==='title';
         const hasModified=req.modified_from!==undefined || req.modified_before!==undefined;
         const hasCreated=req.created_from!==undefined || req.created_before!==undefined;
@@ -115,7 +116,7 @@ function readNotes(app, req) {
         if(req.folder_id && !folders.some(f=>f.object.id()===req.folder_id))throw Error('not_found_in_scope');
         refs.sort((a,b)=>a.id.localeCompare(b.id));
         const needle=req.text.toLowerCase(), items=[], unavailable=[], projections=[];
-        const scanLimit=(req.locked!==undefined || req.shared!==undefined || hasCreated || hasModified)?10:100;
+        const scanLimit=(req.locked!==undefined || req.shared!==undefined || req.has_attachments!==undefined || hasCreated || hasModified)?10:100;
         let projectionBytes=0;
         let offset=req.offset, scanned=0, lockedSkipped=0, truncatedBodies=0;
         while(offset<refs.length && scanned<scanLimit && items.length+projections.length<req.limit) {
@@ -141,9 +142,16 @@ function readNotes(app, req) {
                 if(req.locked!==undefined && locked!==req.locked)continue;
                 let shared;
                 if(req.shared!==undefined){shared=note.shared();if(typeof shared!=='boolean')throw Error('sharing_status_unavailable');if(shared!==req.shared)continue;}
+                let hasAttachments;
+                if(req.has_attachments!==undefined){
+                    if(locked){unavailable.push({id:ref.id,category:'locked_note_attachments_unavailable'});continue;}
+                    const attachments=note.attachments();
+                    if(!Array.isArray(attachments) || attachments.length>1000)throw Error('attachment_inventory_unavailable');
+                    hasAttachments=attachments.length>0;if(hasAttachments!==req.has_attachments)continue;
+                }
                 if(titleOnly) {
                     const boundedTitle=title.slice(0,1000);
-                    if(boundedTitle.toLowerCase().includes(needle))items.push({id:ref.id,title:boundedTitle,source_id:ref.folder.source,folder_id:ref.folder.object.id(),locked:locked,excerpt:'',content_complete:false,...(req.shared!==undefined?{shared:shared}:{}),...(hasModified?{modified:modified}:{}),...(hasCreated?{created:created}:{})});
+                    if(boundedTitle.toLowerCase().includes(needle))items.push({id:ref.id,title:boundedTitle,source_id:ref.folder.source,folder_id:ref.folder.object.id(),locked:locked,excerpt:'',content_complete:false,...(req.shared!==undefined?{shared:shared}:{}),...(req.has_attachments!==undefined?{has_attachments:hasAttachments}:{}),...(hasModified?{modified:modified}:{}),...(hasCreated?{created:created}:{})});
                     continue;
                 }
                 let body='';
@@ -152,7 +160,7 @@ function readNotes(app, req) {
                 const index=body.toLowerCase().indexOf(needle);
                 if(title.toLowerCase().includes(needle) || index>=0)items.push({id:ref.id,title:title.slice(0,1000),
                     source_id:ref.folder.source,folder_id:ref.folder.object.id(),locked:locked,
-                    excerpt:index>=0?body.slice(Math.max(0,index-80),index+240):'',content_complete:false,...(req.shared!==undefined?{shared:shared}:{}),...(hasModified?{modified:modified}:{}),...(hasCreated?{created:created}:{})});
+                    excerpt:index>=0?body.slice(Math.max(0,index-80),index+240):'',content_complete:false,...(req.shared!==undefined?{shared:shared}:{}),...(req.has_attachments!==undefined?{has_attachments:hasAttachments}:{}),...(hasModified?{modified:modified}:{}),...(hasCreated?{created:created}:{})});
                 else if(!locked) {
                     const html=note.body();
                     if(html.includes('<table')) {
@@ -160,7 +168,7 @@ function readNotes(app, req) {
                         if(projectionBytes+bounded.length>250000)unavailable.push({id:ref.id,category:'table_projection_budget'});
                         else {projectionBytes+=bounded.length;projections.push({id:ref.id,title:title.slice(0,1000),
                             source_id:ref.folder.source,folder_id:ref.folder.object.id(),locked:false,html:bounded,
-                            truncated:html.length>100000,...(req.shared!==undefined?{shared:shared}:{}),...(hasModified?{modified:modified}:{}),...(hasCreated?{created:created}:{})});}
+                            truncated:html.length>100000,...(req.shared!==undefined?{shared:shared}:{}),...(req.has_attachments!==undefined?{has_attachments:hasAttachments}:{}),...(hasModified?{modified:modified}:{}),...(hasCreated?{created:created}:{})});}
                     }
                 }
             } catch(_) {unavailable.push({id:ref.id,category:'note_read_unavailable'});}
@@ -171,6 +179,7 @@ function readNotes(app, req) {
             ...(titleOnly?{match_scope:'title'}:{}),
             ...(req.locked!==undefined?{locked_filter:req.locked}:{}),
             ...(req.shared!==undefined?{shared_filter:req.shared}:{}),
+            ...(req.has_attachments!==undefined?{attachment_filter:req.has_attachments}:{}),
             ...(hasModified?{modified_filter:{from:req.modified_from||null,before:req.modified_before||null,semantics:'utc_inclusive_from_exclusive_before'}}:{}),
             ...(hasCreated?{created_filter:{from:req.created_from||null,before:req.created_before||null,semantics:'utc_inclusive_from_exclusive_before'}}:{})});
     }

@@ -23,12 +23,15 @@ def dispatch(self,request,config):
         return result
     if request['action']=='search':
         if request.get('match_scope')=='title':
-            rows=[] if request.get('locked') is True or request.get('shared') is True else [{'id':'synthetic-note','title':'Synthetic Title','source_id':'selected','folder_id':'folder','locked':False,'excerpt':'','content_complete':False}]
+            rows=[] if request.get('locked') is True or request.get('shared') is True or request.get('has_attachments') is False else [{'id':'synthetic-note','title':'Synthetic Title','source_id':'selected','folder_id':'folder','locked':False,'excerpt':'','content_complete':False}]
             result={'protocol_version':1,'items':rows,'table_projection_candidates':[],'match_scope':'title','done':True,'next_offset':1}
             if 'locked' in request:result['locked_filter']=request['locked']
             if 'shared' in request:
                 result['shared_filter']=request['shared']
                 for row in rows:row['shared']=False
+            if 'has_attachments' in request:
+                result['attachment_filter']=request['has_attachments']
+                for row in rows:row['has_attachments']=True
             if 'created_from' in request or 'created_before' in request:
                 result['created_filter']={'from':request.get('created_from'),'before':request.get('created_before'),'semantics':'utc_inclusive_from_exclusive_before'}
                 for row in rows:row['created']='2026-10-27T12:30:00.000Z'
