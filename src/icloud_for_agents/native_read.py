@@ -747,7 +747,7 @@ def register_read_tools(mcp):
             if include_native_early:
                 # These mappings were observed on the supported macOS version;
                 # leave other provider values uninterpreted rather than guessing.
-                units={0:'minutes',1:'hours',2:'days'}
+                units={0:'minutes',1:'hours',2:'days',3:'weeks',4:'months'}
                 alerts=result['item']['native_metadata']['early_alerts']
                 result['item']['early_reminders']=[{'unit':units.get(a['native_unit']), 'offset':a['native_count'], 'native_unit':a['native_unit']} for a in alerts]
             return result
