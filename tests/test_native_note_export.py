@@ -18,7 +18,7 @@ class NoteExportTests(unittest.TestCase):
 
     def test_scoped_export_discloses_loss_and_has_no_asset_call(self):
         value=export_note(NativeReader('notes'),'folder','note')
-        self.assertEqual(value['item'],self.item);self.assertFalse(value['coverage']['restorable'])
+        self.assertEqual(value['item'],self.item);self.assertFalse(value['coverage']['restorable']);self.assertFalse(value['coverage']['atomic_snapshot'])
         self.assertFalse(value['coverage']['attachment_content_included']);self.assertFalse(value['coverage']['body_truncated'])
         self.assertEqual(self.backend.call_count,1);self.assertEqual(self.backend.call_args.args[0]['action'],'get')
 

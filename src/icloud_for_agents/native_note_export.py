@@ -19,9 +19,9 @@ def export_note(reader,folder_id,note_id):
             raise SafetyError('Notes export requires a current bounded native observation')
         projected={key:item[key] for key in keys};truncated=item['truncated']
     result={'format':'icloud-for-agents-note-observation','version':1,'item':projected,
-        'coverage':{'complete_backup':False,'restorable':False,'attachment_content_included':False,
+        'coverage':{'complete_backup':False,'restorable':False,'atomic_snapshot':False,'attachment_content_included':False,
             'native_content_complete':False,'body_truncated':truncated,
-            'limitations':['HTML and text are bounded observations; large notes can be truncated.',
+            'limitations':['HTML and text are bounded observations; large notes can be truncated and concurrent edits can affect the read.',
                            'Native objects, attachments and collaboration metadata are not preserved.',
                            'Locked content is not read or unlocked.','The exported HTML is not a native round-trip format.']}}
     try:size=len(json.dumps(result,ensure_ascii=True,allow_nan=False,separators=(',',':')).encode('utf-8'))
