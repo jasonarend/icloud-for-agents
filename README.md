@@ -17,7 +17,7 @@ An independent project, unaffiliated with Apple. The tested setup is macOS on Ap
 - Read selected Notes folders and notes, search titles or bounded text, and prepare creation and supported text edits for approval.
 - Read selected Reminders lists and tasks, including daily and date-range queries, and prepare creation, edits and completion changes for approval.
 
-Setup starts read-only. Sending and other changes require write access and the applicable approvals; your assistant can help review and prepare them first.
+Setup starts read-only. Sending and Mail, Calendar or Contacts changes require write access and the applicable approvals. Notes and Reminders also support separately approved one-time changes and scoped standing grants while their normal access remains read-only; your assistant can help review the exact scope first.
 
 Mail cleanup moves messages to recoverable Trash. Permanent deletion and emptying Trash are intentionally excluded.
 
