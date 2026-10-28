@@ -400,6 +400,21 @@ class NativeReadTests(unittest.TestCase):
         self.assertNotIn('table_projection_candidates',result)
         self.assertNotIn('html',result['items'][0])
 
+    def test_notes_search_always_checks_scope_and_page_bound(self):
+        config={'notes':{'source_ids':['selected']}}
+        row={'id':'note','title':'Synthetic','source_id':'selected','folder_id':'folder','locked':False,'excerpt':'test','content_complete':False}
+        candidate={'id':'note','title':'Synthetic','source_id':'selected','folder_id':'folder','html':'<table><tr><td>test</td></tr></table>','truncated':False}
+        pages=[{'items':[{**row,'source_id':'foreign'}]}, {'items':[row],'table_projection_candidates':[{**candidate,'folder_id':'other'}]},
+               {'items':[row,row],'table_projection_candidates':[]}, {'items':[],'table_projection_candidates':[{**candidate,'source_id':'foreign'}]}]
+        for page in pages:
+            with self.subTest(page=page),self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=page),self.assertRaises(SafetyError):
+                NativeReader('notes').read('search',text='test',folder_id='folder',limit=1)
+        def drift(*args):
+            os.environ['ICLOUD_MAIL_ACCESS']='disabled'
+            return {'items':[row]}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',side_effect=drift),self.assertRaises(SafetyError):
+            NativeReader('notes').read('search',text='test',folder_id='folder')
+
     def test_notes_modification_filter_rejects_old_helpers_and_out_of_range_rows(self):
         config={'notes':{'source_ids':['selected']}}
         fields={'text':'table','modified_from':'2026-10-27T12:00:00Z','modified_before':'2026-10-27T13:00:00Z'}

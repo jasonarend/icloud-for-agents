@@ -385,7 +385,13 @@ class NativeReader:
         if self.name == 'notes' and action == 'search':
             from .notes_content import project_html
             candidates=result.pop('table_projection_candidates',[])
-            if not isinstance(candidates,list) or len(candidates)>limit:
+            items=result.get('items')
+            if (native_config('notes')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode
+                    or not isinstance(items,list) or not isinstance(candidates,list) or len(items)+len(candidates)>limit
+                    or any(not isinstance(row,dict) or not isinstance(row.get('id'),str) or not row['id']
+                           or row.get('source_id') not in sources or not isinstance(row.get('folder_id'),str) or not row['folder_id']
+                           or (fields.get('folder_id') is not None and row['folder_id']!=fields['folder_id'])
+                           for row in items+candidates)):
                 raise SafetyError('Invalid bounded Notes search projection')
             if match_scope=='title':
                 if (native_config('notes')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode
