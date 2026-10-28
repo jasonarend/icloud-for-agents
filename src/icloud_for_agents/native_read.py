@@ -741,7 +741,14 @@ def register_read_tools(mcp):
         @guard
         def reminders_get(id: str, include_native_metadata: bool=False, include_native_tags: bool=False, include_native_hierarchy: bool=False, include_native_children: bool=False, include_native_urgent: bool=False, include_native_section: bool=False, include_native_early: bool=False) -> dict:
             """Read one exact scoped reminder. Optional native flags/tags/hierarchy/children/urgent/section/early state require owner-selected ReminderKit; other advanced metadata remains incomplete."""
-            return NativeReader('reminders').read('get', id=id, include_native_metadata=include_native_metadata, include_native_tags=include_native_tags, include_native_hierarchy=include_native_hierarchy, include_native_children=include_native_children, include_native_urgent=include_native_urgent,include_native_section=include_native_section,include_native_early=include_native_early)
+            result=NativeReader('reminders').read('get', id=id, include_native_metadata=include_native_metadata, include_native_tags=include_native_tags, include_native_hierarchy=include_native_hierarchy, include_native_children=include_native_children, include_native_urgent=include_native_urgent,include_native_section=include_native_section,include_native_early=include_native_early)
+            if include_native_early:
+                # These mappings were observed on the supported macOS version;
+                # leave other provider values uninterpreted rather than guessing.
+                units={0:'minutes',1:'hours',2:'days'}
+                alerts=result['item']['native_metadata']['early_alerts']
+                result['item']['early_reminders']=[{'unit':units.get(a['native_unit']), 'offset':a['native_count'], 'native_unit':a['native_unit']} for a in alerts]
+            return result
 
         @mcp.tool(annotations=annotations)
         @guard
