@@ -4,7 +4,7 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 
 def run():
-    source=(ROOT/'src/icloud_for_agents/native/reminders.swift').read_text();functions=source[source.index('// Public EventKit list colors'):source.index('if action == "list_membership"')].replace('EKCalendar','FixtureCalendar').replace('EKReminder','FixtureReminder')
+    source=(ROOT/'src/icloud_for_agents/native/reminders.swift').read_text();functions=source[source.index('// Public EventKit list colors'):source.index('if action == "default_list"')].replace('EKCalendar','FixtureCalendar').replace('EKReminder','FixtureReminder')
     fixture='''import Foundation
 import CryptoKit
 import AppKit
@@ -22,6 +22,10 @@ precondition(first["sha256"] as? String != membershipRecord([a],list)["sha256"] 
 precondition(first["count"] as? Int==2 && first["source_id"] as? String=="selected")
 precondition((membershipRecord([],list)["sha256"] as? String)?.count==64)
 precondition(listRecord(list)["writable"] as? Bool==true)
+precondition(defaultListRecord(list,[list])["state"] as? String=="available")
+let outside=defaultListRecord(list,[])
+precondition(outside["state"] as? String=="outside_selected_scope" && outside["list"] is NSNull)
+precondition(defaultListRecord(nil,[list])["state"] as? String=="unavailable")
 print("passed")
 '''
     with tempfile.TemporaryDirectory(prefix='native-list-metadata-') as directory:

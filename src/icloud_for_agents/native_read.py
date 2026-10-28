@@ -14,7 +14,7 @@ from .services import enabled
 
 
 READ_ACTIONS = {'notes': {'status', 'sources', 'folders', 'folder_get', 'folder_inventory', 'folder_role', 'model_folder_role', 'query', 'get', 'search', 'attachments', 'diagnose_note', 'contains'},
-                'reminders': {'status', 'sources', 'lists', 'query', 'get','list_membership','recovery_lookup','recovery_tree','recovery_list'}}
+                'reminders': {'status', 'sources', 'lists', 'default_list', 'query', 'get','list_membership','recovery_lookup','recovery_tree','recovery_list'}}
 MAX_OUTPUT = 2_000_000
 
 
@@ -188,6 +188,24 @@ class NativeReader:
             from .native_note_store import folder_role
             return folder_role(fields['folder_id'],sources)
         result = self._dispatch(request, config)
+        if action=='default_list':
+            if (native_config('reminders')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode
+                    or not isinstance(result,dict) or set(result)!={'protocol_version','state','list'}
+                    or result.get('state') not in {'available','outside_selected_scope','unavailable'}):
+                raise SafetyError('Default reminder list could not be verified in the selected scope')
+            value=result.get('list')
+            if result['state']=='available':
+                if (not isinstance(value,dict) or set(value)!={'id','title','source_id','writable','color'}
+                        or value.get('source_id') not in sources or not isinstance(value.get('id'),str)
+                        or not value['id'] or not isinstance(value.get('title'),str) or len(value['title'])>1000 or type(value.get('writable')) is not bool):
+                    raise SafetyError('Default reminder list has invalid or unselected identity')
+                color=value['color']
+                if color is not None:
+                    import math
+                    if (not isinstance(color,dict) or set(color)!={'red','green','blue','alpha'} or any(
+                            type(channel) not in (int,float) or not math.isfinite(channel) or not 0<=channel<=1 for channel in color.values())):
+                        raise SafetyError('Default reminder list has invalid color metadata')
+            elif value is not None:raise SafetyError('Default reminder list exposed an unselected identity')
         if action=='model_folder_role':
             if (native_config('notes')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode
                     or not isinstance(result,dict) or result.get('folder_id')!=fields['folder_id'] or result.get('source_id')!=fields['source_id']
@@ -643,6 +661,12 @@ def register_read_tools(mcp):
         def reminders_lists(limit: int = 100, offset: int = 0) -> dict:
             """List only the selected native sources' reminder lists."""
             return NativeReader('reminders').read('lists', limit=limit, offset=offset)
+
+        @mcp.tool(annotations=annotations)
+        @guard
+        def reminders_default_list() -> dict:
+            """Read the system default reminder list if its source is selected; otherwise return only its scope status."""
+            return NativeReader('reminders').read('default_list')
 
         @mcp.tool(annotations=annotations)
         @guard

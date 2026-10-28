@@ -333,7 +333,7 @@ if action == "request_access" {
     RunLoop.current.run(until: Date(timeIntervalSinceNow: 60))
     fail("permission_timeout")
 }
-let actions = ["status", "sources", "lists", "query", "get", "list_membership", "recovery_lookup", "recovery_tree", "recovery_list", "apply"]
+let actions = ["status", "sources", "lists", "default_list", "query", "get", "list_membership", "recovery_lookup", "recovery_tree", "recovery_list", "apply"]
 guard actions.contains(action) else { fail("unsupported_action") }
 if action == "status" {
     respond(["protocol_version": 1, "service": "reminders", "access": permission,
@@ -384,12 +384,20 @@ func listColorFromObject(_ value:Any?)->CGColor? {
 func listRecord(_ list:EKCalendar)->[String:Any] {
     ["id":list.calendarIdentifier,"title":String(list.title.prefix(1000)),"source_id":list.source.sourceIdentifier,"writable":list.allowsContentModifications,"color":listColorObject(list.cgColor)]
 }
+func defaultListRecord(_ candidate:EKCalendar?,_ selected:[EKCalendar])->[String:Any] {
+    guard let candidate=candidate else {return ["protocol_version":1,"state":"unavailable","list":NSNull()]}
+    guard let list=selected.first(where:{$0.calendarIdentifier==candidate.calendarIdentifier && $0.source.sourceIdentifier==candidate.source.sourceIdentifier}) else {
+        return ["protocol_version":1,"state":"outside_selected_scope","list":NSNull()]
+    }
+    return ["protocol_version":1,"state":"available","list":listRecord(list)]
+}
 func membershipRecord(_ values:[EKReminder],_ list:EKCalendar)->[String:Any] {
     let ids=values.map { $0.calendarItemIdentifier }.sorted()
     let data=(try? JSONSerialization.data(withJSONObject:ids,options:[.withoutEscapingSlashes])) ?? Data()
     return ["list_id":list.calendarIdentifier,"source_id":list.source.sourceIdentifier,"count":ids.count,
             "sha256":SHA256.hash(data:data).map {String(format:"%02x",$0)}.joined()]
 }
+if action == "default_list" {respond(defaultListRecord(store.defaultCalendarForNewReminders(),lists))}
 if action == "list_membership" {
     guard let id=req["list_id"] as? String,let list=lists.first(where:{$0.calendarIdentifier==id}) else {fail("not_found_in_scope")}
     store.fetchReminders(matching:store.predicateForReminders(in:[list])) { values in

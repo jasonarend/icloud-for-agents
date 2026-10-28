@@ -32,6 +32,19 @@ class NativeReadTests(unittest.TestCase):
         injected=_confirmed_refusal('notes',request,{'error':'notes_model_refused','category':'untrusted arbitrary content','mutation_dispatched':False})
         self.assertEqual(injected.evidence['reason'],'helper_validation');self.assertNotIn('untrusted arbitrary content',str(injected))
 
+    def test_default_reminder_list_is_scoped_and_older_helpers_fail_closed(self):
+        config={'reminders':{'source_ids':['selected']}}
+        valid={'protocol_version':1,'state':'available','list':{'id':'list','title':'List','source_id':'selected','writable':True,'color':None}}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=valid) as backend:
+            self.assertEqual(NativeReader('reminders').read('default_list'),valid)
+            self.assertEqual(backend.call_args.args[0]['source_ids'],['selected'])
+            for invalid in ({'protocol_version':1},dict(valid,list=dict(valid['list'],source_id='other')),{'protocol_version':1,'state':'outside_selected_scope','list':valid['list']}):
+                backend.return_value=invalid
+                with self.assertRaises(SafetyError):NativeReader('reminders').read('default_list')
+            for state in ('unavailable','outside_selected_scope'):
+                backend.return_value={'protocol_version':1,'state':state,'list':None}
+                self.assertIsNone(NativeReader('reminders').read('default_list')['list'])
+
     def test_optional_native_store_status_is_owner_selected_and_read_only(self):
         config={'notes':{'source_ids':['selected'],'access_mode':'read-only','helper_path':'/synthetic/helper','metadata_backend':'notes-store-readonly','folder_write_backend':'notes-shared'}}
         calls=[]
@@ -298,7 +311,7 @@ class NativeReadTests(unittest.TestCase):
                     importlib.reload(server)
                     tools = {t.name:t for t in asyncio.run(server.mcp.list_tools())}
                     self.assertEqual(sum(n.startswith('notes_') for n in tools),42 if notes else 0)
-                    self.assertEqual(sum(n.startswith('reminders_') for n in tools),31 if reminders else 0)
+                    self.assertEqual(sum(n.startswith('reminders_') for n in tools),32 if reminders else 0)
                     if notes:
                         with patch.dict(os.environ, {'ICLOUD_ENABLE_NOTES':'0'}), patch('subprocess.run',side_effect=AssertionError('No helper')):
                             with self.assertRaises(ToolError): tools['notes_sources'].fn()
