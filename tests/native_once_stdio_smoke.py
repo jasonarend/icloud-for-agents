@@ -69,6 +69,15 @@ def run(policy):
                     with os.fdopen(fd,'w') as stream:json.dump({'plan_id':note_plan['plan_id'],'sha256':note_plan['sha256']},stream)
                 assert data(call('notes_execute_approved',{'plan_id':note_plan['plan_id']}))['status']=='applied'
                 assert call('notes_execute_approved',{'plan_id':note_plan['plan_id']}).get('isError')
+                ical='BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Synthetic//EN\r\nBEGIN:VTODO\r\nUID:synthetic\r\nDTSTAMP:20260101T000000Z\r\nSUMMARY:Imported task\r\nSTATUS:NEEDS-ACTION\r\nPRIORITY:0\r\nEND:VTODO\r\nEND:VCALENDAR\r\n'
+                ical_plan=data(call('reminders_prepare_ical_copy',{'calendar_text':ical,'source_id':'selected','list_id':'destination','accept_omissions':True}))
+                assert ical_plan['review']['payload']['copy_review']['source_format']=='user_supplied_icalendar'
+                if policy=='local-receipt':
+                    assert call('reminders_execute_approved',{'plan_id':ical_plan['plan_id']}).get('isError')
+                    receipt=runtime/(ical_plan['plan_id']+'.approved');fd=os.open(receipt,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+                    with os.fdopen(fd,'w') as stream:json.dump({'plan_id':ical_plan['plan_id'],'sha256':ical_plan['sha256']},stream)
+                assert data(call('reminders_execute_approved',{'plan_id':ical_plan['plan_id']}))['status']=='applied'
+                assert call('reminders_execute_approved',{'plan_id':ical_plan['plan_id']}).get('isError')
             finally:
                 process.stdin.close()
                 try:process.wait(timeout=10)

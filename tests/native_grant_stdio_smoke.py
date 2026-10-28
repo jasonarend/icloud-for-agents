@@ -92,6 +92,11 @@ def run(policy):
                     copied=data(call(name+'_prepare_observation_copy',args));assert copied['authorization_path']=='standing-native' and copied['review']['payload']['copy_review']['accepted_omissions'] is True
                     assert data(call(name+'_execute_approved',{'plan_id':copied['plan_id']}))['status']=='applied'
                     assert call(name+'_execute_approved',{'plan_id':copied['plan_id']}).get('isError')
+                    if name=='reminders':
+                        ical='BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Synthetic//EN\r\nBEGIN:VTODO\r\nUID:synthetic\r\nDTSTAMP:20260101T000000Z\r\nSUMMARY:Imported task\r\nSTATUS:NEEDS-ACTION\r\nPRIORITY:0\r\nEND:VTODO\r\nEND:VCALENDAR\r\n'
+                        imported=data(call('reminders_prepare_ical_copy',{'calendar_text':ical,'source_id':'selected','list_id':'folder','accept_omissions':True,'grant_id':copy_grant['plan_id']}))
+                        assert imported['authorization_path']=='standing-native' and imported['review']['payload']['copy_review']['source_format']=='user_supplied_icalendar'
+                        assert data(call('reminders_execute_approved',{'plan_id':imported['plan_id']}))['status']=='applied'
                     assert data(call(name+'_revoke_grant',{'grant_id':copy_grant['plan_id']}))['status']=='revoked'
                     assert call(name+'_prepare_observation_copy',args).get('isError')
             finally:
