@@ -731,6 +731,10 @@ class NativeReader:
                        str(Path(__file__).parent / 'native/notes.js')]
         # Temporary files bound memory and keep potentially private output out of logs.
         env = {k: os.environ[k] for k in ('HOME', 'PATH', 'TMPDIR', 'LANG') if k in os.environ}
+        exchange=None
+        if self.name=='reminders' and action=='apply':
+            from .native_reminder_exchange import begin
+            exchange=begin(request)
         try:
             with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
                 encoded = json.dumps(request, ensure_ascii=False).encode()
@@ -755,6 +759,9 @@ class NativeReader:
             raise SafetyError('Native read failed; inspect OS permission and helper configuration. No automatic retry.') from None
         if not isinstance(response, dict) or response.get('protocol_version') != 1:
             raise SafetyError('Invalid native helper response')
+        if exchange is not None:
+            from .native_reminder_exchange import finish
+            finish(exchange,response)
         if 'error' in response:
             if action=='apply' and response.get('mutation_dispatched') is False:
                 raise _confirmed_refusal(self.name,request,response)

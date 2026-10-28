@@ -50,9 +50,11 @@ def inspect_uncertain_reminder(engine, plan_id):
         raise SafetyError('Observed reminder identity or source differs from the plan')
     if engine.context(True) != context:
         raise SafetyError('Reminder access changed during observation')
+    from .native_reminder_exchange import inspect
+    terminal=inspect(engine.store,plan)
     return {'plan_id': plan_id, 'reminder_id': identity, 'source_id': source,
             'observed_snapshot_matches_before': observed == before,
             'snapshot_coverage': 'only_fields_exposed_by_the_current_adapter',
             'observation_consistency': 'separate_live_reads_may_change',
             'original_uncertainty_retained': True, 'causal_dispatch_proven': False,
-            'data_mutated': False, 'do_not_retry': True}
+            'data_mutated': False, 'do_not_retry': True, **terminal}

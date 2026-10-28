@@ -63,6 +63,7 @@ class ReminderObservationTests(unittest.TestCase):
         self.assertTrue(result['original_uncertainty_retained'])
         self.assertFalse(result['causal_dispatch_proven'])
         self.assertFalse(result['data_mutated'])
+        self.assertEqual(result['terminal_response'],'not_recorded')
         self.assertNotIn('Synthetic', json.dumps(result))
         self.adapter.before['item']['title'] = 'Changed'
         self.assertFalse(self.inspect()['observed_snapshot_matches_before'])
