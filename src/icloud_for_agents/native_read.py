@@ -1241,6 +1241,14 @@ def register_read_tools(mcp):
     if enabled('notes'):
         @mcp.tool(annotations=annotations)
         @guard
+        def notes_format_plain_table(rows:list[list[str]])->dict:
+            """Format bounded plain cells as HTML for a separately approved Notes change; no Notes data is read."""
+            if not enabled('notes'):raise SafetyError('Native service is disabled')
+            from .notes_table_format import format_table
+            return format_table(rows)
+
+        @mcp.tool(annotations=annotations)
+        @guard
         def notes_format_list_markdown(markdown:str)->dict:
             """Convert bounded plain headings, paragraphs and nested lists to HTML for a separately approved Notes change. Unsupported Markdown and checklists are refused; no Notes data is read."""
             if not enabled('notes'):raise SafetyError('Native service is disabled')

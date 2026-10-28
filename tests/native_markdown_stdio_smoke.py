@@ -27,6 +27,10 @@ def run():
                 assert next(t for t in tools if t['name']=='notes_export_observation')['annotations']['readOnlyHint'] is True
                 assert next(t for t in tools if t['name']=='notes_inspect_exported_links')['annotations']['readOnlyHint'] is True
                 assert next(t for t in tools if t['name']=='notes_format_list_markdown')['annotations']['readOnlyHint'] is True
+                assert next(t for t in tools if t['name']=='notes_format_plain_table')['annotations']['readOnlyHint'] is True
+                table=data(rpc('tools/call',{'name':'notes_format_plain_table','arguments':{'rows':[['A','B'],['<x>','&']]}})['result'])
+                assert '&lt;x&gt;' in table['body'] and '&amp;' in table['body'] and table['coverage']['native_table_identity'] is False
+                assert rpc('tools/call',{'name':'notes_format_plain_table','arguments':{'rows':[['A'],['B','C']]}})['result'].get('isError')
                 formatted=data(rpc('tools/call',{'name':'notes_format_list_markdown','arguments':{'markdown':'# Plan\n- First\n  1. Child'}})['result'])
                 assert formatted['body']=='<h1>Plan</h1><ul><li>First<ol><li>Child</li></ol></li></ul>' and formatted['coverage']['native_checklists'] is False
                 assert rpc('tools/call',{'name':'notes_format_list_markdown','arguments':{'markdown':'- [ ] Native checkbox'}})['result'].get('isError')
