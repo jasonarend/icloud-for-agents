@@ -13,7 +13,7 @@ from .core import SafetyError, NativeOperationRefused, digest
 from .services import enabled
 
 
-READ_ACTIONS = {'notes': {'status', 'sources', 'folders', 'default_folder', 'folder_get', 'folder_inventory', 'folder_role', 'model_folder_role', 'query', 'get', 'search', 'attachments', 'diagnose_note', 'contains'},
+READ_ACTIONS = {'notes': {'status', 'sources', 'folders', 'default_folder', 'folder_get', 'folder_inventory', 'folder_role', 'model_folder_role', 'query', 'get', 'text_page', 'search', 'attachments', 'diagnose_note', 'contains'},
                 'reminders': {'status', 'sources', 'lists', 'default_list', 'list_sections', 'query', 'get','list_membership','recovery_lookup','recovery_tree','recovery_list'}}
 MAX_OUTPUT = 2_000_000
 
@@ -142,7 +142,7 @@ class NativeReader:
         match_scope=fields.pop('match_scope','all')
         if not isinstance(match_scope,str) or match_scope not in {'all','title'} or (match_scope!='all' and (self.name!='notes' or action!='search')):
             raise SafetyError('Title-only search is supported only for Notes search')
-        if set(fields) - {'id', 'folder_id', 'list_id', 'limit', 'offset', 'completed', 'text', 'due_date', 'timezone', 'include_overdue', 'due_from', 'due_through', 'priorities', 'flagged', 'tag', 'urgent', 'source_id', 'modified_from', 'modified_before'}:
+        if set(fields) - {'id', 'folder_id', 'list_id', 'limit', 'offset', 'completed', 'text', 'due_date', 'timezone', 'include_overdue', 'due_from', 'due_through', 'priorities', 'flagged', 'tag', 'urgent', 'source_id', 'modified_from', 'modified_before', 'expected_modified'}:
             raise SafetyError('Unknown native read fields')
         modified={k:fields[k] for k in ('modified_from','modified_before') if fields.get(k) is not None}
         if modified:
@@ -155,8 +155,10 @@ class NativeReader:
                 if len(modified)==2 and modified['modified_from']>=modified['modified_before']:raise ValueError()
             except (ValueError,TypeError):raise SafetyError('Notes modification bounds require ordered UTC timestamps; the upper bound is exclusive') from None
         limit, offset = fields.get('limit', 50), fields.get('offset', 0)
-        if type(limit) is not int or not 1 <= limit <= 100 or type(offset) is not int or not 0 <= offset <= 100000:
+        max_limit,max_offset=(10000,5000000) if self.name=='notes' and action=='text_page' else (100,100000)
+        if type(limit) is not int or not 1 <= limit <= max_limit or type(offset) is not int or not 0 <= offset <= max_offset:
             raise SafetyError('Invalid bounded native page')
+        if fields.get('expected_modified') is not None and (self.name!='notes' or action!='text_page' or not isinstance(fields['expected_modified'],str) or not 1<=len(fields['expected_modified'])<=100):raise SafetyError('Expected modification timestamp is invalid')
         for key in ('id', 'folder_id', 'list_id', 'source_id', 'text'):
             value = fields.get(key)
             minimum=0 if key=='text' and self.name=='notes' and action=='search' and match_scope=='title' else 1
@@ -187,7 +189,7 @@ class NativeReader:
         if match_scope=='title':request['match_scope']='title'
         if action=='model_folder_role':request['source_ids']=[fields['source_id']]
         request.update(native_selections)
-        if action in {'folders','query','search','attachments','lists'}:
+        if action in {'folders','query','search','attachments','lists','text_page'}:
             request.setdefault('limit',limit);request.setdefault('offset',offset)
         if self.name=='notes' and action=='folder_role':
             if config.get('metadata_backend','scripting')!='notes-store-readonly':raise SafetyError('Optional Notes store metadata requires explicit owner configuration; no automatic fallback')
@@ -488,7 +490,7 @@ class NativeReader:
                 raise _confirmed_refusal(self.name,request,response)
             code = response['error']
             allowed = {'permission_required', 'not_found_in_scope', 'source_scope_required',
-                       'invalid_page', 'response_limit', 'read_failed', 'read_timeout', 'query_limit','private_metadata_unavailable'}
+                       'invalid_page', 'response_limit', 'read_failed', 'read_timeout', 'query_limit','private_metadata_unavailable','snapshot_changed'}
             if self.name == 'notes' and code == 'permission_required':
                 raise SafetyError('Notes Automation permission is required; the user must approve access in macOS Privacy & Security.')
             detail=''
@@ -853,27 +855,24 @@ def register_read_tools(mcp):
         @mcp.tool(annotations=annotations)
         @guard
         def notes_read_text(folder_id: str, id: str, offset: int=0, limit: int=10000, expected_modified: str | None=None) -> dict:
-            """Read a bounded page of the note's exported plaintext. Follow next_offset and pass the returned modified value as expected_modified on later pages; a truncated source cannot be paged beyond its observed prefix."""
-            if type(offset) is not int or not 0<=offset<=100000 or type(limit) is not int or not 1<=limit<=10000:
-                raise SafetyError('Text pages require offset 0..100000 and limit 1..10000')
+            """Read a bounded plaintext page; offsets are UTF-16 code units. Pass modified as expected_modified on later pages when available."""
+            if type(offset) is not int or not 0<=offset<=5000000 or type(limit) is not int or not 1<=limit<=10000:
+                raise SafetyError('Text pages require offset 0..5000000 and limit 1..10000')
             if expected_modified is not None and (not isinstance(expected_modified,str) or not 1<=len(expected_modified)<=100):raise SafetyError('Expected modification timestamp must be bounded text')
             config=native_config('notes');mode=os.environ.get('ICLOUD_MAIL_ACCESS','read-only')
-            result=NativeReader('notes').read('get',folder_id=folder_id,id=id)
+            result=NativeReader('notes').read('text_page',folder_id=folder_id,id=id,offset=offset,limit=limit,expected_modified=expected_modified)
             if native_config('notes')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=mode:raise SafetyError('Notes access changed during the text read')
-            item=result.get('item')
-            if not isinstance(item,dict) or item.get('id')!=id:raise SafetyError('Exact note identity was not verified')
-            if item.get('locked') is True:
-                return {'id':id,'folder_id':folder_id,'locked':True,'content_available':False,'data_mutated':False}
-            if item.get('folder_id')!=folder_id or item.get('source_id') not in config.get('source_ids',[]) or not isinstance(item.get('text'),str) or type(item.get('truncated')) is not bool:
-                raise SafetyError('Plaintext availability and scope could not be verified')
-            if expected_modified is not None and item.get('modified')!=expected_modified:raise SafetyError('Note changed since the preceding text page')
-            text=item['text']
-            if offset>len(text):raise SafetyError('Text offset is beyond the observed note content')
-            page=text[offset:offset+limit];next_offset=offset+len(page);source_truncated=item['truncated']
-            return {'id':id,'folder_id':folder_id,'source_id':item['source_id'],'locked':False,'content_available':True,
-                    'text':page,'offset':offset,'next_offset':next_offset,'done':next_offset>=len(text),
-                    'source_truncated':source_truncated,'content_complete':False,'modified':item.get('modified'),'pagination_consistency':'live_note_may_change',
-                    'data_mutated':False}
+            if (not isinstance(result,dict) or result.get('id')!=id or result.get('folder_id')!=folder_id or result.get('source_id') not in config.get('source_ids',[]) or type(result.get('locked')) is not bool or result.get('data_mutated') is not False):raise SafetyError('Exact note identity and scope were not verified')
+            if result['locked']:
+                if result.get('content_available') is not False or 'text' in result:raise SafetyError('Locked note returned invalid content')
+                return result
+            if (result.get('content_available') is not True or not isinstance(result.get('text'),str) or len(result['text'])>limit+1 or len(result['text'].encode('utf-8','surrogatepass'))>40004
+                    or type(result.get('offset')) is not int or result['offset']!=offset or type(result.get('next_offset')) is not int or not offset<=result['next_offset']<=5000000
+                    or result['next_offset']-offset!=len(result['text'].encode('utf-16-le','surrogatepass'))//2 or any(0xD800<=ord(c)<=0xDFFF for c in result['text']) or type(result.get('done')) is not bool or (not result['done'] and result['next_offset']==offset) or type(result.get('source_truncated')) is not bool
+                    or result.get('content_complete') is not False or result.get('pagination_consistency')!='live_note_may_change' or result.get('offset_unit')!='utf16_code_units'
+                    or 'modified' not in result or (result.get('modified') is not None and not isinstance(result['modified'],str)) or (expected_modified is not None and result.get('modified')!=expected_modified)):
+                raise SafetyError('Native plaintext page could not be verified')
+            return result
 
         @mcp.tool(annotations=annotations)
         @guard

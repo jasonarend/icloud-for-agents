@@ -39,7 +39,7 @@ function readRequest() {
     const text = ObjC.unwrap($.NSString.alloc.initWithDataEncoding(data, $.NSUTF8StringEncoding));
     if (text.length > 65536) throw Error('invalid_request');
     const req = JSON.parse(text);
-    if (req.protocol_version !== 1 || !['sources','folders','default_folder','folder_get','folder_inventory','query','get','search','attachments','diagnose_note','contains'].includes(req.action)) throw Error('unsupported_action');
+    if (req.protocol_version !== 1 || !['sources','folders','default_folder','folder_get','folder_inventory','query','get','text_page','search','attachments','diagnose_note','contains'].includes(req.action)) throw Error('unsupported_action');
     return req;
 }
 function run() { const req=readRequest(); return readNotes(Application('com.apple.Notes'), req); }
@@ -174,7 +174,7 @@ function readNotes(app, req) {
     }
     const ids = folder.object.notes.id();
     if(req.action==='contains')return JSON.stringify({protocol_version:1,exists:ids.includes(req.id) && folder.object.notes.byId(req.id).container().id()===req.folder_id,source_id:folder.source,folder_id:req.folder_id});
-    if (req.action === 'get' || req.action==='attachments' || req.action==='diagnose_note') {
+    if (req.action === 'get' || req.action==='text_page' || req.action==='attachments' || req.action==='diagnose_note') {
         if (!ids.includes(req.id)) throw Error('not_found_in_scope');
         const n = folder.object.notes.byId(req.id);
         if(n.container().id()!==req.folder_id)throw Error('not_found_in_scope');
@@ -182,8 +182,23 @@ function readNotes(app, req) {
         let locked;
         try { locked = n.passwordProtected(); } catch (_) { throw Error('lock_status_unavailable'); }
         if (locked) {
+            if(req.action==='text_page')return JSON.stringify({protocol_version:1,id:req.id,source_id:folder.source,folder_id:req.folder_id,locked:true,content_available:false,data_mutated:false});
             if(req.action==='attachments')return JSON.stringify({protocol_version:1,attachments:[],locked:true,content_available:false,done:true,excluded_locked_note:true});
             return JSON.stringify({protocol_version:1,item:{id:req.id,locked:true,content_available:false}});
+        }
+        if(req.action==='text_page') {
+            if(!Number.isInteger(req.limit) || req.limit<1 || req.limit>10000 || !Number.isInteger(req.offset) || req.offset<0 || req.offset>5000000 || (req.expected_modified!==undefined && (typeof req.expected_modified!=='string' || !req.expected_modified.length || req.expected_modified.length>100)))throw Error('invalid_page');
+            const modified=()=>{const date=n.modificationDate();return date?date.toISOString():null;};
+            const before=modified();if(req.expected_modified!==undefined && before!==req.expected_modified)return JSON.stringify({protocol_version:1,error:'snapshot_changed'});
+            const text=n.plaintext();if(typeof text!=='string')throw Error('read_failed');
+            const after=modified();if(before!==after)return JSON.stringify({protocol_version:1,error:'snapshot_changed'});
+            let cap=Math.min(text.length,5000000);
+            const high=c=>c>=0xD800 && c<=0xDBFF,low=c=>c>=0xDC00 && c<=0xDFFF;
+            if(cap<text.length && cap>0 && high(text.charCodeAt(cap-1)) && low(text.charCodeAt(cap)))cap--;
+            if(req.offset>cap || (req.offset>0 && req.offset<cap && high(text.charCodeAt(req.offset-1)) && low(text.charCodeAt(req.offset))))return JSON.stringify({protocol_version:1,error:'invalid_page'});
+            let end=Math.min(cap,req.offset+req.limit);
+            if(end<cap && end>req.offset && high(text.charCodeAt(end-1)) && low(text.charCodeAt(end)))end++;
+            return JSON.stringify({protocol_version:1,id:req.id,source_id:folder.source,folder_id:req.folder_id,locked:false,content_available:true,text:text.slice(req.offset,end),offset:req.offset,next_offset:end,done:end>=cap,source_truncated:text.length>cap,content_complete:false,modified:after,pagination_consistency:'live_note_may_change',offset_unit:'utf16_code_units',data_mutated:false});
         }
         if(req.action==='diagnose_note') {
             const fields={};

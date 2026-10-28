@@ -40,7 +40,7 @@ const fixtureApplication = name=>{
 def run():
     source = (ROOT/'src/icloud_for_agents/native/notes.js').read_text()
     with tempfile.TemporaryDirectory(prefix='icloud-native-fixtures-') as directory:
-        script=Path(directory)/'notes-fixture.js';script.write_text(FIXTURE+'\n'+source+"\nfunction run() { const req=readRequest();fixtureNoWalk=req.synthetic_no_walk===true;if(req.synthetic_modified)fixtureNotes[0].modificationDate=()=>new Date('2026-10-27T12:00:00.000Z');if(req.synthetic_title_only)fixtureNotes.forEach(n=>{n.body=()=>{throw Error('body_read');};n.plaintext=()=>{throw Error('body_read');};});return readNotes(fixtureApplication('Notes'),req); }\n")
+        script=Path(directory)/'notes-fixture.js';script.write_text(FIXTURE+'\n'+source+"\nfunction run() { const req=readRequest();fixtureNoWalk=req.synthetic_no_walk===true;if(req.synthetic_long)fixtureNotes[0].plaintext=()=> 'A'.repeat(100005)+'🚀Z';if(req.synthetic_huge)fixtureNotes[0].plaintext=()=> 'A'.repeat(4999999)+'🚀Z';if(req.synthetic_modified)fixtureNotes[0].modificationDate=()=>new Date('2026-10-27T12:00:00.000Z');if(req.synthetic_title_only)fixtureNotes.forEach(n=>{n.body=()=>{throw Error('body_read');};n.plaintext=()=>{throw Error('body_read');};});return readNotes(fixtureApplication('Notes'),req); }\n")
         def call(action, **fields):
             request={'protocol_version':1,'action':action,'source_ids':['selected'],**fields}
             process=subprocess.run(['/usr/bin/osascript','-l','JavaScript',str(script)],
@@ -63,6 +63,14 @@ print(result)
         embedded=subprocess.run([str(bridge),str(script)],input=json.dumps({'protocol_version':1,'action':'get','source_ids':['selected'],'folder_id':'folder-1','id':'note-1'}),capture_output=True,text=True,timeout=10)
         assert embedded.returncode==0,embedded.stderr
         assert json.loads(embedded.stdout)['item']['text']=='Synthetic content'
+        page=call('text_page',folder_id='folder-1',id='note-1',offset=100000,limit=6,synthetic_long=True,synthetic_modified=True)
+        assert page['text']=='AAAAA🚀' and page['next_offset']==100007 and not page['source_truncated'] and page['offset_unit']=='utf16_code_units'
+        last=call('text_page',folder_id='folder-1',id='note-1',offset=page['next_offset'],limit=10,expected_modified=page['modified'],synthetic_long=True,synthetic_modified=True)
+        assert last['text']=='Z' and last['done']
+        capped=call('text_page',folder_id='folder-1',id='note-1',offset=4999998,limit=10,synthetic_huge=True);assert capped['text']=='A' and capped['done'] and capped['source_truncated'] and capped['next_offset']==4999999
+        assert call('text_page',folder_id='folder-1',id='note-1',offset=100006,limit=10,synthetic_long=True)['error']=='invalid_page'
+        assert call('text_page',folder_id='folder-1',id='note-1',offset=0,limit=10,expected_modified='different',synthetic_modified=True)['error']=='snapshot_changed'
+        locked=call('text_page',folder_id='folder-1',id='note-2',offset=0,limit=10);assert locked['locked'] and 'text' not in locked
         assert call('contains',folder_id='folder-1',id='note-1')['exists'] is True
         default=call('default_folder',source_id='selected')['folder'];assert default['id']=='folder-1' and default['role']=='default_folder' and default['source_id']=='selected'
         assert call('contains',folder_id='folder-1',id='missing')['exists'] is False

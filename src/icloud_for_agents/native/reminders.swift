@@ -173,7 +173,7 @@ requestAction=action
 guard let service=req["service"] as? String, ["notes","reminders"].contains(service) else { fail("unsupported_service") }
 requestService=service
 if service == "notes" {
-    guard ["status", "store_status", "request_access", "sources", "folders", "default_folder", "folder_get", "folder_inventory", "model_folder_role", "query", "get", "search", "attachments", "diagnose_note", "contains", "apply", "diagnose_read_access"].contains(action) else { fail("unsupported_action") }
+    guard ["status", "store_status", "request_access", "sources", "folders", "default_folder", "folder_get", "folder_inventory", "model_folder_role", "query", "get", "text_page", "search", "attachments", "diagnose_note", "contains", "apply", "diagnose_read_access"].contains(action) else { fail("unsupported_action") }
     if action == "store_status" {
         let output=ICloudNotesStoreStatus()
         guard let value=(try? JSONSerialization.jsonObject(with:output)) as? [String:Any] else {fail("notes_store_status_unavailable")}
