@@ -521,6 +521,15 @@ class NativeReadTests(unittest.TestCase):
         with self.env(ICLOUD_NATIVE_CONFIG=json.dumps({'reminders':{'source_ids':['selected']}})),patch('platform.system',return_value='Darwin'),patch('subprocess.run',side_effect=AssertionError('No SDK')):
             for fields in cases:
                 with self.subTest(fields=fields),self.assertRaises(SafetyError):NativeReader('reminders').read('query',**fields)
+    def test_exact_reminder_requires_selected_source_and_identity(self):
+        config={'reminders':{'source_ids':['selected']}}
+        item={'id':'task','source_id':'selected','list_id':'list'}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value={'item':item}) as backend:
+            self.assertEqual(NativeReader('reminders').read('get',id='task')['item'],item)
+            for invalid in ({**item,'source_id':'foreign'}, {**item,'id':'other'}, {**item,'list_id':''}, {k:v for k,v in item.items() if k!='source_id'}):
+                backend.return_value={'item':invalid}
+                with self.subTest(invalid=invalid),self.assertRaises(SafetyError):NativeReader('reminders').read('get',id='task')
+
     def test_reminder_pages_require_selected_scope_and_progress(self):
         config={'reminders':{'source_ids':['selected']}}
         row={'id':'task','source_id':'selected','list_id':'list','completed':False}

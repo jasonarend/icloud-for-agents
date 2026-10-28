@@ -211,6 +211,13 @@ class NativeReader:
             from .native_note_store import folder_role
             return folder_role(fields['folder_id'],sources)
         result = self._dispatch(request, config)
+        if self.name=='reminders' and action=='get':
+            item=result.get('item') if isinstance(result,dict) else None
+            if (native_config('reminders')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode
+                    or not isinstance(fields.get('id'),str) or not fields['id'] or not isinstance(item,dict)
+                    or item.get('id')!=fields['id'] or item.get('source_id') not in sources
+                    or not isinstance(item.get('list_id'),str) or not item['list_id']):
+                raise SafetyError('Configured helper did not verify the exact scoped reminder')
         if self.name=='reminders' and action=='query':
             rows=result.get('items') if isinstance(result,dict) else None
             if (native_config('reminders')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode
