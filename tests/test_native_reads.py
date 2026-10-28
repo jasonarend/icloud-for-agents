@@ -413,7 +413,7 @@ class NativeReadTests(unittest.TestCase):
                 from types import SimpleNamespace
                 return SimpleNamespace(returncode=0)
             return run
-        for raw in (b'not json', b'[]', b'{"protocol_version":2}', b'{"protocol_version":1,"error":"permission_required"}', b'x' * 2_000_001):
+        for raw in (b'not json', b'[]', b'{"protocol_version":2}', b'{"protocol_version":1,"error":"permission_required"}', b'{"protocol_version":1,"error":[]}', b'{"protocol_version":1,"error":"private_metadata_unavailable","category":[],"native_error_domain":{}}', b'x' * 2_000_001):
             with self.env(), patch('platform.system', return_value='Darwin'), patch('subprocess.run', side_effect=response(raw)):
                 with self.assertRaises(SafetyError): NativeReader('notes').read('sources')
 
