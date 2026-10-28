@@ -14,6 +14,17 @@ from fastmcp.exceptions import ToolError
 BODY_SEARCH_EVIDENCE={'plaintext_search_limit':5000000,'plaintext_search_unit':'utf16_code_units'}
 
 class NativeReadTests(unittest.TestCase):
+    def test_malformed_access_modes_fail_closed_before_dispatch(self):
+        for service in ('notes', 'reminders'):
+            for invalid in ([], {}, None, True, 1):
+                config = {service: {'source_ids': ['selected'], 'access_mode': invalid}}
+                with self.subTest(service=service, invalid=invalid), self.assertRaises(ValueError):
+                    validate_config(config)
+                with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)), patch.object(NativeReader, '_dispatch') as dispatch:
+                    with self.assertRaisesRegex(SafetyError, 'Invalid native configuration'):
+                        NativeReader(service).read('status')
+                    dispatch.assert_not_called()
+
     def tearDown(self):
         importlib.reload(server)
 

@@ -56,7 +56,8 @@ def validate_config(config):
         if 'advanced_backend' in value and (name!='reminders' or not isinstance(value['advanced_backend'],str) or value['advanced_backend'] not in {'disabled','reminderkit'}):raise ValueError('Unknown optional native advanced backend')
         if 'folder_write_backend' in value and (name!='notes' or value['folder_write_backend'] not in ('scripting','notes-shared') or (value['folder_write_backend']=='notes-shared' and value.get('metadata_backend')!='notes-store-readonly')):
             raise ValueError('Native folder writer requires explicit read-only store verification')
-        if value.get('access_mode', 'read-only') not in {'disabled', 'read-only', 'write-enabled'}:
+        mode = value.get('access_mode', 'read-only')
+        if not isinstance(mode, str) or mode not in {'disabled', 'read-only', 'write-enabled'}:
             raise ValueError('Invalid native access mode')
         ids = value.get('source_ids', [])
         if (not isinstance(ids, list) or len(ids) > 100 or any(
