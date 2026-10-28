@@ -608,7 +608,7 @@ if action == "apply" {
                 respond(["protocol_version":1,"result":output])
             }
             if operation == "add_early" {
-                let units:[String:Int] = ["minutes":0,"hours":1,"days":2]
+                let units:[String:Int] = ["minutes":0,"hours":1,"days":2,"weeks":3,"months":4]
                 guard Set(fields.keys)==["unit","count"],let unitName=fields["unit"] as? String,let unit=units[unitName],let count=fields["count"] as? NSNumber,CFGetTypeID(count) != CFBooleanGetTypeID(),count.intValue>=1,count.intValue<=10000,count.doubleValue==Double(count.intValue),let due=reminder.dueDateComponents,due.hour != nil,due.minute != nil,
                       let payload=try? JSONSerialization.data(withJSONObject:["id":identifier,"source_id":sourceID,"list_id":reminder.calendar.calendarIdentifier,"unit":unit,"count": -count.intValue]),
                       let response=(try? JSONSerialization.jsonObject(with:ICloudRemindersAddEarly(payload,{NativeMutationGate.beginMutation()}))) as? [String:Any] else {fail("invalid_mutation")}

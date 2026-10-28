@@ -308,8 +308,8 @@ class RemindersCreateAdapter:
             except ValueError:raise SafetyError('Use one exact native tag ID') from None
             if native_config('reminders').get('advanced_backend')!='reminderkit':raise SafetyError('Native tag changes require the explicitly selected ReminderKit backend')
         elif operation=='add_early':
-            if (set(fields)!={'unit','count'} or not isinstance(fields.get('unit'),str) or fields['unit'] not in {'minutes','hours','days'} or type(fields.get('count')) is not int or not 1<=fields['count']<=10000):
-                raise SafetyError('Choose minutes, hours or days and a positive whole number before the due date')
+            if (set(fields)!={'unit','count'} or not isinstance(fields.get('unit'),str) or fields['unit'] not in {'minutes','hours','days','weeks','months'} or type(fields.get('count')) is not int or not 1<=fields['count']<=10000):
+                raise SafetyError('Choose minutes, hours, days, weeks or months and a positive whole number before the due date')
             if native_config('reminders').get('advanced_backend')!='reminderkit':raise SafetyError('Native early reminders require the explicitly selected ReminderKit backend')
         elif operation=='set_urgent':
             if set(fields)!={'urgent'} or type(fields['urgent']) is not bool:raise SafetyError('Use an explicit native urgent Boolean')
@@ -559,7 +559,7 @@ class RemindersCreateAdapter:
             if expected_native is not None:
                 expected_native=dict(expected_native,list_id=expected['list_id'])
                 if item['operation']=='add_early':
-                    units={'minutes':0,'hours':1,'days':2}
+                    units={'minutes':0,'hours':1,'days':2,'weeks':3,'months':4}
                     if not isinstance(native,dict) or native.get('early_alerts')!=[{'native_unit':units[item['fields']['unit']],'native_count':-item['fields']['count']}] or not isinstance(native.get('early_payload_fingerprint'),str):return False
                     expected_native['early_alerts']=native['early_alerts'];expected_native['early_payload_fingerprint']=native['early_payload_fingerprint']
                 if item['operation']=='set_flagged':expected_native.update(flagged=item['fields']['flagged'],flag_state=int(item['fields']['flagged']))

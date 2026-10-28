@@ -154,6 +154,9 @@ class NativeRemindersTests(unittest.TestCase):
         metadata['early_alerts'][0]['native_count']=-6
         self.assertFalse(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
         with self.assertRaises(SafetyError):self.existing('add_early',{'unit':'minutes','count':5})
+        metadata.update(early_alerts=[],early_payload_fingerprint=None)
+        month=self.existing('add_early',{'unit':'months','count':2});metadata.update(early_alerts=[{'native_unit':4,'native_count':-2}],early_payload_fingerprint='b'*64)
+        self.assertTrue(self.adapter.verify(month,{'id':'created','source_id':'selected'}))
 
     def test_due_change_reviews_early_notification_and_refuses_unsafe_clear(self):
         metadata=self.native_reader();metadata.update(early_alerts=[{'native_unit':0,'native_count':-5}],early_payload_fingerprint='a'*64)

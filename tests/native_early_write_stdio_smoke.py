@@ -38,7 +38,7 @@ def run(policy):
                         receipt=runtime/(plan['plan_id']+'.approved');fd=os.open(receipt,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
                         with os.fdopen(fd,'w') as stream:json.dump({'plan_id':plan['plan_id'],'sha256':plan['sha256']},stream)
                 def change(identity):
-                    return {'operation':'add_early','source_id':'selected','id':identity,'fields':{'unit':'minutes','count':5}}
+                    return {'operation':'add_early','source_id':'selected','id':identity,'fields':{'unit':'months' if identity=='second' else 'minutes','count':5}}
                 assert call('reminders_prepare_changes',{'changes':[change('created')]}).get('isError')
                 plan=data(call('reminders_prepare_once',{'changes':[change('created')]}));identity=plan['plan_id']
                 if policy=='local-receipt':assert call('reminders_execute_approved',{'plan_id':identity}).get('isError')
