@@ -583,6 +583,11 @@ class NativeReadTests(unittest.TestCase):
             reader=Reader();result=inspect_group_hierarchy(reader,source,root);self.assertEqual([n['id'] for n in result['nodes']],[root,child,leaf]);self.assertFalse(result['hierarchy_complete'])
             depth=inspect_group_hierarchy(reader,source,root,max_depth=1);self.assertEqual(depth['unexpanded'][0]['reason'],'depth_limit')
             limited=inspect_group_hierarchy(reader,source,root,max_nodes=1);self.assertEqual(limited['unexpanded'][0]['reason'],'node_limit')
+            import uuid
+            rows=[{'id':str(uuid.UUID(int=100+i)),'title':'Synthetic','is_group':False} for i in range(100)]
+            reader.pages[root]={**page(root,rows),'done':False}
+            paged=inspect_group_hierarchy(reader,source,root);self.assertEqual(len(paged['nodes']),20);self.assertEqual(paged['unexpanded'][0]['reason'],'node_limit')
+            reader=Reader()
             reader.pages[child]=page(child,[{'id':root,'title':'Cycle','is_group':True}])
             with self.assertRaises(SafetyError):inspect_group_hierarchy(reader,source,root)
             with self.assertRaises(SafetyError):inspect_group_hierarchy(reader,source,root,max_nodes=True)
