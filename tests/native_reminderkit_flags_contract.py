@@ -142,6 +142,15 @@ static NSArray *fixtureSections;
 -(id)initWithStore:(id)store{return [super init];}
 -(id)fetchListSectionWithReminderID:(id)identity error:(NSError **)error{if(fixtureSections.count)return fixtureSections[0];*error=[NSError errorWithDomain:@"com.apple.reminderkit" code:-3009 userInfo:nil];return nil;}
 @end
+static NSArray *fixtureGroupChildren;
+@interface FixtureListsView:NSObject
+-(id)initWithStore:(id)store;
+-(id)fetchListsInGroup:(id)group error:(NSError **)error;
+@end
+@implementation FixtureListsView
+-(id)initWithStore:(id)store{return [super init];}
+-(id)fetchListsInGroup:(id)group error:(NSError **)error{return fixtureGroupChildren;}
+@end
 @interface FixtureStore:NSObject
 -(id)fetchReminderWithObjectID:(id)objectID error:(NSError **)error;
 -(id)fetchReminderIncludingMarkedForDeleteWithObjectID:(id)objectID error:(NSError **)error;
@@ -256,6 +265,10 @@ int main(){@autoreleasepool{
  NSData *badPinData=[NSJSONSerialization dataWithJSONObject:@{@"source_id":source,@"list_id":list,@"include_pinned":@1} options:0 error:NULL];NSDictionary *badPin=[NSJSONSerialization JSONObjectWithData:ICloudRemindersReadListFeatures(badPinData) options:0 error:NULL];NSCAssert(badPin[@"error"],@"pin selection requires a true Boolean");
  NSCAssert(![listFeatures()[@"grocery_categorization"] boolValue] && ![listFeatures()[@"list_type_verified"] boolValue],@"ordinary provider flags do not claim type");fixture.list.storage.shouldCategorizeGroceryItems=YES;NSCAssert([listFeatures()[@"grocery_categorization"] boolValue],@"native grocery flag read");fixture.list.isShared=YES;fixture.list.isSharedToMe=YES;NSCAssert([listFeatures()[@"shared"] boolValue] && [listFeatures()[@"shared_to_me"] boolValue] && ![listFeatures()[@"sharing_metadata_complete"] boolValue],@"sharing flags do not claim participant details");fixture.list.account.remObjectID=Identity(@"REMCDAccount",other);NSCAssert(listFeatures()[@"error"],@"foreign list account refused");fixture.list.account.remObjectID=Identity(@"REMCDAccount",source);
  FixtureSection *section=[FixtureSection new];section.remObjectID=Identity(@"REMCDListSection",other);section.list=fixture.list;section.storage=[FixtureSectionStorage new];section.storage.accountID=fixture.account.remObjectID;section.storage.listID=fixture.list.remObjectID;section.storage.displayName=@"Synthetic";fixtureSections=@[section];
+ fixture.list.storage.isGroup=YES;FixtureList *childList=[FixtureList new];childList.remObjectID=Identity(@"REMCDList",other);childList.account=fixture.account;childList.storage=[FixtureListStorage new];childList.storage.name=@"Synthetic child";childList.storage.parentListID=fixture.list.remObjectID;fixtureGroupChildren=@[childList];
+ NSData *groupData=[NSJSONSerialization dataWithJSONObject:@{@"source_id":source,@"group_id":list} options:0 error:NULL];NSDictionary *(^groupRead)(void)=^NSDictionary *{return [NSJSONSerialization JSONObjectWithData:ICloudRemindersGroupLists(groupData) options:0 error:NULL];};
+ NSCAssert([groupRead()[@"lists"][0][@"title"] isEqual:@"Synthetic child"] && [groupRead()[@"membership_complete"] boolValue]==NO,@"scoped group child observed");
+ childList.storage.parentListID=Identity(@"REMCDList",other);NSCAssert(groupRead()[@"error"],@"wrong group parent refused");childList.storage.parentListID=fixture.list.remObjectID;fixtureGroupChildren=@[childList,childList];NSCAssert(groupRead()[@"error"],@"duplicate group child refused");fixture.list.storage.isGroup=NO;NSCAssert(groupRead()[@"error"],@"ordinary list refused");
  NSDictionary *parentReq=@{@"source_id":source,@"list_id":list};NSData *parentData=[NSJSONSerialization dataWithJSONObject:parentReq options:0 error:NULL];NSDictionary *(^parentRead)(void)=^NSDictionary *{return [NSJSONSerialization JSONObjectWithData:ICloudRemindersReadListParent(parentData) options:0 error:NULL];};
  NSCAssert([parentRead()[@"parent_status"] isEqual:@"provider_not_reported"],@"unreported parent observed");
  FixtureList *group=[FixtureList new];group.remObjectID=Identity(@"REMCDList",other);group.account=fixture.account;group.storage=[FixtureListStorage new];group.storage.isGroup=YES;group.storage.name=@"Synthetic group";fixture.list.parentList=group;fixture.list.storage.parentListID=group.remObjectID;
@@ -392,7 +405,7 @@ int main(){@autoreleasepool{
 def run():
     source=(ROOT/'src/icloud_for_agents/native/reminders-model.m').read_text();source=source.replace('    if(NSProcessInfo.processInfo.operatingSystemVersion.majorVersion!=27)return NO;','').replace('    if(!dlopen("/System/Library/PrivateFrameworks/ReminderKit.framework/ReminderKit",RTLD_LAZY|RTLD_LOCAL))return NO;','')
     source=source.replace('NSProcessInfo.processInfo.operatingSystemVersion.majorVersion!=27 || !dlopen("/System/Library/PrivateFrameworks/ReminderKit.framework/ReminderKit",RTLD_LAZY|RTLD_LOCAL)','NO')
-    for real,fake in [('REMAssignment','FixtureAssignment'),('REMDueDateDeltaInterval','FixtureDelta'),('REMStore','FixtureStore'),('REMObjectID','FixtureID'),('REMReminder','FixtureReminder'),('REMSaveRequest','FixtureSave'),('REMListSectionsDataView','FixtureSectionView')]:source=source.replace('NSClassFromString(@"'+real+'")','NSClassFromString(@"'+fake+'")')
+    for real,fake in [('REMAssignment','FixtureAssignment'),('REMDueDateDeltaInterval','FixtureDelta'),('REMStore','FixtureStore'),('REMListsDataView','FixtureListsView'),('REMObjectID','FixtureID'),('REMReminder','FixtureReminder'),('REMSaveRequest','FixtureSave'),('REMListSectionsDataView','FixtureSectionView')]:source=source.replace('NSClassFromString(@"'+real+'")','NSClassFromString(@"'+fake+'")')
     with tempfile.TemporaryDirectory(prefix='native-flag-contract-') as directory:
         p=Path(directory);(p/'reminders-model.h').write_text((ROOT/'src/icloud_for_agents/native/reminders-model.h').read_text());(p/'test.m').write_text(source+'\n'+FIXTURE)
         result=subprocess.run(['/usr/bin/clang','-fobjc-arc','-framework','Foundation',str(p/'test.m'),'-o',str(p/'contract')],capture_output=True,text=True,timeout=60);assert result.returncode==0,result.stderr

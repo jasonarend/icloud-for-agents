@@ -14,6 +14,8 @@ def dispatch(self,request,config):
     assert self.name=='reminders' and request['source_ids']==['selected']
     if request['action']=='template_sections':
         return {'protocol_version':1,'source_id':'selected','id':request['id'],'sections':[{'id':'55555555-5555-4555-8555-555555555555','title':'Synthetic section'}],'sections_complete':False,'ordering_verified':False,'membership_verified':False,'data_mutated':False,'backend':'reminderkit-template-sections-v1'}
+    if request['action']=='group_lists':
+        return {'protocol_version':1,'source_id':'selected','group_id':request['group_id'],'lists':[{'id':'55555555-5555-4555-8555-555555555555','title':'Synthetic child'}],'membership_complete':False,'ordering_verified':False,'data_mutated':False,'backend':'reminderkit-group-lists-v1'}
     if request['action']=='list_parent':
         return {'protocol_version':1,'source_id':'selected','list_id':request['list_id'],'parent':{'id':'55555555-5555-4555-8555-555555555555','title':'Synthetic group'},'parent_status':'provider_reported','hierarchy_complete':False,'data_mutated':False,'backend':'reminderkit-list-parent-v1'}
     if request['action']=='smart_lists':

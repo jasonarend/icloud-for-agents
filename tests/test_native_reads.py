@@ -413,7 +413,7 @@ class NativeReadTests(unittest.TestCase):
                     importlib.reload(server)
                     tools = {t.name:t for t in asyncio.run(server.mcp.list_tools())}
                     self.assertEqual(sum(n.startswith('notes_') for n in tools),44 if notes else 0)
-                    self.assertEqual(sum(n.startswith('reminders_') for n in tools),38 if reminders else 0)
+                    self.assertEqual(sum(n.startswith('reminders_') for n in tools),39 if reminders else 0)
                     if notes:
                         with patch.dict(os.environ, {'ICLOUD_ENABLE_NOTES':'0'}), patch('subprocess.run',side_effect=AssertionError('No helper')):
                             with self.assertRaises(ToolError): tools['notes_sources'].fn()
@@ -571,6 +571,18 @@ class NativeReadTests(unittest.TestCase):
         for invalid in ({'modified_from':'2026-02-30T00:00:00Z'}, {'modified_from':'2026-10-27T12:00:00+00:00'}, {'modified_from':'2026-10-27T13:00:00Z','modified_before':'2026-10-27T12:00:00Z'}):
             with self.subTest(invalid=invalid),self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',side_effect=AssertionError('No helper')),self.assertRaises(SafetyError):
                 NativeReader('notes').read('search',text='table',**invalid)
+
+    def test_reminder_group_lists_require_scoped_membership(self):
+        config={'reminders':{'source_ids':['selected'],'advanced_backend':'reminderkit','helper_path':'/synthetic/helper'}}
+        group='33333333-3333-4333-8333-333333333333';row={'id':'55555555-5555-4555-8555-555555555555','title':'Synthetic child'}
+        result={'source_id':'selected','group_id':group,'lists':[row],'membership_complete':False,'ordering_verified':False,'data_mutated':False,'backend':'reminderkit-group-lists-v1','private':'discard'}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch') as backend:
+            backend.return_value=result
+            self.assertNotIn('private',NativeReader('reminders').read('group_lists',source_id='selected',group_id=group))
+            for bad in ({'source_id':'foreign'},{'group_id':'other'},{'lists':[row,row]},{'lists':[{**row,'id':group}]},{'membership_complete':True},{'data_mutated':True}):
+                backend.return_value={**result,**bad}
+                with self.subTest(bad=bad),self.assertRaises(SafetyError):NativeReader('reminders').read('group_lists',source_id='selected',group_id=group)
+            with self.assertRaises(SafetyError):NativeReader('reminders').read('group_lists',source_id='foreign',group_id=group)
 
     def test_reminder_list_parent_requires_scoped_identity(self):
         config={'reminders':{'source_ids':['selected'],'advanced_backend':'reminderkit','helper_path':'/synthetic/helper'}}
