@@ -89,6 +89,7 @@ class NativeReader:
             raise SafetyError('Select exact native source IDs before reading content')
         attachment_metadata=fields.pop('include_attachment_metadata',False)
         if type(attachment_metadata) is not bool or (attachment_metadata and (self.name!='notes' or action!='attachments')):raise SafetyError('Attachment metadata is supported only for Notes attachment reads')
+        if attachment_metadata and any(not isinstance(fields.get(key),str) or not 1<=len(fields[key])<=1000 for key in ('folder_id','id')):raise SafetyError('Attachment metadata requires an exact note and folder')
         native_selections={}
         for key in ('include_native_metadata','include_native_tags','include_native_hierarchy','include_native_children','include_native_urgent','include_native_section','include_native_early'):
             if key in fields and (self.name!='reminders' or action!='get'):raise SafetyError('Native metadata selection is supported only for Reminders get')

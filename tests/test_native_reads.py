@@ -76,6 +76,7 @@ class NativeReadTests(unittest.TestCase):
         result={'protocol_version':1,'attachments':[row],'done':True,'next_offset':1,'content_downloaded':False,'metadata_complete':False,'metadata_requested':True,'source_id':'selected','folder_id':'folder','note_id':'note'}
         with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=result) as backend:
             self.assertEqual(NativeReader('notes').read('attachments',folder_id='folder',id='note',limit=10,offset=0,include_attachment_metadata=True),result)
+            with self.assertRaises(SafetyError):NativeReader('notes').read('attachments',folder_id='folder',include_attachment_metadata=True)
             for bad in (dict(result,source_id='foreign'),dict(result,note_id='other'),dict(result,metadata_requested=False),dict(result,next_offset=2),dict(result,attachments=[dict(row,native_metadata=dict(metadata,shared={'status':'available','value':1}))]),dict(result,attachments=[row,row])):
                 backend.return_value=bad
                 with self.assertRaises(SafetyError):NativeReader('notes').read('attachments',folder_id='folder',id='note',limit=10,offset=0,include_attachment_metadata=True)
