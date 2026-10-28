@@ -144,7 +144,7 @@ function readNotes(app, req) {
                         const bounded=html.slice(0,100000);
                         if(projectionBytes+bounded.length>250000)unavailable.push({id:ref.id,category:'table_projection_budget'});
                         else {projectionBytes+=bounded.length;projections.push({id:ref.id,title:title.slice(0,1000),
-                            source_id:ref.folder.source,folder_id:ref.folder.object.id(),html:bounded,
+                            source_id:ref.folder.source,folder_id:ref.folder.object.id(),locked:false,html:bounded,
                             truncated:html.length>100000,...(hasModified?{modified:modified}:{})});}
                     }
                 }

@@ -391,7 +391,10 @@ class NativeReader:
                     or any(not isinstance(row,dict) or not isinstance(row.get('id'),str) or not row['id']
                            or row.get('source_id') not in sources or not isinstance(row.get('folder_id'),str) or not row['folder_id']
                            or (fields.get('folder_id') is not None and row['folder_id']!=fields['folder_id'])
-                           for row in items+candidates)):
+                           for row in items+candidates)
+                    or any(type(row.get('locked')) is not bool or not isinstance(row.get('excerpt'),str)
+                           or (row['locked'] and row['excerpt']!='') for row in items)
+                    or any(row.get('locked') is not False for row in candidates)):
                 raise SafetyError('Invalid bounded Notes search projection')
             if match_scope=='title':
                 if (native_config('notes')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode

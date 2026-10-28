@@ -391,7 +391,7 @@ class NativeReadTests(unittest.TestCase):
 
     def test_search_finds_table_text_and_keeps_raw_html_internal(self):
         page={'items':[],'table_projection_candidates':[{'id':'note','title':'Synthetic','source_id':'selected',
-            'folder_id':'folder','html':'<object><table><tr><td>A &amp; B</td></tr></table></object>','truncated':False}],
+            'folder_id':'folder','locked':False,'html':'<object><table><tr><td>A &amp; B</td></tr></table></object>','truncated':False}],
             'done':True,'next_offset':1}
         with self.env(ICLOUD_NATIVE_CONFIG=json.dumps({'notes':{'source_ids':['selected']}})),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=page):
             result=NativeReader('notes').read('search',text='A & B')
@@ -403,9 +403,11 @@ class NativeReadTests(unittest.TestCase):
     def test_notes_search_always_checks_scope_and_page_bound(self):
         config={'notes':{'source_ids':['selected']}}
         row={'id':'note','title':'Synthetic','source_id':'selected','folder_id':'folder','locked':False,'excerpt':'test','content_complete':False}
-        candidate={'id':'note','title':'Synthetic','source_id':'selected','folder_id':'folder','html':'<table><tr><td>test</td></tr></table>','truncated':False}
+        candidate={'id':'note','title':'Synthetic','source_id':'selected','folder_id':'folder','locked':False,'html':'<table><tr><td>test</td></tr></table>','truncated':False}
         pages=[{'items':[{**row,'source_id':'foreign'}]}, {'items':[row],'table_projection_candidates':[{**candidate,'folder_id':'other'}]},
-               {'items':[row,row],'table_projection_candidates':[]}, {'items':[],'table_projection_candidates':[{**candidate,'source_id':'foreign'}]}]
+               {'items':[row,row],'table_projection_candidates':[]}, {'items':[],'table_projection_candidates':[{**candidate,'source_id':'foreign'}]},
+               {'items':[{**row,'locked':True,'excerpt':'private'}]}, {'items':[],'table_projection_candidates':[{**candidate,'locked':True}]},
+               {'items':[],'table_projection_candidates':[{k:v for k,v in candidate.items() if k!='locked'}]}]
         for page in pages:
             with self.subTest(page=page),self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=page),self.assertRaises(SafetyError):
                 NativeReader('notes').read('search',text='test',folder_id='folder',limit=1)
@@ -419,7 +421,7 @@ class NativeReadTests(unittest.TestCase):
         config={'notes':{'source_ids':['selected']}}
         fields={'text':'table','modified_from':'2026-10-27T12:00:00Z','modified_before':'2026-10-27T13:00:00Z'}
         filter_info={'from':fields['modified_from'],'before':fields['modified_before'],'semantics':'utc_inclusive_from_exclusive_before'}
-        candidate={'id':'note','title':'Synthetic','source_id':'selected','folder_id':'folder','html':'<table><tr><td>table</td></tr></table>','truncated':False,'modified':'2026-10-27T12:00:00.000Z'}
+        candidate={'id':'note','title':'Synthetic','source_id':'selected','folder_id':'folder','locked':False,'html':'<table><tr><td>table</td></tr></table>','truncated':False,'modified':'2026-10-27T12:00:00.000Z'}
         page={'items':[],'table_projection_candidates':[candidate],'modified_filter':filter_info,'done':True,'next_offset':1}
         with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=page):
             result=NativeReader('notes').read('search',**fields)

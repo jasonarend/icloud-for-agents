@@ -25,7 +25,7 @@ def dispatch(self,request,config):
         if request.get('match_scope')=='title':
             return {'protocol_version':1,'items':[{'id':'synthetic-note','title':'Synthetic Title','source_id':'selected','folder_id':'folder','locked':False,'excerpt':'','content_complete':False}],'table_projection_candidates':[],'match_scope':'title','done':True,'next_offset':1}
         assert request.get('modified_from')=='2026-10-27T12:00:00Z' and request.get('modified_before')=='2026-10-27T13:00:00Z'
-        return {'protocol_version':1,'items':[],'table_projection_candidates':[{'id':'synthetic-note','title':'Synthetic','source_id':'selected','folder_id':'folder','html':'<table><tr><td>Priority</td></tr></table>','truncated':False,'modified':'2026-10-27T12:30:00.000Z'}],'done':True,'next_offset':1,'modified_filter':{'from':request['modified_from'],'before':request['modified_before'],'semantics':'utc_inclusive_from_exclusive_before'}}
+        return {'protocol_version':1,'items':[],'table_projection_candidates':[{'id':'synthetic-note','title':'Synthetic','source_id':'selected','folder_id':'folder','locked':False,'html':'<table><tr><td>Priority</td></tr></table>','truncated':False,'modified':'2026-10-27T12:30:00.000Z'}],'done':True,'next_offset':1,'modified_filter':{'from':request['modified_from'],'before':request['modified_before'],'semantics':'utc_inclusive_from_exclusive_before'}}
     if request['action']=='text_page':
         identity=request['id'];base={'protocol_version':1,'id':identity,'folder_id':'folder','source_id':'foreign' if identity=='foreign-note' else 'selected','data_mutated':False}
         if identity=='synthetic-locked':return {**base,'locked':True,'content_available':False}
