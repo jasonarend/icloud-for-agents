@@ -543,6 +543,12 @@ class NativeReader:
                 except (ValueError,KeyError,TypeError):
                     result.setdefault('unavailable',[]).append({'category':'table_projection_unavailable'})
             if len(result.get('items',[]))>limit:raise SafetyError('Native search exceeded result limit')
+            if (('done' in result and type(result['done']) is not bool)
+                    or ('next_offset' in result and (type(result['next_offset']) is not int or result['next_offset']<fields.get('offset',0)))
+                    or ('scanned' in result and (type(result['scanned']) is not int or not 0<=result['scanned']<=100))
+                    or (result.get('done') is False and 'next_offset' in result and result['next_offset']<=fields.get('offset',0))
+                    or ('pagination_consistency' in result and result['pagination_consistency']!='live_offset_may_shift')):
+                raise SafetyError('Configured helper returned invalid Notes search pagination')
             if locked_filter is None:result.pop('locked_filter',None)
             if shared_filter is None:result.pop('shared_filter',None)
             if attachment_filter is None:result.pop('attachment_filter',None)

@@ -569,6 +569,14 @@ class NativeReadTests(unittest.TestCase):
             with self.subTest(invalid=invalid),self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',side_effect=AssertionError('No helper')),self.assertRaises(SafetyError):
                 NativeReader('notes').read('search',text='table',**invalid)
 
+    def test_notes_search_rejects_invalid_pagination_for_body_and_title(self):
+        config={'notes':{'source_ids':['selected']}}
+        for scope in ('all','title'):
+            base={'items':[],'table_projection_candidates':[],**(BODY_SEARCH_EVIDENCE if scope=='all' else {'match_scope':'title'})}
+            for diagnostic in ({'done':'false'}, {'next_offset':True}, {'next_offset':-1}, {'scanned':101}, {'done':False,'next_offset':0}, {'pagination_consistency':'stable'}):
+                with self.subTest(scope=scope,diagnostic=diagnostic),self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value={**base,**diagnostic}),self.assertRaises(SafetyError):
+                    NativeReader('notes').read('search',text='test',match_scope=scope)
+
     def test_title_only_search_rejects_old_helpers_body_and_scope_drift(self):
         config={'notes':{'source_ids':['selected']}}
         row={'id':'note','title':'Synthetic Title','source_id':'selected','folder_id':'folder','excerpt':'','locked':False,'content_complete':False}
