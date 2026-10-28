@@ -137,8 +137,9 @@ class NativeReader:
                     or not config.get('helper_path')):
                 raise SafetyError('Model role lookup requires explicitly selected native Notes and read-only store backends and a signed helper')
         if action=='group_lists':
-            if self.name!='reminders' or set(fields)!={'source_id','group_id'} or fields.get('source_id') not in sources or not isinstance(fields.get('group_id'),str) or not fields['group_id']:raise SafetyError('Group inspection requires one exact selected source and group')
+            if self.name!='reminders' or set(fields)-{'source_id','group_id','limit','offset'} or fields.get('source_id') not in sources or not isinstance(fields.get('group_id'),str) or not fields['group_id']:raise SafetyError('Group inspection requires one exact selected source and group')
             if config.get('advanced_backend')!='reminderkit' or not config.get('helper_path'):raise SafetyError('Group inspection requires the explicitly selected ReminderKit backend and signed helper')
+            fields.setdefault('limit',100);fields.setdefault('offset',0)
         if action=='template_sections':
             if self.name!='reminders' or set(fields)!={'source_id','id'} or fields.get('source_id') not in sources or not isinstance(fields.get('id'),str) or not fields['id']:raise SafetyError('Template section discovery requires one exact selected source and template')
             if config.get('advanced_backend')!='reminderkit' or not config.get('helper_path'):raise SafetyError('Template section discovery requires the explicitly selected ReminderKit backend and signed helper')
@@ -421,8 +422,8 @@ class NativeReader:
             result={key:result[key] for key in ('protocol_version','source_id','smart_lists','next_offset','done','pagination_consistency','filter_rules_complete','data_mutated','backend') if key in result}
         if action=='group_lists':
             if native_config('reminders')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode:raise SafetyError('Reminder access changed during group inspection')
-            validate_group_lists(result,fields['source_id'],fields['group_id'])
-            result={key:result[key] for key in ('protocol_version','source_id','group_id','lists','membership_complete','ordering_verified','data_mutated','backend') if key in result}
+            validate_group_lists(result,fields['source_id'],fields['group_id'],limit,offset)
+            result={key:result[key] for key in ('protocol_version','source_id','group_id','lists','next_offset','done','pagination_consistency','membership_complete','ordering_verified','data_mutated','backend') if key in result}
         if action=='list_parent':
             if native_config('reminders')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode:raise SafetyError('Reminder access changed during list parent inspection')
             validate_list_parent(result,fields['list_id'],sources)
@@ -802,8 +803,8 @@ def inspect_group_hierarchy(reader,source_id,group_id,max_nodes=20,max_depth=3):
     while pending:
         current,depth=pending.pop(0)
         if native_config('reminders')!=initial_config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=initial_mode:raise SafetyError('Reminder access changed during group inspection')
-        result=reader.read('group_lists',source_id=source_id,group_id=current)
-        validate_group_lists(result,source_id,current)
+        result=reader.read('group_lists',source_id=source_id,group_id=current,limit=100,offset=0)
+        validate_group_lists(result,source_id,current,100,0)
         for child in result['lists']:
             child_id=uuid.UUID(child['id'])
             if child_id in seen:raise SafetyError('Group hierarchy contains a repeated or cyclic identity')
@@ -814,18 +815,20 @@ def inspect_group_hierarchy(reader,source_id,group_id,max_nodes=20,max_depth=3):
             if child['is_group']:
                 if child_depth>=max_depth:unexpanded.append({'id':child['id'],'reason':'depth_limit'})
                 else:pending.append((child['id'],child_depth))
+        if not result['done'] and not any(item['id']==current and item['reason']=='node_limit' for item in unexpanded):
+            unexpanded.append({'id':current,'reason':'additional_pages'})
     if native_config('reminders')!=initial_config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=initial_mode:raise SafetyError('Reminder access changed during group inspection')
     return {'source_id':source_id,'group_id':group_id,'nodes':nodes,'unexpanded':unexpanded,'hierarchy_complete':False,
             'ordering_verified':False,'data_mutated':False,'observation_consistency':'separate_provider_reads'}
 
 
-def validate_group_lists(result,source_id,group_id):
+def validate_group_lists(result,source_id,group_id,limit,offset):
     import uuid
-    if (not isinstance(result,dict) or result.get('source_id')!=source_id or result.get('group_id')!=group_id or result.get('backend')!='reminderkit-group-lists-v1'
-            or result.get('data_mutated') is not False or result.get('membership_complete') is not False or result.get('ordering_verified') is not False):
+    if (not isinstance(result,dict) or result.get('source_id')!=source_id or result.get('group_id')!=group_id or result.get('backend')!='reminderkit-group-lists-v2'
+            or result.get('data_mutated') is not False or result.get('membership_complete') is not False or result.get('ordering_verified') is not False or result.get('pagination_consistency')!='live_offset_may_shift' or type(result.get('done')) is not bool or type(result.get('next_offset')) is not int):
         raise SafetyError('Helper did not provide scoped group observation')
     lists=result.get('lists')
-    if not isinstance(lists,list) or len(lists)>100:raise SafetyError('Invalid group list observation')
+    if not isinstance(lists,list) or len(lists)>limit or result['next_offset']!=offset+len(lists) or (not result['done'] and len(lists)!=limit):raise SafetyError('Invalid group list observation')
     try:group=uuid.UUID(group_id)
     except (ValueError,TypeError,AttributeError):raise SafetyError('Invalid group identity') from None
     seen=set()
@@ -1093,9 +1096,9 @@ def register_read_tools(mcp):
 
         @mcp.tool(annotations=annotations)
         @guard
-        def reminders_group_lists(source_id: str, group_id: str) -> dict:
-            """Observe bounded child lists in one exact selected-source group; complete membership and ordering are unverified."""
-            return NativeReader('reminders').read('group_lists',source_id=source_id,group_id=group_id)
+        def reminders_group_lists(source_id: str, group_id: str, limit: int=100, offset: int=0) -> dict:
+            """Observe a bounded page of child lists in one exact selected-source group; follow next_offset; complete membership and ordering are unverified."""
+            return NativeReader('reminders').read('group_lists',source_id=source_id,group_id=group_id,limit=limit,offset=offset)
 
         @mcp.tool(annotations=annotations)
         @guard

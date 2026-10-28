@@ -11,7 +11,7 @@ def dispatch(self,request,config):
     assert self.name=='reminders' and request['action']=='group_lists' and request['source_ids']==[SOURCE] and request['source_id']==SOURCE
     group=request['group_id']
     rows=([{'id':GROUP,'title':'Synthetic group','is_group':True}] if group==ROOT else [{'id':LEAF,'title':'Synthetic list','is_group':False}] if group==GROUP else [])
-    return {'protocol_version':1,'source_id':SOURCE,'group_id':group,'lists':rows,'membership_complete':False,'ordering_verified':False,'data_mutated':False,'backend':'reminderkit-group-lists-v1'}
+    return {'protocol_version':1,'source_id':SOURCE,'group_id':group,'lists':rows,'next_offset':request['offset']+len(rows),'done':True,'pagination_consistency':'live_offset_may_shift','membership_complete':False,'ordering_verified':False,'data_mutated':False,'backend':'reminderkit-group-lists-v2'}
 NativeReader._dispatch=dispatch
 from icloud_for_agents.server import main
 main()

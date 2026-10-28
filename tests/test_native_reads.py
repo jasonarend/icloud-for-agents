@@ -575,7 +575,7 @@ class NativeReadTests(unittest.TestCase):
     def test_bounded_group_hierarchy_refuses_cycles_and_reports_limits(self):
         from icloud_for_agents.native_read import inspect_group_hierarchy
         source='11111111-1111-4111-8111-111111111111';root='22222222-2222-4222-8222-222222222222';child='33333333-3333-4333-8333-333333333333';leaf='44444444-4444-4444-8444-444444444444'
-        def page(group,rows):return {'source_id':source,'group_id':group,'lists':rows,'membership_complete':False,'ordering_verified':False,'data_mutated':False,'backend':'reminderkit-group-lists-v1'}
+        def page(group,rows):return {'source_id':source,'group_id':group,'lists':rows,'next_offset':len(rows),'done':True,'pagination_consistency':'live_offset_may_shift','membership_complete':False,'ordering_verified':False,'data_mutated':False,'backend':'reminderkit-group-lists-v2'}
         class Reader:
             def __init__(self):self.pages={root:page(root,[{'id':child,'title':'Group','is_group':True}]),child:page(child,[{'id':leaf,'title':'List','is_group':False}])}
             def read(self,action,**kwargs):return self.pages[kwargs['group_id']]
@@ -595,11 +595,12 @@ class NativeReadTests(unittest.TestCase):
     def test_reminder_group_lists_require_scoped_membership(self):
         config={'reminders':{'source_ids':['selected'],'advanced_backend':'reminderkit','helper_path':'/synthetic/helper'}}
         group='33333333-3333-4333-8333-333333333333';row={'id':'55555555-5555-4555-8555-555555555555','title':'Synthetic child','is_group':False}
-        result={'source_id':'selected','group_id':group,'lists':[row],'membership_complete':False,'ordering_verified':False,'data_mutated':False,'backend':'reminderkit-group-lists-v1','private':'discard'}
+        result={'source_id':'selected','group_id':group,'lists':[row],'next_offset':1,'done':True,'pagination_consistency':'live_offset_may_shift','membership_complete':False,'ordering_verified':False,'data_mutated':False,'backend':'reminderkit-group-lists-v2','private':'discard'}
         with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch') as backend:
             backend.return_value=result
             self.assertNotIn('private',NativeReader('reminders').read('group_lists',source_id='selected',group_id=group))
-            for bad in ({'source_id':'foreign'},{'group_id':'other'},{'lists':[row,row]},{'lists':[{**row,'is_group':None}]},{'lists':[{**row,'id':group}]},{'membership_complete':True},{'data_mutated':True}):
+            backend.return_value={**result,'done':False};self.assertFalse(NativeReader('reminders').read('group_lists',source_id='selected',group_id=group,limit=1)['done'])
+            for bad in ({'source_id':'foreign'},{'group_id':'other'},{'lists':[row,row]},{'lists':[{**row,'is_group':None}]},{'lists':[{**row,'id':group}]},{'membership_complete':True},{'next_offset':0},{'done':False},{'data_mutated':True}):
                 backend.return_value={**result,**bad}
                 with self.subTest(bad=bad),self.assertRaises(SafetyError):NativeReader('reminders').read('group_lists',source_id='selected',group_id=group)
             with self.assertRaises(SafetyError):NativeReader('reminders').read('group_lists',source_id='foreign',group_id=group)

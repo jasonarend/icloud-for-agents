@@ -234,7 +234,9 @@ NSData *ICloudRemindersReadListParent(NSData *data){
 NSData *ICloudRemindersGroupLists(NSData *data){
     @try {
         id identity=[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
-        if(![identity isKindOfClass:NSDictionary.class] || [identity count]!=2)return EncodeFlag(FlagFailure(@"invalid_public_identity"));
+        if(![identity isKindOfClass:NSDictionary.class] || [identity count]!=4)return EncodeFlag(FlagFailure(@"invalid_public_identity"));
+        id limit=identity[@"limit"],offset=identity[@"offset"];
+        if(![limit isKindOfClass:NSNumber.class] || ![offset isKindOfClass:NSNumber.class] || CFGetTypeID((__bridge CFTypeRef)limit)==CFBooleanGetTypeID() || CFGetTypeID((__bridge CFTypeRef)offset)==CFBooleanGetTypeID() || [limit doubleValue]!=[limit integerValue] || [offset doubleValue]!=[offset integerValue] || [limit integerValue]<1 || [limit integerValue]>100 || [offset integerValue]<0 || [offset integerValue]>100000)return EncodeFlag(FlagFailure(@"invalid_public_identity"));
         for(NSString *key in @[@"source_id",@"group_id"]){id value=identity[key];NSUUID *uuid=[value isKindOfClass:NSString.class]?[[NSUUID alloc]initWithUUIDString:value]:nil;if(!uuid || !UUIDEqual(uuid.UUIDString,value))return EncodeFlag(FlagFailure(@"unsupported_public_identity"));}
         if(NSProcessInfo.processInfo.operatingSystemVersion.majorVersion!=27 || !dlopen("/System/Library/PrivateFrameworks/ReminderKit.framework/ReminderKit",RTLD_LAZY|RTLD_LOCAL))return EncodeFlag(FlagFailure(@"unsupported_interface"));
         Class ids=NSClassFromString(@"REMObjectID"),storeClass=NSClassFromString(@"REMStore"),viewClass=NSClassFromString(@"REMListsDataView");
@@ -245,7 +247,7 @@ NSData *ICloudRemindersGroupLists(NSData *data){
         if(!StorageMatchesAccount(groupStorage,identity[@"source_id"]))return EncodeFlag(FlagFailure(@"native_identity_mismatch"));
         if(!MethodMatches([groupStorage class],@"isGroup",@"B@:",NO) || !((BOOL(*)(id,SEL))objc_msgSend)(groupStorage,NSSelectorFromString(@"isGroup")))return EncodeFlag(FlagFailure(@"unsupported_group_metadata"));
         id view=((id(*)(id,SEL,id))objc_msgSend)([viewClass alloc],NSSelectorFromString(@"initWithStore:"),store);error=nil;id children=((id(*)(id,SEL,id,NSError**))objc_msgSend)(view,NSSelectorFromString(@"fetchListsInGroup:error:"),group,&error);
-        if(error || ![children isKindOfClass:NSArray.class] || [children count]>100)return EncodeFlag(FlagFailure(@"unsupported_group_metadata"));
+        if(error || ![children isKindOfClass:NSArray.class] || [children count]>1000)return EncodeFlag(FlagFailure(@"unsupported_group_metadata"));
         NSMutableArray *out=[NSMutableArray array];NSMutableSet *seen=[NSMutableSet set];
         for(id child in children){
             NSString *cid=ObjectUUID(child,@"REMCDList");id storage=ObjectValue(child,@"storage"),name=ObjectValue(storage,@"name"),parent=ObjectValue(storage,@"parentListID"),parentUUID=ObjectValue(parent,@"uuid");
@@ -254,7 +256,8 @@ NSData *ICloudRemindersGroupLists(NSData *data){
             [seen addObject:cid];[out addObject:@{@"id":cid,@"title":name,@"is_group":@((BOOL)childGroup)}];
         }
         [out sortUsingComparator:^NSComparisonResult(NSDictionary *a,NSDictionary *b){return [a[@"id"] compare:b[@"id"]];}];
-        return EncodeFlag(@{@"protocol_version":@1,@"source_id":identity[@"source_id"],@"group_id":identity[@"group_id"],@"lists":out,@"membership_complete":@NO,@"ordering_verified":@NO,@"data_mutated":@NO,@"backend":@"reminderkit-group-lists-v1"});
+        NSUInteger start=MIN((NSUInteger)[offset integerValue],out.count),end=MIN(start+(NSUInteger)[limit integerValue],out.count);
+        return EncodeFlag(@{@"protocol_version":@1,@"source_id":identity[@"source_id"],@"group_id":identity[@"group_id"],@"lists":[out subarrayWithRange:NSMakeRange(start,end-start)],@"next_offset":@((NSUInteger)[offset integerValue]+end-start),@"done":@((BOOL)(end>=out.count)),@"pagination_consistency":@"live_offset_may_shift",@"membership_complete":@NO,@"ordering_verified":@NO,@"data_mutated":@NO,@"backend":@"reminderkit-group-lists-v2"});
     }@catch(NSException *exception){return EncodeFlag(FlagFailure(@"private_read_exception"));}
 }
 
