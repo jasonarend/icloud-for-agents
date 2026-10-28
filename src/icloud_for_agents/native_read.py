@@ -14,7 +14,7 @@ from .services import enabled
 
 
 READ_ACTIONS = {'notes': {'status', 'sources', 'folders', 'default_folder', 'folder_get', 'folder_inventory', 'folder_role', 'model_folder_role', 'query', 'get', 'text_page', 'search', 'attachments', 'diagnose_note', 'contains'},
-                'reminders': {'status', 'sources', 'lists', 'default_list', 'list_sections', 'list_features', 'templates', 'query', 'get','list_membership','recovery_lookup','recovery_tree','recovery_list'}}
+                'reminders': {'status', 'sources', 'lists', 'default_list', 'list_sections', 'list_features', 'templates', 'template_sections', 'query', 'get','list_membership','recovery_lookup','recovery_tree','recovery_list'}}
 MAX_OUTPUT = 2_000_000
 
 
@@ -122,7 +122,7 @@ class NativeReader:
                 if self.name!='reminders' or action!='query' or not isinstance(tag,str) or not tag or len(tag.encode('utf-8'))>512 or any(ord(c)<32 for c in tag):raise ValueError()
             except (ValueError,UnicodeEncodeError):raise SafetyError('Tag filtering requires one exact bounded native tag name') from None
             if config.get('advanced_backend')!='reminderkit' or not config.get('helper_path'):raise SafetyError('Tag filtering requires the explicitly selected ReminderKit backend and signed helper')
-        if 'source_id' in fields and action not in {'recovery_lookup','recovery_tree','recovery_list','templates','model_folder_role','default_folder'}:raise SafetyError('Source selector is only supported for exact role or recovery lookup')
+        if 'source_id' in fields and action not in {'recovery_lookup','recovery_tree','recovery_list','templates','template_sections','model_folder_role','default_folder'}:raise SafetyError('Source selector is only supported for exact role or recovery lookup')
         if action in {'list_sections','list_features'}:
             if self.name!='reminders' or set(fields)!={'list_id'} or not isinstance(fields.get('list_id'),str) or not fields['list_id']:
                 raise SafetyError('Native list inspection requires one exact list ID')
@@ -136,6 +136,9 @@ class NativeReader:
             if (config.get('folder_write_backend')!='notes-shared' or config.get('metadata_backend')!='notes-store-readonly'
                     or not config.get('helper_path')):
                 raise SafetyError('Model role lookup requires explicitly selected native Notes and read-only store backends and a signed helper')
+        if action=='template_sections':
+            if self.name!='reminders' or set(fields)!={'source_id','id'} or fields.get('source_id') not in sources or not isinstance(fields.get('id'),str) or not fields['id']:raise SafetyError('Template section discovery requires one exact selected source and template')
+            if config.get('advanced_backend')!='reminderkit' or not config.get('helper_path'):raise SafetyError('Template section discovery requires the explicitly selected ReminderKit backend and signed helper')
         if action=='templates':
             if self.name!='reminders' or set(fields)-{'source_id','limit','offset'} or fields.get('source_id') not in sources:raise SafetyError('Template discovery requires one exact selected source and bounded page')
             if config.get('advanced_backend')!='reminderkit' or not config.get('helper_path'):raise SafetyError('Template discovery requires the explicitly selected ReminderKit backend and signed helper')
@@ -401,6 +404,10 @@ class NativeReader:
                     or result.get('role') not in {'ordinary_non_system','system_trash'} or result.get('backend')!='notes-shared-folder-role-v1'
                     or result.get('data_mutated') is not False or type(result.get('ancestor_count')) is not int or not 0<=result['ancestor_count']<32):
                 raise SafetyError('Configured helper did not verify the exact Notes folder role')
+        if action=='template_sections':
+            if native_config('reminders')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode:raise SafetyError('Reminder access changed during template inspection')
+            validate_template_sections(result,fields['source_id'],fields['id'])
+            result={key:result[key] for key in ('protocol_version','source_id','id','sections','sections_complete','ordering_verified','membership_verified','data_mutated','backend') if key in result}
         if action=='templates':
             if native_config('reminders')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode:raise SafetyError('Reminder access changed during template discovery')
             validate_template_list(result,fields['source_id'],limit,offset)
@@ -762,6 +769,23 @@ def inspect_reminder_hierarchy(reader, identity, max_nodes=10, max_depth=3):
             'scope_note':'Provider-reported edges only; concealed descendants and concurrent changes remain unverified.'}
 
 
+def validate_template_sections(result,source_id,identifier):
+    import uuid
+    if (not isinstance(result,dict) or result.get('source_id')!=source_id or result.get('id')!=identifier or result.get('backend')!='reminderkit-template-sections-v1'
+            or result.get('data_mutated') is not False or result.get('sections_complete') is not False or result.get('ordering_verified') is not False or result.get('membership_verified') is not False):
+        raise SafetyError('Helper did not provide scoped template section observation')
+    sections=result.get('sections')
+    if not isinstance(sections,list) or len(sections)>100:raise SafetyError('Invalid template section observation')
+    seen=set()
+    for row in sections:
+        if not isinstance(row,dict) or set(row)!={'id','title'} or not isinstance(row['title'],str) or len(row['title'])>1000:raise SafetyError('Invalid template section')
+        try:identity=str(uuid.UUID(row['id'])).upper()
+        except (ValueError,TypeError,AttributeError):raise SafetyError('Invalid template section identity') from None
+        if identity in seen:raise SafetyError('Duplicate template section identity')
+        seen.add(identity)
+    return result
+
+
 def validate_template_list(result,source_id,limit,offset):
     import uuid
     if (not isinstance(result,dict) or result.get('source_id')!=source_id or result.get('backend')!='reminderkit-templates-v1'
@@ -999,6 +1023,12 @@ def register_read_tools(mcp):
         def reminders_inspect_recovery_hierarchy(id: str, source_id: str, max_nodes: int=10, max_depth: int=3) -> dict:
             """Inspect one recoverable root and provider-reported descendants; this is not a restoration or a complete subtree."""
             return inspect_reminder_recovery_hierarchy(NativeReader('reminders'),id,source_id,max_nodes,max_depth)
+
+        @mcp.tool(annotations=annotations)
+        @guard
+        def reminders_template_sections(source_id: str, id: str) -> dict:
+            """Observe bounded native sections for one exact selected-source template; order, completeness and reminder membership are unverified."""
+            return NativeReader('reminders').read('template_sections',source_id=source_id,id=id)
 
         @mcp.tool(annotations=annotations)
         @guard

@@ -333,7 +333,7 @@ if action == "request_access" {
     RunLoop.current.run(until: Date(timeIntervalSinceNow: 60))
     fail("permission_timeout")
 }
-let actions = ["status", "sources", "lists", "default_list", "list_sections", "list_features", "templates", "query", "get", "list_membership", "recovery_lookup", "recovery_tree", "recovery_list", "apply"]
+let actions = ["status", "sources", "lists", "default_list", "list_sections", "list_features", "templates", "template_sections", "query", "get", "list_membership", "recovery_lookup", "recovery_tree", "recovery_list", "apply"]
 guard actions.contains(action) else { fail("unsupported_action") }
 if action == "status" {
     respond(["protocol_version": 1, "service": "reminders", "access": permission,
@@ -352,6 +352,12 @@ if action == "sources" {
 guard let sourceIDs = req["source_ids"] as? [String], !sourceIDs.isEmpty, sourceIDs.count <= 100 else { fail("source_scope_required") }
 guard sourceIDs.allSatisfy({ id in store.sources.contains(where: { $0.sourceIdentifier == id }) }) else { fail("not_found_in_scope") }
 let lists = allLists.filter { sourceIDs.contains($0.source.sourceIdentifier) }
+if action == "template_sections" {
+    guard let source=req["source_id"] as? String,sourceIDs.contains(source),let id=req["id"] as? String,
+          let payload=try? JSONSerialization.data(withJSONObject:["source_id":source,"id":id]),
+          let result=(try? JSONSerialization.jsonObject(with:ICloudRemindersTemplateSections(payload))) as? [String:Any] else {fail("invalid_request")}
+    respond(result)
+}
 if action == "templates" {
     guard let source=req["source_id"] as? String,sourceIDs.contains(source),let limit=req["limit"] as? Int,let offset=req["offset"] as? Int,
           let payload=try? JSONSerialization.data(withJSONObject:["source_id":source,"limit":limit,"offset":offset]),

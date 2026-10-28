@@ -85,6 +85,36 @@ NSData *ICloudRemindersListTemplates(NSData *data){
     }@catch(NSException *exception){return EncodeFlag(FlagFailure(@"private_read_exception"));}
 }
 
+// Observe sections of one exact, selected-account template without materializing it as a live list.
+NSData *ICloudRemindersTemplateSections(NSData *data){
+    @try {
+        id req=[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
+        if(![req isKindOfClass:NSDictionary.class] || [req count]!=2)return EncodeFlag(FlagFailure(@"invalid_public_identity"));
+        id source=req[@"source_id"],identifier=req[@"id"];
+        if(![source isKindOfClass:NSString.class] || ![identifier isKindOfClass:NSString.class] || ![[NSUUID alloc]initWithUUIDString:source] || ![[NSUUID alloc]initWithUUIDString:identifier])return EncodeFlag(FlagFailure(@"invalid_public_identity"));
+        if(!FlagReadInterface())return EncodeFlag(FlagFailure(@"unsupported_interface"));
+        Class storeClass=NSClassFromString(@"REMStore"),ids=NSClassFromString(@"REMObjectID"),viewClass=NSClassFromString(@"REMTemplatesDataView"),sectionsClass=NSClassFromString(@"REMTemplateSectionsDataView");
+        if(!MethodMatches(ids,@"objectIDWithURL:",@"@@:@",YES) || !MethodMatches(viewClass,@"initWithStore:",@"@@:@",NO) || !MethodMatches(viewClass,@"fetchTemplateWithObjectID:error:",@"@@:@^@",NO) || !MethodMatches(sectionsClass,@"initWithStore:",@"@@:@",NO) || !MethodMatches(sectionsClass,@"fetchTemplateSectionsInTemplate:error:",@"@@:@^@",NO))return EncodeFlag(FlagFailure(@"unsupported_template_metadata"));
+        id store=[storeClass new],view=((id(*)(id,SEL,id))objc_msgSend)([viewClass alloc],NSSelectorFromString(@"initWithStore:"),store);
+        NSURL *url=[NSURL URLWithString:[@"x-apple-reminderkit://REMCDTemplate/" stringByAppendingString:identifier]];id oid=((id(*)(id,SEL,id))objc_msgSend)((id)ids,NSSelectorFromString(@"objectIDWithURL:"),url);NSError *error=nil;
+        if(!store || !view || !oid)return EncodeFlag(FlagFailure(@"unsupported_template_metadata"));
+        id template=((id(*)(id,SEL,id,NSError**))objc_msgSend)(view,NSSelectorFromString(@"fetchTemplateWithObjectID:error:"),oid,&error);
+        id storage=ObjectValue(template,@"storage"),account=ObjectValue(storage,@"accountID"),accountUUID=ObjectValue(account,@"uuid");
+        if(error || !UUIDEqual(ObjectUUID(template,@"REMCDTemplate"),identifier) || ![ObjectValue(account,@"entityName") isEqual:@"REMCDAccount"] || ![accountUUID isKindOfClass:NSUUID.class] || !UUIDEqual([accountUUID UUIDString],source))return EncodeFlag(FlagFailure(@"native_identity_mismatch"));
+        id sectionsView=((id(*)(id,SEL,id))objc_msgSend)([sectionsClass alloc],NSSelectorFromString(@"initWithStore:"),store);error=nil;
+        id sections=((id(*)(id,SEL,id,NSError**))objc_msgSend)(sectionsView,NSSelectorFromString(@"fetchTemplateSectionsInTemplate:error:"),template,&error);
+        if(error || ![sections isKindOfClass:NSArray.class] || [sections count]>100)return EncodeFlag(FlagFailure(@"unsupported_template_metadata"));
+        NSMutableArray *out=[NSMutableArray array];NSMutableSet *seen=[NSMutableSet set];
+        for(id section in sections){
+            NSString *sectionID=ObjectUUID(section,@"REMCDTemplateSection");id record=ObjectValue(section,@"storage"),name=ObjectValue(record,@"displayName"),accountID=ObjectValue(record,@"accountID"),parent=ObjectValue(record,@"parentTemplateID"),accountValue=ObjectValue(accountID,@"uuid"),parentValue=ObjectValue(parent,@"uuid");
+            if(!sectionID || [seen containsObject:sectionID] || ![name isKindOfClass:NSString.class] || [name length]>1000 || [name lengthOfBytesUsingEncoding:NSUTF8StringEncoding]>4000 || ![ObjectValue(accountID,@"entityName") isEqual:@"REMCDAccount"] || ![ObjectValue(parent,@"entityName") isEqual:@"REMCDTemplate"] || ![accountValue isKindOfClass:NSUUID.class] || ![parentValue isKindOfClass:NSUUID.class] || !UUIDEqual([accountValue UUIDString],source) || !UUIDEqual([parentValue UUIDString],identifier))return EncodeFlag(FlagFailure(@"native_identity_mismatch"));
+            [seen addObject:sectionID];[out addObject:@{@"id":sectionID,@"title":name}];
+        }
+        [out sortUsingComparator:^NSComparisonResult(NSDictionary *a,NSDictionary *b){return [a[@"id"] compare:b[@"id"]];}];
+        return EncodeFlag(@{@"protocol_version":@1,@"source_id":source,@"id":identifier,@"sections":out,@"sections_complete":@NO,@"ordering_verified":@NO,@"membership_verified":@NO,@"data_mutated":@NO,@"backend":@"reminderkit-template-sections-v1"});
+    }@catch(NSException *exception){return EncodeFlag(FlagFailure(@"private_read_exception"));}
+}
+
 // Read ordinary native sections only after EventKit has selected the exact list.
 NSData *ICloudRemindersListSections(NSData *data){
     @try {
