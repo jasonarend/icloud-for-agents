@@ -1165,6 +1165,13 @@ def register_read_tools(mcp):
 
         @mcp.tool(annotations=annotations)
         @guard
+        def reminders_export_page(list_id: str, limit: int = 20, offset: int = 0) -> dict:
+            """Export one bounded JSON observation of a selected list. Follow pages; this is not a complete backup or restorable format."""
+            from .native_reminder_export import export_page
+            return export_page(NativeReader('reminders'),list_id,limit,offset)
+
+        @mcp.tool(annotations=annotations)
+        @guard
         def reminders_get(id: str, include_native_metadata: bool=False, include_native_tags: bool=False, include_native_hierarchy: bool=False, include_native_children: bool=False, include_native_urgent: bool=False, include_native_section: bool=False, include_native_early: bool=False, include_native_assignment: bool=False, include_native_attachments: bool=False) -> dict:
             """Read one exact scoped reminder. Optional native flags/tags/hierarchy/children/urgent/section/early/assignment/attachment observations require owner-selected ReminderKit; assignment people and permissions remain unverified."""
             result=NativeReader('reminders').read('get', id=id, include_native_metadata=include_native_metadata, include_native_tags=include_native_tags, include_native_hierarchy=include_native_hierarchy, include_native_children=include_native_children, include_native_urgent=include_native_urgent,include_native_section=include_native_section,include_native_early=include_native_early,include_native_assignment=include_native_assignment,include_native_attachments=include_native_attachments)
