@@ -65,6 +65,7 @@ def run():
                 tree=data(rpc('tools/call',{'name':'reminders_inspect_hierarchy','arguments':{'id':'synthetic-parent'}})['result']);assert len(tree['nodes'])==2 and tree['nodes'][1]['parent_id']=='synthetic-parent' and tree['nodes'][1]['title']=='Synthetic task' and tree['nodes'][1]['completed'] is False and tree['hierarchy_complete'] is False
                 assert rpc('tools/call',{'name':'reminders_inspect_hierarchy','arguments':{'id':'synthetic-parent','max_nodes':21}})['result'].get('isError')
                 query=next(t for t in tools if t['name']=='reminders_query');assert query['annotations']['readOnlyHint'] is True
+                assert 'YYYY-MM-DDTHH:MM:SSZ' in query['description'] and 'inclusive' in query['description'] and 'exclusive' in query['description']
                 completion=data(rpc('tools/call',{'name':'reminders_query','arguments':{'completed_from':'2026-10-27T00:00:00Z','completed_before':'2026-10-28T00:00:00Z'}})['result']);assert completion['completion_filter']['semantics']=='utc_inclusive_from_exclusive_before' and completion['items']==[]
                 assert rpc('tools/call',{'name':'reminders_query','arguments':{'completed':False,'completed_from':'2026-10-27T00:00:00Z'}})['result'].get('isError')
                 combined_range=data(rpc('tools/call',{'name':'reminders_query','arguments':{'flagged':True,'completed_from':'2026-10-27T00:00:00Z'}})['result']);assert combined_range['native_flag_filter']['scanned']==0 and combined_range['completion_filter']['from']=='2026-10-27T00:00:00Z'
