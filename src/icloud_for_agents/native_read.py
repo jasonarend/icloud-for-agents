@@ -938,7 +938,7 @@ def register_read_tools(mcp):
                             completed: bool | None = None, text: str | None = None,
                             due_from: str | None = None, due_through: str | None = None,
                             timezone: str | None = None, priorities: list[int] | None = None, flagged: bool | None = None, tag: str | None = None, urgent: bool | None = None, completed_from: str | None = None, completed_before: str | None = None, has_current_assignment: bool | None = None) -> dict:
-            """Read bounded tasks with due-date, completion, priority, flag, urgent and exact tag filters. Completion bounds use YYYY-MM-DDTHH:MM:SSZ; completed_from is inclusive and completed_before exclusive, and select completed tasks with known completion dates. Due ranges require an IANA timezone. Follow next_offset even on empty filtered pages."""
+            """Read bounded tasks with due-date, completion, priority, flag, urgent, exact tag and provider current-assignment filters; the assignment filter does not identify the assignee. Completion bounds use YYYY-MM-DDTHH:MM:SSZ; completed_from is inclusive and completed_before exclusive, and select completed tasks with known completion dates. Due ranges require an IANA timezone. Follow next_offset even on empty filtered pages."""
             return NativeReader('reminders').read('query',limit=limit,offset=offset,list_id=list_id,
                 completed=completed,text=text,due_from=due_from,due_through=due_through,timezone=timezone,priorities=priorities,flagged=flagged,tag=tag,urgent=urgent,completed_from=completed_from,completed_before=completed_before,has_current_assignment=has_current_assignment)
 
