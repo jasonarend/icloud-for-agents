@@ -85,6 +85,14 @@ def run(policy):
                     receipt=runtime/(list_plan['plan_id']+'.approved');fd=os.open(receipt,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
                     with os.fdopen(fd,'w') as stream:json.dump({'plan_id':list_plan['plan_id'],'sha256':list_plan['sha256']},stream)
                 assert data(call('notes_execute_approved',{'plan_id':list_plan['plan_id']}))['status']=='applied'
+                table=data(call('notes_format_plain_table',{'rows':[['Product','Price'],['Synthetic','<5 & 6>']]}))
+                table_plan=data(call('notes_prepare_once',{'changes':[{'operation':'create_note','source_id':'selected','folder_id':'destination','fields':{'title':'Synthetic table','body':table['body'],'format':'html'}}]}))
+                if policy=='local-receipt':
+                    assert call('notes_execute_approved',{'plan_id':table_plan['plan_id']}).get('isError')
+                    receipt=runtime/(table_plan['plan_id']+'.approved');fd=os.open(receipt,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+                    with os.fdopen(fd,'w') as stream:json.dump({'plan_id':table_plan['plan_id'],'sha256':table_plan['sha256']},stream)
+                assert data(call('notes_execute_approved',{'plan_id':table_plan['plan_id']}))['status']=='applied'
+                assert call('notes_execute_approved',{'plan_id':table_plan['plan_id']}).get('isError')
             finally:
                 process.stdin.close()
                 try:process.wait(timeout=10)

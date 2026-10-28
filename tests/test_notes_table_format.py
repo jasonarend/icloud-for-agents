@@ -22,4 +22,8 @@ class NotesTableFormatTests(unittest.TestCase):
                      [['x'*4000]*20,['y'*4000]*20]):
             with self.subTest(rows=repr(rows)[:80]),self.assertRaises(SafetyError):format_table(rows)
 
+    def test_escaped_output_limit_stops_before_processing_later_rows(self):
+        with self.assertRaisesRegex(SafetyError,'exceeds the Notes body limit'):
+            format_table([['&'*4000]*20,[None]*20])
+
 if __name__=='__main__':unittest.main()
