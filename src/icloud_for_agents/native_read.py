@@ -211,6 +211,22 @@ class NativeReader:
             from .native_note_store import folder_role
             return folder_role(fields['folder_id'],sources)
         result = self._dispatch(request, config)
+        if self.name=='reminders' and action=='lists':
+            import math
+            rows=result.get('lists') if isinstance(result,dict) else None
+            if (native_config('reminders')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode
+                    or not isinstance(rows,list) or len(rows)>limit or type(result.get('done')) is not bool
+                    or type(result.get('next_offset')) is not int or result['next_offset']!=offset+len(rows)
+                    or (not result['done'] and not rows) or result.get('pagination_consistency')!='live_offset_may_shift'
+                    or any(not isinstance(row,dict) or not isinstance(row.get('id'),str) or not 1<=len(row['id'])<=1000
+                           or row.get('source_id') not in sources or not isinstance(row.get('title'),str) or len(row['title'])>1000
+                           or type(row.get('writable')) is not bool or 'color' not in row
+                           or (row['color'] is not None and (not isinstance(row['color'],dict) or set(row['color'])!={'red','green','blue','alpha'}
+                               or any(type(v) not in (int,float) or not math.isfinite(v) or not 0<=v<=1 for v in row['color'].values()))) for row in rows)
+                    or len({row['id'] for row in rows})!=len(rows)):
+                raise SafetyError('Configured helper did not verify scoped Reminders lists')
+            result={'protocol_version':1,'lists':[{k:row[k] for k in ('id','title','source_id','writable','color')} for row in rows],
+                    'done':result['done'],'next_offset':result['next_offset'],'pagination_consistency':'live_offset_may_shift'}
         if self.name=='reminders' and action=='get':
             item=result.get('item') if isinstance(result,dict) else None
             if (native_config('reminders')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode

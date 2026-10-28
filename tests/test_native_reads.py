@@ -521,6 +521,19 @@ class NativeReadTests(unittest.TestCase):
         with self.env(ICLOUD_NATIVE_CONFIG=json.dumps({'reminders':{'source_ids':['selected']}})),patch('platform.system',return_value='Darwin'),patch('subprocess.run',side_effect=AssertionError('No SDK')):
             for fields in cases:
                 with self.subTest(fields=fields),self.assertRaises(SafetyError):NativeReader('reminders').read('query',**fields)
+    def test_reminder_lists_require_selected_scope_and_bounded_progress(self):
+        config={'reminders':{'source_ids':['selected']}}
+        row={'id':'list','title':'Synthetic','source_id':'selected','writable':True,'color':None,'private':'private'}
+        page={'lists':[row],'done':True,'next_offset':1,'pagination_consistency':'live_offset_may_shift','private':'private'}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=page) as backend:
+            result=NativeReader('reminders').read('lists',limit=1)
+            self.assertNotIn('private',result);self.assertNotIn('private',result['lists'][0])
+            for value in ({**page,'lists':[{**row,'source_id':'foreign'}]}, {**page,'lists':[{**row,'writable':1}]},
+                          {**page,'lists':[{**row,'color':{'red':float('nan'),'green':0,'blue':0,'alpha':1}}]},
+                          {**page,'next_offset':2}, {**page,'lists':[],'next_offset':0,'done':False}):
+                backend.return_value=value
+                with self.subTest(value=value),self.assertRaises(SafetyError):NativeReader('reminders').read('lists',limit=1)
+
     def test_exact_reminder_requires_selected_source_and_identity(self):
         config={'reminders':{'source_ids':['selected']}}
         item={'id':'task','source_id':'selected','list_id':'list'}
