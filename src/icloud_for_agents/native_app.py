@@ -105,7 +105,11 @@ def application_request(helper, request, timeout=40):
     try:
         process=subprocess.run(['/usr/bin/open','-W','-n',str(bundle), '--args','--ipc-directory',str(directory)],
             stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=timeout,env=env)
-        if process.returncode:raise SafetyError('Native application launch failed; inspect pending request status')
+        # Launch Services can report a nonzero exit even after the helper has
+        # delivered its private status result. Only nonprompting status probes
+        # may use that result; writes, consent and content reads remain uncertain.
+        if process.returncode and request.get('action') not in {'status','store_status'}:
+            raise SafetyError('Native application launch failed; inspect pending request status')
         fd=os.open(directory/'result.json',os.O_RDONLY|os.O_NOFOLLOW)
         with os.fdopen(fd,'rb') as stream:
             info=os.fstat(stream.fileno())
@@ -115,6 +119,7 @@ def application_request(helper, request, timeout=40):
         if len(raw)>2_000_000:raise SafetyError('Native result exceeds limit')
         result=json.loads(raw)
         if not isinstance(result,dict) or result.get('protocol_version')!=1 or result.get('request_id')!=directory.name:raise ValueError()
+        if process.returncode:result['transport_warning']='launcher_nonzero_result_received'
         if "error" not in result:shutil.rmtree(directory)
         return result
     except SafetyError:raise

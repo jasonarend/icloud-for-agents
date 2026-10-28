@@ -54,6 +54,24 @@ class NativeApplicationTests(unittest.TestCase):
             with patch('subprocess.run',return_value=SimpleNamespace(returncode=code)) as launch:
                 with self.assertRaises(SafetyError):self.request()
                 self.assertEqual(launch.call_count,1)
+    def test_nonzero_launcher_can_return_only_verified_nonprompting_status(self):
+        def launch(command,**kwargs):
+            directory=Path(command[-1]);result=directory/'result.json'
+            result.write_text(json.dumps({'protocol_version':1,'request_id':directory.name,'store_read_access':'denied_or_unavailable'}));result.chmod(0o600)
+            return SimpleNamespace(returncode=1)
+        with patch('subprocess.run',side_effect=launch) as process:
+            result=application_request(self.helper,{'protocol_version':1,'service':'notes','action':'store_status'})
+            self.assertEqual(result['store_read_access'],'denied_or_unavailable')
+            self.assertEqual(result['transport_warning'],'launcher_nonzero_result_received')
+            for action in ('request_access','apply','get'):
+                with self.subTest(action=action),self.assertRaises(SafetyError):
+                    application_request(self.helper,{'protocol_version':1,'service':'notes','action':action})
+            self.assertEqual(process.call_count,4)
+        def invalid(command,**kwargs):
+            result=Path(command[-1])/'result.json'
+            result.write_text(json.dumps({'protocol_version':1,'request_id':'wrong'}));result.chmod(0o600)
+            return SimpleNamespace(returncode=1)
+        with patch('subprocess.run',side_effect=invalid),self.assertRaises(SafetyError):self.request()
     def test_failed_launch_preserves_metadata_without_disclosing_request_body(self):
         with patch('subprocess.run',return_value=SimpleNamespace(returncode=1)):
             with self.assertRaises(SafetyError):
