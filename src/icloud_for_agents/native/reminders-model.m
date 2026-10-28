@@ -252,6 +252,14 @@ NSData *ICloudRemindersReadAssignment(NSData *data){
         if(!context || !MethodMatches([context class],@"currentAssignment",@"@@:",NO) || !MethodMatches([context class],@"assignments",@"@@:",NO))return EncodeFlag(FlagFailure(@"unsupported_assignment_metadata"));
         id assignments=ObjectValue(context,@"assignments"),current=ObjectValue(context,@"currentAssignment");
         if(![assignments isKindOfClass:NSSet.class] || [assignments count]>100 || (current && ![assignments containsObject:current]))return EncodeFlag(FlagFailure(@"unsupported_assignment_metadata"));
+        Class assignmentClass=NSClassFromString(@"REMAssignment");if(!assignmentClass)return EncodeFlag(FlagFailure(@"unsupported_assignment_metadata"));
+        for(id assignment in assignments){
+            if(![assignment isKindOfClass:assignmentClass])return EncodeFlag(FlagFailure(@"unsupported_assignment_metadata"));
+            id account=ObjectValue(assignment,@"accountID"),parent=ObjectValue(assignment,@"reminderID"),accountUUID=ObjectValue(account,@"uuid"),parentUUID=ObjectValue(parent,@"uuid");
+            if(![ObjectValue(account,@"entityName") isEqual:@"REMCDAccount"] || ![ObjectValue(parent,@"entityName") isEqual:@"REMCDReminder"]
+                || ![accountUUID isKindOfClass:NSUUID.class] || ![parentUUID isKindOfClass:NSUUID.class]
+                || !UUIDEqual([accountUUID UUIDString],identity[@"source_id"]) || !UUIDEqual([parentUUID UUIDString],identity[@"id"]))return EncodeFlag(FlagFailure(@"unsupported_assignment_metadata"));
+        }
         return EncodeFlag(@{@"protocol_version":@1,@"native_metadata":@{@"backend":@"reminderkit-assignment-v1",@"id":identity[@"id"],@"source_id":identity[@"source_id"],@"list_id":identity[@"list_id"],@"current_assignment_reported":@((BOOL)(current!=nil)),@"assignment_record_count":@([assignments count]),@"assignment_metadata_complete":@NO,@"coverage":@[@"assignment"],@"native_metadata_complete":@NO,@"observation_consistency":@"separate_provider_reads"}});
     }@catch(NSException *exception){return EncodeFlag(FlagFailure(@"private_read_exception"));}
 }

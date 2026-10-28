@@ -90,6 +90,12 @@ FIXTURE=r'''
 @end
 @implementation FixtureAttachmentContext
 @end
+@interface FixtureAssignment:NSObject
+@property FixtureID *accountID;
+@property FixtureID *reminderID;
+@end
+@implementation FixtureAssignment
+@end
 @interface FixtureAssignments:NSObject
 @property id currentAssignment;
 @property id assignments;
@@ -260,7 +266,7 @@ int main(){@autoreleasepool{
  FixtureAssignments *assignments=[FixtureAssignments new];assignments.assignments=[NSSet set];fixture.assignmentContext=assignments;
  NSDictionary *(^assignment)(void)=^NSDictionary *{return [NSJSONSerialization JSONObjectWithData:ICloudRemindersReadAssignment(membershipData) options:0 error:NULL];};
  NSCAssert(CFGetTypeID((__bridge CFTypeRef)assignment()[@"native_metadata"][@"current_assignment_reported"])==CFBooleanGetTypeID() && [assignment()[@"native_metadata"][@"current_assignment_reported"] boolValue]==NO && [assignment()[@"native_metadata"][@"assignment_record_count"] integerValue]==0,@"empty assignment observation");
- NSObject *entry=[NSObject new];assignments.currentAssignment=entry;NSCAssert(assignment()[@"error"],@"inconsistent assignment refused");assignments.assignments=[NSSet setWithObject:entry];NSCAssert([assignment()[@"native_metadata"][@"current_assignment_reported"] boolValue],@"present assignment observation");assignments.assignments=nil;NSCAssert(assignment()[@"error"],@"unknown assignments refused");
+ FixtureAssignment *entry=[FixtureAssignment new];entry.accountID=fixture.account.remObjectID;entry.reminderID=fixture.remObjectID;assignments.currentAssignment=entry;NSCAssert(assignment()[@"error"],@"inconsistent assignment refused");assignments.assignments=[NSSet setWithObject:entry];NSCAssert([assignment()[@"native_metadata"][@"current_assignment_reported"] boolValue],@"present assignment observation");entry.accountID=Identity(@"REMCDAccount",other);NSCAssert(assignment()[@"error"],@"foreign assignment refused");entry.accountID=fixture.account.remObjectID;assignments.assignments=nil;NSCAssert(assignment()[@"error"],@"unknown assignments refused");
  NSCAssert([membership()[@"native_metadata"][@"section_status"] isEqual:@"provider_reported"],@"section membership observed");
  section.storage.accountID=Identity(@"REMCDAccount",other);NSCAssert(readSections()[@"error"] && membership()[@"error"],@"foreign section account refused");section.storage.accountID=fixture.account.remObjectID;
  section.list.account.remObjectID=Identity(@"REMCDAccount",other);NSCAssert(membership()[@"error"],@"foreign account membership refused");section.list.account.remObjectID=Identity(@"REMCDAccount",source);section.storage.accountID=fixture.account.remObjectID;
@@ -378,7 +384,7 @@ int main(){@autoreleasepool{
 def run():
     source=(ROOT/'src/icloud_for_agents/native/reminders-model.m').read_text();source=source.replace('    if(NSProcessInfo.processInfo.operatingSystemVersion.majorVersion!=27)return NO;','').replace('    if(!dlopen("/System/Library/PrivateFrameworks/ReminderKit.framework/ReminderKit",RTLD_LAZY|RTLD_LOCAL))return NO;','')
     source=source.replace('NSProcessInfo.processInfo.operatingSystemVersion.majorVersion!=27 || !dlopen("/System/Library/PrivateFrameworks/ReminderKit.framework/ReminderKit",RTLD_LAZY|RTLD_LOCAL)','NO')
-    for real,fake in [('REMDueDateDeltaInterval','FixtureDelta'),('REMStore','FixtureStore'),('REMObjectID','FixtureID'),('REMReminder','FixtureReminder'),('REMSaveRequest','FixtureSave'),('REMListSectionsDataView','FixtureSectionView')]:source=source.replace('NSClassFromString(@"'+real+'")','NSClassFromString(@"'+fake+'")')
+    for real,fake in [('REMAssignment','FixtureAssignment'),('REMDueDateDeltaInterval','FixtureDelta'),('REMStore','FixtureStore'),('REMObjectID','FixtureID'),('REMReminder','FixtureReminder'),('REMSaveRequest','FixtureSave'),('REMListSectionsDataView','FixtureSectionView')]:source=source.replace('NSClassFromString(@"'+real+'")','NSClassFromString(@"'+fake+'")')
     with tempfile.TemporaryDirectory(prefix='native-flag-contract-') as directory:
         p=Path(directory);(p/'reminders-model.h').write_text((ROOT/'src/icloud_for_agents/native/reminders-model.h').read_text());(p/'test.m').write_text(source+'\n'+FIXTURE)
         result=subprocess.run(['/usr/bin/clang','-fobjc-arc','-framework','Foundation',str(p/'test.m'),'-o',str(p/'contract')],capture_output=True,text=True,timeout=60);assert result.returncode==0,result.stderr
