@@ -16,10 +16,10 @@ if scenario=="tag" || scenario=="both" || scenario=="case" {req["tag"]=scenario=
 if scenario=="tag" || scenario=="case" {req.removeValue(forKey:"flagged")}
 if scenario=="unfiltered" {req.removeValue(forKey:"flagged")}
 if scenario=="urgent" || scenario=="urgent_false" {req.removeValue(forKey:"flagged");req["urgent"]=scenario=="urgent"}
-if scenario=="assigned" || scenario=="unassigned" {req.removeValue(forKey:"flagged");req["has_current_assignment"]=scenario=="assigned"}
-let nativeFlag=(scenario=="attached" || scenario=="unattached") ? nil : req["flagged"]
+if scenario=="assigned" || scenario=="unassigned" || scenario=="both_new" {req.removeValue(forKey:"flagged");req["has_current_assignment"]=scenario != "unassigned"}
+let nativeFlag=(scenario=="attached" || scenario=="unattached" || scenario=="both_new") ? nil : req["flagged"]
 let nativeUrgent=req["urgent"]
-if scenario=="attached" || scenario=="unattached" {req.removeValue(forKey:"flagged");req["has_native_attachments"]=scenario=="attached"}
+if scenario=="attached" || scenario=="unattached" || scenario=="both_new" {req.removeValue(forKey:"flagged");req["has_native_attachments"]=scenario != "unattached"}
 let nativeAttachment=req["has_native_attachments"]
 let nativeAssignment=req["has_current_assignment"]
 let nativeTag=req["tag"]
@@ -44,6 +44,7 @@ def run():
         assert call('unavailable',0)=='error:private_metadata_unavailable'
         attached=json.loads(call('attached',1));assert attached['items'][0]['id']=='b' and attached['native_attachment_filter']['matched']==1
         assert json.loads(call('unattached',2))['items'][0]['id']=='c'
+        both_new=json.loads(call('both_new',1));assert both_new['items'][0]['id']=='b' and both_new['native_assignment_filter']==both_new['native_attachment_filter']
         assigned=json.loads(call('assigned',1));assert assigned['items'][0]['id']=='b' and assigned['native_assignment_filter']['matched']==1
         assert json.loads(call('unassigned',2))['items'][0]['id']=='c'
         urgent=json.loads(call('urgent',1));assert urgent['items'][0]['id']=='b' and urgent['native_urgent_filter']['matched']==1
@@ -58,6 +59,7 @@ def run():
         empty_result=subprocess.run([str(p/'empty'),'true','0'],capture_output=True,text=True,check=True,timeout=5)
         value=json.loads(empty_result.stdout);assert value['items']==[] and value['done'] is True and value['next_offset']==0 and value['native_flag_filter']['scanned']==0
         assert subprocess.run([str(p/'empty'),'invalid','0'],capture_output=True,text=True,check=True,timeout=5).stdout.strip()=='error:invalid_request'
+        empty_both=json.loads(subprocess.run([str(p/'empty'),'both_new','0'],capture_output=True,text=True,check=True,timeout=5).stdout);assert empty_both['native_assignment_filter']==empty_both['native_attachment_filter'] and empty_both['done'] is True
         empty_tag=json.loads(subprocess.run([str(p/'empty'),'both','0'],capture_output=True,text=True,check=True,timeout=5).stdout);assert empty_tag['native_flag_filter']==empty_tag['native_tag_filter']
         unfiltered=json.loads(subprocess.run([str(p/'empty'),'unfiltered','7'],capture_output=True,text=True,check=True,timeout=5).stdout)
         assert unfiltered=={'protocol_version':1,'items':[],'done':True,'next_offset':7,'pagination_consistency':'live_offset_may_shift'}
