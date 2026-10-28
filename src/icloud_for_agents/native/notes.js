@@ -100,11 +100,13 @@ function readNotes(app, req) {
         if(req.shared!==undefined && typeof req.shared!=='boolean')throw Error('invalid_fields');
         const titleOnly=req.match_scope==='title';
         const hasModified=req.modified_from!==undefined || req.modified_before!==undefined;
-        for(const value of [req.modified_from,req.modified_before])if(value!==undefined) {
+        const hasCreated=req.created_from!==undefined || req.created_before!==undefined;
+        for(const value of [req.modified_from,req.modified_before,req.created_from,req.created_before])if(value!==undefined) {
             if(typeof value!=='string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(value))throw Error('invalid_fields');
             const date=new Date(value);if(!Number.isFinite(date.getTime()) || date.toISOString()!==value.slice(0,-1)+'.000Z')throw Error('invalid_fields');
         }
         if(req.modified_from!==undefined && req.modified_before!==undefined && req.modified_from>=req.modified_before)throw Error('invalid_fields');
+        if(req.created_from!==undefined && req.created_before!==undefined && req.created_from>=req.created_before)throw Error('invalid_fields');
         const refs=[];
         folders.filter(f=>!req.folder_id || f.object.id()===req.folder_id).forEach(f=>{
             f.object.notes.id().forEach(id=>refs.push({id:id,folder:f}));
@@ -113,7 +115,7 @@ function readNotes(app, req) {
         if(req.folder_id && !folders.some(f=>f.object.id()===req.folder_id))throw Error('not_found_in_scope');
         refs.sort((a,b)=>a.id.localeCompare(b.id));
         const needle=req.text.toLowerCase(), items=[], unavailable=[], projections=[];
-        const scanLimit=(req.locked!==undefined || req.shared!==undefined)?10:100;
+        const scanLimit=(req.locked!==undefined || req.shared!==undefined || hasCreated || hasModified)?10:100;
         let projectionBytes=0;
         let offset=req.offset, scanned=0, lockedSkipped=0, truncatedBodies=0;
         while(offset<refs.length && scanned<scanLimit && items.length+projections.length<req.limit) {
@@ -121,12 +123,18 @@ function readNotes(app, req) {
             try {
                 const note=ref.folder.object.notes.byId(ref.id);
                 if(note.container().id()!==ref.folder.object.id())continue;
-                let modified=null;
+                let modified=null, created=null;
                 if(hasModified) {
                     const date=note.modificationDate();
                     if(!date || !Number.isFinite(date.getTime())){unavailable.push({id:ref.id,category:'modification_date_unavailable'});continue;}
                     modified=date.toISOString();
                     if((req.modified_from && modified<req.modified_from.slice(0,-1)+'.000Z') || (req.modified_before && modified>=req.modified_before.slice(0,-1)+'.000Z'))continue;
+                }
+                if(hasCreated) {
+                    const date=note.creationDate();
+                    if(!date || !Number.isFinite(date.getTime())){unavailable.push({id:ref.id,category:'creation_date_unavailable'});continue;}
+                    created=date.toISOString();
+                    if((req.created_from && created<req.created_from.slice(0,-1)+'.000Z') || (req.created_before && created>=req.created_before.slice(0,-1)+'.000Z'))continue;
                 }
                 const title=note.name(), locked=note.passwordProtected();
                 if(typeof locked!=='boolean')throw Error('lock_status_unavailable');
@@ -135,7 +143,7 @@ function readNotes(app, req) {
                 if(req.shared!==undefined){shared=note.shared();if(typeof shared!=='boolean')throw Error('sharing_status_unavailable');if(shared!==req.shared)continue;}
                 if(titleOnly) {
                     const boundedTitle=title.slice(0,1000);
-                    if(boundedTitle.toLowerCase().includes(needle))items.push({id:ref.id,title:boundedTitle,source_id:ref.folder.source,folder_id:ref.folder.object.id(),locked:locked,excerpt:'',content_complete:false,...(req.shared!==undefined?{shared:shared}:{}),...(hasModified?{modified:modified}:{})});
+                    if(boundedTitle.toLowerCase().includes(needle))items.push({id:ref.id,title:boundedTitle,source_id:ref.folder.source,folder_id:ref.folder.object.id(),locked:locked,excerpt:'',content_complete:false,...(req.shared!==undefined?{shared:shared}:{}),...(hasModified?{modified:modified}:{}),...(hasCreated?{created:created}:{})});
                     continue;
                 }
                 let body='';
@@ -144,7 +152,7 @@ function readNotes(app, req) {
                 const index=body.toLowerCase().indexOf(needle);
                 if(title.toLowerCase().includes(needle) || index>=0)items.push({id:ref.id,title:title.slice(0,1000),
                     source_id:ref.folder.source,folder_id:ref.folder.object.id(),locked:locked,
-                    excerpt:index>=0?body.slice(Math.max(0,index-80),index+240):'',content_complete:false,...(req.shared!==undefined?{shared:shared}:{}),...(hasModified?{modified:modified}:{})});
+                    excerpt:index>=0?body.slice(Math.max(0,index-80),index+240):'',content_complete:false,...(req.shared!==undefined?{shared:shared}:{}),...(hasModified?{modified:modified}:{}),...(hasCreated?{created:created}:{})});
                 else if(!locked) {
                     const html=note.body();
                     if(html.includes('<table')) {
@@ -152,7 +160,7 @@ function readNotes(app, req) {
                         if(projectionBytes+bounded.length>250000)unavailable.push({id:ref.id,category:'table_projection_budget'});
                         else {projectionBytes+=bounded.length;projections.push({id:ref.id,title:title.slice(0,1000),
                             source_id:ref.folder.source,folder_id:ref.folder.object.id(),locked:false,html:bounded,
-                            truncated:html.length>100000,...(req.shared!==undefined?{shared:shared}:{}),...(hasModified?{modified:modified}:{})});}
+                            truncated:html.length>100000,...(req.shared!==undefined?{shared:shared}:{}),...(hasModified?{modified:modified}:{}),...(hasCreated?{created:created}:{})});}
                     }
                 }
             } catch(_) {unavailable.push({id:ref.id,category:'note_read_unavailable'});}
@@ -163,7 +171,8 @@ function readNotes(app, req) {
             ...(titleOnly?{match_scope:'title'}:{}),
             ...(req.locked!==undefined?{locked_filter:req.locked}:{}),
             ...(req.shared!==undefined?{shared_filter:req.shared}:{}),
-            ...(hasModified?{modified_filter:{from:req.modified_from||null,before:req.modified_before||null,semantics:'utc_inclusive_from_exclusive_before'}}:{})});
+            ...(hasModified?{modified_filter:{from:req.modified_from||null,before:req.modified_before||null,semantics:'utc_inclusive_from_exclusive_before'}}:{}),
+            ...(hasCreated?{created_filter:{from:req.created_from||null,before:req.created_before||null,semantics:'utc_inclusive_from_exclusive_before'}}:{})});
     }
     if (req.action === 'folders') {
         const limit=req.limit===undefined?100:req.limit, offset=req.offset===undefined?0:req.offset;

@@ -29,6 +29,9 @@ def dispatch(self,request,config):
             if 'shared' in request:
                 result['shared_filter']=request['shared']
                 for row in rows:row['shared']=False
+            if 'created_from' in request or 'created_before' in request:
+                result['created_filter']={'from':request.get('created_from'),'before':request.get('created_before'),'semantics':'utc_inclusive_from_exclusive_before'}
+                for row in rows:row['created']='2026-10-27T12:30:00.000Z'
             return result
         assert request.get('modified_from')=='2026-10-27T12:00:00Z' and request.get('modified_before')=='2026-10-27T13:00:00Z'
         return {'protocol_version':1,'items':[],'table_projection_candidates':[{'id':'synthetic-note','title':'Synthetic','source_id':'selected','folder_id':'folder','locked':False,'html':'<table><tr><td>Priority</td></tr></table>','truncated':False,'modified':'2026-10-27T12:30:00.000Z'}],'done':True,'next_offset':1,'modified_filter':{'from':request['modified_from'],'before':request['modified_before'],'semantics':'utc_inclusive_from_exclusive_before'}}

@@ -145,7 +145,7 @@ class NativeReader:
         match_scope=fields.pop('match_scope','all')
         if not isinstance(match_scope,str) or match_scope not in {'all','title'} or (match_scope!='all' and (self.name!='notes' or action!='search')):
             raise SafetyError('Title-only search is supported only for Notes search')
-        if set(fields) - {'id', 'folder_id', 'list_id', 'limit', 'offset', 'completed', 'locked', 'shared', 'text', 'due_date', 'timezone', 'include_overdue', 'due_from', 'due_through', 'priorities', 'flagged', 'tag', 'urgent', 'source_id', 'modified_from', 'modified_before', 'expected_modified', 'completed_from', 'completed_before'}:
+        if set(fields) - {'id', 'folder_id', 'list_id', 'limit', 'offset', 'completed', 'locked', 'shared', 'text', 'due_date', 'timezone', 'include_overdue', 'due_from', 'due_through', 'priorities', 'flagged', 'tag', 'urgent', 'source_id', 'modified_from', 'modified_before', 'created_from', 'created_before', 'expected_modified', 'completed_from', 'completed_before'}:
             raise SafetyError('Unknown native read fields')
         locked_filter=fields.get('locked')
         if locked_filter is not None and (self.name!='notes' or action!='search' or type(locked_filter) is not bool):
@@ -154,15 +154,17 @@ class NativeReader:
         if shared_filter is not None and (self.name!='notes' or action!='search' or type(shared_filter) is not bool):
             raise SafetyError('Sharing-state filtering requires a Boolean on Notes search')
         modified={k:fields[k] for k in ('modified_from','modified_before') if fields.get(k) is not None}
-        if modified:
+        created={k:fields[k] for k in ('created_from','created_before') if fields.get(k) is not None}
+        for bounds,kind in ((modified,'modified'),(created,'created')):
+            if not bounds:continue
             import re
             try:
                 if self.name!='notes' or action!='search':raise ValueError()
-                for value in modified.values():
+                for value in bounds.values():
                     if not isinstance(value,str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z',value):raise ValueError()
                     datetime.strptime(value,'%Y-%m-%dT%H:%M:%SZ')
-                if len(modified)==2 and modified['modified_from']>=modified['modified_before']:raise ValueError()
-            except (ValueError,TypeError):raise SafetyError('Notes modification bounds require ordered UTC timestamps; the upper bound is exclusive') from None
+                if len(bounds)==2 and bounds[kind+'_from']>=bounds[kind+'_before']:raise ValueError()
+            except (ValueError,TypeError):raise SafetyError('Notes date bounds require ordered UTC timestamps; the upper bound is exclusive') from None
         completion_bounds={k:fields[k] for k in ('completed_from','completed_before') if fields.get(k) is not None}
         if completion_bounds:
             import re
@@ -489,20 +491,21 @@ class NativeReader:
                                or type(row.get('locked')) is not bool or row.get('content_complete') is not False
                                or row.get('excerpt')!='' for row in result['items'])):
                     raise SafetyError('Configured helper did not verify title-only Notes search')
-            if modified:
+            for bounds,kind in ((modified,'modified'),(created,'created')):
+                if not bounds:continue
                 if (native_config('notes')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode
-                        or result.get('modified_filter')!={'from':modified.get('modified_from'),'before':modified.get('modified_before'),'semantics':'utc_inclusive_from_exclusive_before'}
+                        or result.get(kind+'_filter')!={'from':bounds.get(kind+'_from'),'before':bounds.get(kind+'_before'),'semantics':'utc_inclusive_from_exclusive_before'}
                         or not isinstance(result.get('items'),list)):
-                    raise SafetyError('Configured helper did not verify the requested Notes modification filter')
+                    raise SafetyError('Configured helper did not verify the requested Notes date filter')
                 for row in result['items']+candidates:
-                    stamp=row.get('modified') if isinstance(row,dict) else None
+                    stamp=row.get(kind) if isinstance(row,dict) else None
                     try:
                         if (not isinstance(row,dict) or not isinstance(row.get('id'),str) or not row['id']
                                 or row.get('source_id') not in sources or not isinstance(row.get('folder_id'),str) or not row['folder_id']
                                 or (fields.get('folder_id') is not None and row['folder_id']!=fields['folder_id'])):raise ValueError()
                         if not isinstance(stamp,str) or len(stamp)!=24 or datetime.strptime(stamp,'%Y-%m-%dT%H:%M:%S.%fZ') is None:raise ValueError()
-                        if (modified.get('modified_from') and stamp<modified['modified_from'][:-1]+'.000Z') or (modified.get('modified_before') and stamp>=modified['modified_before'][:-1]+'.000Z'):raise ValueError()
-                    except ValueError:raise SafetyError('Configured helper returned a note outside the requested modification range') from None
+                        if (bounds.get(kind+'_from') and stamp<bounds[kind+'_from'][:-1]+'.000Z') or (bounds.get(kind+'_before') and stamp>=bounds[kind+'_before'][:-1]+'.000Z'):raise ValueError()
+                    except ValueError:raise SafetyError('Configured helper returned a note outside the requested date range') from None
             for candidate in candidates:
                 try:
                     projected=project_html(candidate['html'])
@@ -513,6 +516,7 @@ class NativeReader:
                             locked=False,content_complete=False,match_source='exported_table_text',
                             text_projection_complete=projected['text_projection_complete'] and not candidate.get('truncated',False))
                         if modified:result['items'][-1]['modified']=candidate['modified']
+                        if created:result['items'][-1]['created']=candidate['created']
                         if shared_filter is not None:result['items'][-1]['shared']=candidate['shared']
                 except (ValueError,KeyError,TypeError):
                     result.setdefault('unavailable',[]).append({'category':'table_projection_unavailable'})
@@ -523,27 +527,27 @@ class NativeReader:
                 unavailable=result.get('unavailable',[])
                 if (not isinstance(unavailable,list) or len(unavailable)>100 or any(not isinstance(row,dict)
                         or not isinstance(row.get('id'),str) or not row['id']
-                        or row.get('category') not in {'note_read_unavailable','modification_date_unavailable'} for row in unavailable)
+                        or row.get('category') not in {'note_read_unavailable','modification_date_unavailable','creation_date_unavailable'} for row in unavailable)
                         or ('pagination_consistency' in result and result['pagination_consistency']!='live_offset_may_shift')
                         or ('done' in result and type(result['done']) is not bool)
                         or any(k in result and (type(result[k]) is not int or result[k]<0) for k in ('next_offset','scanned','locked_bodies_excluded','truncated_bodies'))):
                     raise SafetyError('Configured helper returned invalid title-only search diagnostics')
-                allowed=('id','title','source_id','folder_id','locked','excerpt','content_complete','modified')+(('shared',) if shared_filter is not None else ())
+                allowed=('id','title','source_id','folder_id','locked','excerpt','content_complete','modified','created')+(('shared',) if shared_filter is not None else ())
                 result['items']=[{key:row[key] for key in allowed if key in row} for row in result['items']]
                 result['unavailable']=[{'id':row['id'],'category':row['category']} for row in unavailable]
-                keys=('items','unavailable','done','next_offset','scanned','locked_bodies_excluded','truncated_bodies','pagination_consistency','match_scope','modified_filter','locked_filter','shared_filter')
+                keys=('items','unavailable','done','next_offset','scanned','locked_bodies_excluded','truncated_bodies','pagination_consistency','match_scope','modified_filter','created_filter','locked_filter','shared_filter')
                 result={key:result[key] for key in keys if key in result}
                 result['search_coverage']='bounded title only; no note bodies read'
             else:
                 unavailable=result.get('unavailable',[])
-                categories={'note_read_unavailable','modification_date_unavailable','table_projection_budget','table_projection_unavailable'}
+                categories={'note_read_unavailable','modification_date_unavailable','creation_date_unavailable','table_projection_budget','table_projection_unavailable'}
                 if (not isinstance(unavailable,list) or len(unavailable)>200 or any(not isinstance(row,dict)
                         or row.get('category') not in categories or ('id' in row and (not isinstance(row['id'],str) or not row['id'])) for row in unavailable)):
                     raise SafetyError('Configured helper returned invalid Notes search diagnostics')
-                allowed=('id','title','source_id','folder_id','locked','excerpt','content_complete','modified','match_source','text_projection_complete')+(('shared',) if shared_filter is not None else ())
+                allowed=('id','title','source_id','folder_id','locked','excerpt','content_complete','modified','created','match_source','text_projection_complete')+(('shared',) if shared_filter is not None else ())
                 result['items']=[{key:row[key] for key in allowed if key in row} for row in result['items']]
                 result['unavailable']=[{key:row[key] for key in ('id','category') if key in row} for row in unavailable]
-                keys=('protocol_version','items','unavailable','done','next_offset','scanned','locked_bodies_excluded','truncated_bodies','pagination_consistency','modified_filter','locked_filter','shared_filter')
+                keys=('protocol_version','items','unavailable','done','next_offset','scanned','locked_bodies_excluded','truncated_bodies','pagination_consistency','modified_filter','created_filter','locked_filter','shared_filter')
                 result={key:result[key] for key in keys if key in result}
                 result['search_coverage']='title, bounded plaintext and exported table text; no native OCR/attachment/semantic index'
         if self.name == 'notes' and action == 'get' and 'html' in result.get('item', {}):
@@ -1009,9 +1013,10 @@ def register_read_tools(mcp):
         @guard
         def notes_search(text: str, folder_id: str | None = None, limit: int = 50, offset: int = 0,
                          modified_from: str | None = None, modified_before: str | None = None,
-                         match_scope: Literal['all','title'] = 'all', locked: bool | None = None, shared: bool | None = None) -> dict:
-            """Search bounded title, plaintext and exported table text, or titles only without reading bodies. An empty title-only query lists scoped notes; locked and shared filter observed app flags without unlocking or changing sharing. UTC bounds are inclusive from and exclusive before; follow next_offset even after empty pages."""
-            return NativeReader('notes').read('search', text=text, folder_id=folder_id, limit=limit, offset=offset, modified_from=modified_from, modified_before=modified_before,match_scope=match_scope,locked=locked,shared=shared)
+                         match_scope: Literal['all','title'] = 'all', locked: bool | None = None, shared: bool | None = None,
+                         created_from: str | None = None, created_before: str | None = None) -> dict:
+            """Search bounded title, plaintext and exported table text, or titles only without reading bodies. An empty title-only query lists scoped notes; locked and shared filter observed app flags without unlocking or changing sharing. Creation and modification bounds use UTC YYYY-MM-DDTHH:MM:SSZ, inclusive from and exclusive before; follow next_offset even after empty pages."""
+            return NativeReader('notes').read('search', text=text, folder_id=folder_id, limit=limit, offset=offset, modified_from=modified_from, modified_before=modified_before,match_scope=match_scope,locked=locked,shared=shared,created_from=created_from,created_before=created_before)
 
         @mcp.tool(annotations=annotations)
         @guard

@@ -506,6 +506,20 @@ class NativeReadTests(unittest.TestCase):
                 with self.subTest(value=value),self.assertRaises(SafetyError):NativeReader('notes').read('search',text='',match_scope='title',locked=True)
             with self.assertRaises(SafetyError):NativeReader('notes').read('search',text='',match_scope='title',locked=1)
 
+    def test_notes_creation_filter_requires_evidence_and_preserves_projection(self):
+        config={'notes':{'source_ids':['selected']}}
+        fields={'text':'needle','created_from':'2026-01-01T00:00:00Z','created_before':'2026-01-02T00:00:00Z'}
+        evidence={'from':fields['created_from'],'before':fields['created_before'],'semantics':'utc_inclusive_from_exclusive_before'}
+        candidate={'id':'note','title':'Synthetic','source_id':'selected','folder_id':'folder','locked':False,'html':'<table><tr><td>needle</td></tr></table>','truncated':False,'created':'2026-01-01T00:00:00.000Z'}
+        def page(**extra):return {'items':[],'table_projection_candidates':[dict(candidate)],'created_filter':evidence,**extra}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=page()) as backend:
+            result=NativeReader('notes').read('search',**fields)
+            self.assertEqual(result['items'][0]['created'],candidate['created'])
+            for invalid in ({'items':[]}, {**page(),'created_filter':None}, {**page(),'table_projection_candidates':[{**candidate,'created':'2026-01-02T00:00:00.000Z'}]}):
+                backend.return_value=invalid
+                with self.subTest(invalid=invalid),self.assertRaises(SafetyError):NativeReader('notes').read('search',**fields)
+            with self.assertRaises(SafetyError):NativeReader('notes').read('search',text='needle',created_from='2026-02-30T00:00:00Z')
+
     def test_notes_modification_filter_rejects_old_helpers_and_out_of_range_rows(self):
         config={'notes':{'source_ids':['selected']}}
         fields={'text':'table','modified_from':'2026-10-27T12:00:00Z','modified_before':'2026-10-27T13:00:00Z'}
