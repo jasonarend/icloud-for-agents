@@ -14,7 +14,8 @@ class NotesListFormatTests(unittest.TestCase):
     def test_numbering_nesting_and_unsupported_syntax_refused(self):
         for text in ('2. Starts late','1. One\n3. Skips','  - Orphan','- One\n    - Jump',
                      '- [ ] Checklist','**bold**','[link](https://example.com)','```code```',
-                     '<script>alert(1)</script>','- One\n\t- Child','##Heading','- One\n  prose','- # Heading','- 1. Nested'):
+                     '<script>alert(1)</script>','- One\n\t- Child','##Heading','- One\n  prose','- # Heading','- 1. Nested',
+                     '# Heading #','entity &amp; text','text with hard break  '):
             with self.subTest(text=text),self.assertRaises(SafetyError):format_lists(text)
     def test_html_is_escaped_and_bounded(self):
         value=format_lists('Text & more\n- A & B')
