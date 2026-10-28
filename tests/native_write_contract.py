@@ -57,15 +57,18 @@ function run() {
  destinationShared=req.synthetic_destination_shared===true;moveFails=req.synthetic_move_fail===true;
  makeAmbiguous=req.synthetic_ambiguous===true;
  makeConstructorFail=req.synthetic_constructor_fail===true;makeEditFail=req.synthetic_edit_fail===true;
+ if(req.synthetic_unknown_folder_share)folder.shared=()=>null;
+ if(req.synthetic_unknown_note_lock)editable.passwordProtected=()=>null;
+ if(req.synthetic_unknown_note_share)editable.shared=()=>null;
  requestedEditBody=req.change.fields.html;syntheticLargeCreate=req.change.fields.title==='Transcript';
  let gateCalls=0;
  const result=JSON.parse(applyNotes(app,req,()=>{gateCalls++;return req.synthetic_gate_open!==false && (req.synthetic_gate_limit===null || gateCalls<=req.synthetic_gate_limit);}));
  result.synthetic_gate_calls=gateCalls;result.synthetic_saved_ids=saved.slice();return JSON.stringify(result);
 }
 ''')
-        def call(change,ids=None,ambiguous=False,constructor_fail=False,edit_fail=False,destination_shared=False,move_fail=False,nameless=False,ancestor_shared=False,gate_open=True,gate_limit=None):
+        def call(change,ids=None,ambiguous=False,constructor_fail=False,edit_fail=False,destination_shared=False,move_fail=False,nameless=False,ancestor_shared=False,gate_open=True,gate_limit=None,unknown_folder_share=False,unknown_note_lock=False,unknown_note_share=False):
             return subprocess.run(['/usr/bin/osascript','-l','JavaScript',str(script)],
-                input=json.dumps({'protocol_version':1,'action':'apply','source_ids':ids or ['selected'],'change':change,'synthetic_ambiguous':ambiguous,'synthetic_constructor_fail':constructor_fail,'synthetic_edit_fail':edit_fail,'synthetic_destination_shared':destination_shared,'synthetic_move_fail':move_fail,'synthetic_nameless_attachment':nameless,'synthetic_ancestor_shared':ancestor_shared,'synthetic_gate_open':gate_open,'synthetic_gate_limit':gate_limit}),
+                input=json.dumps({'protocol_version':1,'action':'apply','source_ids':ids or ['selected'],'change':change,'synthetic_ambiguous':ambiguous,'synthetic_constructor_fail':constructor_fail,'synthetic_edit_fail':edit_fail,'synthetic_destination_shared':destination_shared,'synthetic_move_fail':move_fail,'synthetic_nameless_attachment':nameless,'synthetic_ancestor_shared':ancestor_shared,'synthetic_gate_open':gate_open,'synthetic_gate_limit':gate_limit,'synthetic_unknown_folder_share':unknown_folder_share,'synthetic_unknown_note_lock':unknown_note_lock,'synthetic_unknown_note_share':unknown_note_share}),
                 capture_output=True,text=True,timeout=10)
         note={'operation':'create_note','source_id':'selected','folder_id':'folder',
               'fields':{'title':"'); Application('Mail'); //",'html':'<div>Body</div>'}}
@@ -106,6 +109,8 @@ function run() {
                                     'modified':'2026-10-26T12:00:00.000Z'}}}
             result=call(edit);assert result.returncode==0,result.stderr
             assert json.loads(result.stdout)['result']['id']=='edit-id'
+            for kwargs in ({'unknown_folder_share':True},{'unknown_note_lock':True},{'unknown_note_share':True}):
+                refused=json.loads(call(edit,**kwargs).stdout);assert refused['mutation_dispatched'] is False and refused['synthetic_gate_calls']==0
             changed=dict(edit,before={'note':dict(edit['before']['note'],modified='changed')})
             assert json.loads(call(changed).stdout)['category']=='snapshot_changed'
             assert json.loads(call(changed).stdout)['mutation_dispatched'] is False

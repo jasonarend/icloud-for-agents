@@ -66,7 +66,7 @@ function applyNotes(app, req, beginMutation, nativePhase) {
         const visited=new Set();let current=folder;
         for(let depth=0;depth<32;depth++) {
             const id=current.id();if(visited.has(id))throw Error('folder_limit');visited.add(id);
-            if(current.shared())throw Error('shared_write_not_supported');
+            if(current.shared()!==false)throw Error('shared_write_not_supported');
             const parent=current.container().id();if(parent===item.source_id)return;
             const matching=folders.filter(f=>f.id()===parent);
             if(matching.length!==1)throw Error('folder_ancestry_unavailable');current=matching[0];
@@ -116,7 +116,7 @@ function applyNotes(app, req, beginMutation, nativePhase) {
         const destination=destinations[0], note=folder.notes.byId(item.id), modified=note.modificationDate();
         requirePrivateFolder(destination);
         if(note.container().id()!==item.folder_id)throw Error('not_found_in_scope');
-        if(destination.shared() || note.passwordProtected() || note.shared() || !modified)throw Error('unsupported_edit_target');
+        if(destination.shared()!==false || note.passwordProtected()!==false || note.shared()!==false || !modified)throw Error('unsupported_edit_target');
         if(note.name()!==before.title || note.body()!==before.html || modified.toISOString()!==before.modified)throw Error('snapshot_changed');
         const inventory=note.attachments().map(a=>{const name=a.name();return {id:a.id(),name:typeof name==='string'?name.slice(0,1000):null,content_identifier:a.contentIdentifier(),note_id:item.id};}).sort((a,b)=>a.id.localeCompare(b.id));
         const expectedInventory=(item.before.attachments || []).map(a=>({id:a.id,name:a.name,content_identifier:a.content_identifier,note_id:a.note_id})).sort((a,b)=>a.id.localeCompare(b.id));
@@ -138,7 +138,7 @@ function applyNotes(app, req, beginMutation, nativePhase) {
         if(!before || !folder.notes.id().includes(item.id))throw Error('not_found_in_scope');
         const note=folder.notes.byId(item.id), modified=note.modificationDate();
         if(note.container().id()!==item.folder_id)throw Error('not_found_in_scope');
-        if(note.passwordProtected() || note.shared() || note.attachments().length!==0 || !modified)throw Error('unsupported_edit_target');
+        if(note.passwordProtected()!==false || note.shared()!==false || note.attachments().length!==0 || !modified)throw Error('unsupported_edit_target');
         if(note.name()!==before.title || note.body()!==before.html || modified.toISOString()!==before.modified)throw Error('snapshot_changed');
         // The Python snapshot validator accepts only known basic HTML. Refuse
         // native objects here too, before setting an existing note body.
@@ -153,7 +153,7 @@ function applyNotes(app, req, beginMutation, nativePhase) {
         if(!before || !folder.notes.id().includes(item.id))throw Error('not_found_in_scope');
         const note=folder.notes.byId(item.id);
         if(note.container().id()!==item.folder_id)throw Error('not_found_in_scope');
-        if(note.passwordProtected() || note.shared() || note.attachments().length!==0)throw Error('unsupported_repair_target');
+        if(note.passwordProtected()!==false || note.shared()!==false || note.attachments().length!==0)throw Error('unsupported_repair_target');
         const canonical='<div>'+note.name().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</div>';
         if(note.body().trim()!==canonical)throw Error('unsupported_repair_target');
         const modified=note.modificationDate();
