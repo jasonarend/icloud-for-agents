@@ -26,6 +26,8 @@ def run():
                 tools=rpc('tools/list',{})['result']['tools'];tool=next(t for t in tools if t['name']=='reminders_get');assert tool['annotations']['readOnlyHint'] is True
                 default_tool=next(t for t in tools if t['name']=='reminders_default_list');assert default_tool['annotations']['readOnlyHint'] is True
                 default=data(rpc('tools/call',{'name':'reminders_default_list','arguments':{}})['result']);assert default['state']=='available' and default['list']['source_id']=='selected'
+                sections_tool=next(t for t in tools if t['name']=='reminders_list_sections');assert sections_tool['annotations']['readOnlyHint'] is True
+                sections=data(rpc('tools/call',{'name':'reminders_list_sections','arguments':{'list_id':'list'}})['result']);assert sections['sections'][0]['title']=='Synthetic section' and sections['membership_verified'] is False
                 schema=tool['inputSchema']['properties']['include_native_metadata'];assert schema['type']=='boolean' and schema['default'] is False
                 args={'id':'synthetic-task'};native=data(call(args));assert 'native_metadata' not in native['item']
                 projected=data(call(dict(args,include_native_metadata=True)));item=projected['item'];metadata=item.pop('native_metadata');assert item==native['item'];assert metadata['flagged'] is True and metadata['coverage']==['flagged'] and metadata['native_metadata_complete'] is False

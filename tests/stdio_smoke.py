@@ -68,7 +68,7 @@ def run(native=False):
                                  "reminders_prepare_changes", "reminders_execute_approved", "reminders_plan_status", "reminders_reconcile_created", "reminders_reconcile_known_changes",
                                  "reminders_prepare_update_correction", "reminders_reconcile_correction",
                                  "notes_prepare_edit_recovery", "notes_accept_edit_recovery", "notes_finalize_edit_recovery", "notes_abandon_edit_recovery", "notes_inspect_uncertain_edit", "notes_model_folder_role", "notes_locate", "notes_search", "notes_attachments", "notes_status", "notes_sources", "notes_folders", "notes_default_folder", "notes_query", "notes_get",
-                                 "notes_access_status", "reminders_access_status", "reminders_daily", "reminders_status", "reminders_sources", "reminders_lists", "reminders_default_list", "reminders_query", "reminders_get", "reminders_inspect_hierarchy", "reminders_recovery_lookup", "reminders_recovery_tree", "reminders_recovery_list", "reminders_inspect_recovery_hierarchy"}
+                                 "notes_access_status", "reminders_access_status", "reminders_daily", "reminders_status", "reminders_sources", "reminders_lists", "reminders_default_list", "reminders_list_sections", "reminders_query", "reminders_get", "reminders_inspect_hierarchy", "reminders_recovery_lookup", "reminders_recovery_tree", "reminders_recovery_list", "reminders_inspect_recovery_hierarchy"}
                 assert {tool["name"] for tool in tools} == expected
                 schemas = {tool["name"]: tool["inputSchema"] for tool in tools}
                 assert schemas["email_execute_approved"]["required"] == ["plan_id"]

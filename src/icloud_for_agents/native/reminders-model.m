@@ -54,6 +54,38 @@ static id SelectedReminderWithStore(NSData *data,NSDictionary **failureResult,id
         return reminder;
 }
 static id SelectedReminder(NSData *data,NSDictionary **failureResult){return SelectedReminderWithStore(data,failureResult,NULL);}
+
+// Read ordinary native sections only after EventKit has selected the exact list.
+NSData *ICloudRemindersListSections(NSData *data){
+    @try {
+        id identity=[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
+        if(![identity isKindOfClass:NSDictionary.class] || [identity count]!=2)return EncodeFlag(FlagFailure(@"invalid_public_identity"));
+        for(NSString *key in @[@"source_id",@"list_id"]){id value=identity[key];NSUUID *uuid=[value isKindOfClass:NSString.class]?[[NSUUID alloc]initWithUUIDString:value]:nil;if(!uuid || !UUIDEqual(uuid.UUIDString,value))return EncodeFlag(FlagFailure(@"unsupported_public_identity"));}
+        if(NSProcessInfo.processInfo.operatingSystemVersion.majorVersion!=27 || !dlopen("/System/Library/PrivateFrameworks/ReminderKit.framework/ReminderKit",RTLD_LAZY|RTLD_LOCAL))return EncodeFlag(FlagFailure(@"unsupported_interface"));
+        Class ids=NSClassFromString(@"REMObjectID"),storeClass=NSClassFromString(@"REMStore");
+        if(!MethodMatches(ids,@"objectIDWithURL:",@"@@:@",YES) || !MethodMatches(storeClass,@"fetchListWithObjectID:error:",@"@@:@^@",NO) || !MethodMatches(storeClass,@"fetchListSectionsWithListObjectID:error:",@"@@:@^@",NO))return EncodeFlag(FlagFailure(@"unsupported_interface"));
+        id store=[storeClass new];NSURL *url=[NSURL URLWithString:[@"x-apple-reminderkit://REMCDList/" stringByAppendingString:identity[@"list_id"]]];
+        id objectID=((id(*)(id,SEL,id))objc_msgSend)((id)ids,NSSelectorFromString(@"objectIDWithURL:"),url);NSError *error=nil;
+        if(!store || !objectID)return EncodeFlag(FlagFailure(@"private_store_unavailable"));
+        id list=((id(*)(id,SEL,id,NSError **))objc_msgSend)(store,NSSelectorFromString(@"fetchListWithObjectID:error:"),objectID,&error);
+        if(error || !list)return EncodeFlag(FlagFailure(@"private_read_denied_or_unavailable"));
+        if(!UUIDEqual(ObjectUUID(list,@"REMCDList"),identity[@"list_id"]) || !UUIDEqual(ObjectUUID(ObjectValue(list,@"account"),@"REMCDAccount"),identity[@"source_id"]))return EncodeFlag(FlagFailure(@"native_identity_mismatch"));
+        error=nil;id sections=((id(*)(id,SEL,id,NSError **))objc_msgSend)(store,NSSelectorFromString(@"fetchListSectionsWithListObjectID:error:"),objectID,&error);
+        if(error || ![sections isKindOfClass:NSArray.class] || [sections count]>100)return EncodeFlag(FlagFailure(@"unsupported_section_metadata"));
+        NSMutableArray *out=[NSMutableArray array];NSMutableSet *seen=[NSMutableSet set];
+        for(id section in sections){
+            NSString *sectionID=ObjectUUID(section,@"REMCDListSection");id storage=ObjectValue(section,@"storage"),name=ObjectValue(storage,@"displayName"),account=ObjectValue(storage,@"accountID"),parent=ObjectValue(storage,@"listID");
+            id accountUUID=ObjectValue(account,@"uuid"),listUUID=ObjectValue(parent,@"uuid");
+            if(!sectionID || [seen containsObject:sectionID] || ![name isKindOfClass:NSString.class] || [name length]>1000
+                    || ![ObjectValue(account,@"entityName") isEqual:@"REMCDAccount"] || ![ObjectValue(parent,@"entityName") isEqual:@"REMCDList"]
+                    || ![accountUUID isKindOfClass:NSUUID.class] || ![listUUID isKindOfClass:NSUUID.class]
+                    || !UUIDEqual([accountUUID UUIDString],identity[@"source_id"]) || !UUIDEqual([listUUID UUIDString],identity[@"list_id"]) || !UUIDEqual(ObjectUUID(ObjectValue(section,@"list"),@"REMCDList"),identity[@"list_id"]))return EncodeFlag(FlagFailure(@"native_identity_mismatch"));
+            [seen addObject:sectionID];[out addObject:@{@"id":sectionID,@"title":name}];
+        }
+        [out sortUsingComparator:^NSComparisonResult(NSDictionary *a,NSDictionary *b){return [a[@"id"] compare:b[@"id"]];}];
+        return EncodeFlag(@{@"protocol_version":@1,@"source_id":identity[@"source_id"],@"list_id":identity[@"list_id"],@"sections":out,@"ordering_verified":@NO,@"membership_verified":@NO,@"data_mutated":@NO});
+    }@catch(NSException *exception){return EncodeFlag(FlagFailure(@"private_read_exception"));}
+}
 NSData *ICloudRemindersReadFlag(NSData *data){
     @try{
         NSDictionary *failure=nil;id reminder=SelectedReminder(data,&failure);

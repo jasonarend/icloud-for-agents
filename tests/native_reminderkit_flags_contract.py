@@ -74,11 +74,26 @@ FIXTURE=r'''
 @end
 static FixtureReminder *fixture;
 static BOOL denied=NO;static BOOL childCollision=NO;static BOOL childLookupError=NO;
+@interface FixtureSectionStorage:NSObject
+@property FixtureID *accountID;@property FixtureID *listID;@property NSString *displayName;
+@end
+@implementation FixtureSectionStorage
+@end
+@interface FixtureSection:NSObject
+@property FixtureID *remObjectID;@property FixtureList *list;@property FixtureSectionStorage *storage;
+@end
+@implementation FixtureSection
+@end
+static NSArray *fixtureSections;
 @interface FixtureStore:NSObject
 -(id)fetchReminderWithObjectID:(id)objectID error:(NSError **)error;
 -(id)fetchReminderIncludingMarkedForDeleteWithObjectID:(id)objectID error:(NSError **)error;
+-(id)fetchListWithObjectID:(id)objectID error:(NSError **)error;
+-(id)fetchListSectionsWithListObjectID:(id)objectID error:(NSError **)error;
 @end
 @implementation FixtureStore
+-(id)fetchListWithObjectID:(id)objectID error:(NSError **)error{return [[objectID uuid] isEqual:fixture.list.remObjectID.uuid]?fixture.list:nil;}
+-(id)fetchListSectionsWithListObjectID:(id)objectID error:(NSError **)error{return fixtureSections;}
 -(id)fetchReminderIncludingMarkedForDeleteWithObjectID:(id)objectID error:(NSError **)error{if(childLookupError){*error=[NSError errorWithDomain:@"synthetic" code:9 userInfo:nil];return nil;}return childCollision?fixture:nil;}
 -(id)fetchReminderWithObjectID:(id)objectID error:(NSError **)error{
  if(denied){*error=[NSError errorWithDomain:@"synthetic" code:1 userInfo:@{NSLocalizedDescriptionKey:@"private-content-must-not-leak"}];return nil;}
@@ -144,6 +159,11 @@ static NSDictionary *RemoveTag(NSDictionary *request,BOOL allow){NSData *data=[N
 int main(){@autoreleasepool{
  NSString *task=@"11111111-1111-4111-8111-111111111111",*list=@"22222222-2222-4222-8222-222222222222",*source=@"33333333-3333-4333-8333-333333333333",*other=@"44444444-4444-4444-8444-444444444444";
  fixture=[FixtureReminder new];fixture.remObjectID=Identity(@"REMCDReminder",task);fixture.account=[FixtureAccount new];fixture.account.remObjectID=Identity(@"REMCDAccount",source);fixture.list=[FixtureList new];fixture.list.remObjectID=Identity(@"REMCDList",list);fixture.list.account=fixture.account;FixtureFlag *flag=[FixtureFlag new];fixture.flaggedContext=flag;
+ FixtureSection *section=[FixtureSection new];section.remObjectID=Identity(@"REMCDListSection",other);section.list=fixture.list;section.storage=[FixtureSectionStorage new];section.storage.accountID=fixture.account.remObjectID;section.storage.listID=fixture.list.remObjectID;section.storage.displayName=@"Synthetic";fixtureSections=@[section];
+ NSDictionary *sectionRequest=@{@"source_id":source,@"list_id":list};NSData *sectionData=[NSJSONSerialization dataWithJSONObject:sectionRequest options:0 error:NULL];NSDictionary *(^readSections)(void)=^NSDictionary *{return [NSJSONSerialization JSONObjectWithData:ICloudRemindersListSections(sectionData) options:0 error:NULL];};
+ NSCAssert([readSections()[@"sections"] count]==1 && [readSections()[@"sections"][0][@"title"] isEqual:@"Synthetic"],@"exact section read");
+ section.storage.accountID=Identity(@"REMCDAccount",other);NSCAssert(readSections()[@"error"],@"foreign account refused");section.storage.accountID=fixture.account.remObjectID;
+ fixtureSections=@[section,section];NSCAssert(readSections()[@"error"],@"duplicate sections refused");fixtureSections=@[];NSCAssert([readSections()[@"sections"] count]==0,@"empty list distinct from error");
  NSDictionary *request=@{@"id":task,@"source_id":source,@"list_id":list};
  NSDictionary *set=@{@"id":task,@"source_id":source,@"list_id":list,@"expected_flagged":@NO,@"flagged":@YES};
  NSCAssert(SetFlag(set,NO)[@"error"] && flagSaves==0 && flag.flagged==0,@"closed gate never saves");
@@ -235,6 +255,7 @@ int main(){@autoreleasepool{
 '''
 def run():
     source=(ROOT/'src/icloud_for_agents/native/reminders-model.m').read_text();source=source.replace('    if(NSProcessInfo.processInfo.operatingSystemVersion.majorVersion!=27)return NO;','').replace('    if(!dlopen("/System/Library/PrivateFrameworks/ReminderKit.framework/ReminderKit",RTLD_LAZY|RTLD_LOCAL))return NO;','')
+    source=source.replace('NSProcessInfo.processInfo.operatingSystemVersion.majorVersion!=27 || !dlopen("/System/Library/PrivateFrameworks/ReminderKit.framework/ReminderKit",RTLD_LAZY|RTLD_LOCAL)','NO')
     for real,fake in [('REMStore','FixtureStore'),('REMObjectID','FixtureID'),('REMReminder','FixtureReminder'),('REMSaveRequest','FixtureSave')]:source=source.replace('NSClassFromString(@"'+real+'")','NSClassFromString(@"'+fake+'")')
     with tempfile.TemporaryDirectory(prefix='native-flag-contract-') as directory:
         p=Path(directory);(p/'reminders-model.h').write_text((ROOT/'src/icloud_for_agents/native/reminders-model.h').read_text());(p/'test.m').write_text(source+'\n'+FIXTURE)

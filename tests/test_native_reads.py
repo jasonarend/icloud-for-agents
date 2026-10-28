@@ -56,6 +56,19 @@ class NativeReadTests(unittest.TestCase):
             backend.return_value={'protocol_version':1,'folder':dict(result['folder'],source_id='foreign')}
             with self.assertRaises(SafetyError):NativeReader('notes').read('default_folder',source_id='selected')
 
+    def test_section_discovery_requires_opt_in_and_exact_scoped_metadata(self):
+        config={'reminders':{'source_ids':['selected'],'advanced_backend':'reminderkit','helper_path':'/synthetic/helper'}}
+        section={'id':'11111111-1111-4111-8111-111111111111','title':'Synthetic'}
+        result={'protocol_version':1,'source_id':'selected','list_id':'list','sections':[section], 'ordering_verified':False,'membership_verified':False,'data_mutated':False}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=result) as backend:
+            self.assertEqual(NativeReader('reminders').read('list_sections',list_id='list'),result)
+            for bad in (dict(result,source_id='other'),dict(result,list_id='other'),dict(result,ordering_verified=True),dict(result,sections=[section,section])):
+                backend.return_value=bad
+                with self.assertRaises(SafetyError):NativeReader('reminders').read('list_sections',list_id='list')
+        config['reminders'].pop('advanced_backend')
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',side_effect=AssertionError('No helper')):
+            with self.assertRaises(SafetyError):NativeReader('reminders').read('list_sections',list_id='list')
+
     def test_optional_native_store_status_is_owner_selected_and_read_only(self):
         config={'notes':{'source_ids':['selected'],'access_mode':'read-only','helper_path':'/synthetic/helper','metadata_backend':'notes-store-readonly','folder_write_backend':'notes-shared'}}
         calls=[]
@@ -322,7 +335,7 @@ class NativeReadTests(unittest.TestCase):
                     importlib.reload(server)
                     tools = {t.name:t for t in asyncio.run(server.mcp.list_tools())}
                     self.assertEqual(sum(n.startswith('notes_') for n in tools),43 if notes else 0)
-                    self.assertEqual(sum(n.startswith('reminders_') for n in tools),32 if reminders else 0)
+                    self.assertEqual(sum(n.startswith('reminders_') for n in tools),33 if reminders else 0)
                     if notes:
                         with patch.dict(os.environ, {'ICLOUD_ENABLE_NOTES':'0'}), patch('subprocess.run',side_effect=AssertionError('No helper')):
                             with self.assertRaises(ToolError): tools['notes_sources'].fn()

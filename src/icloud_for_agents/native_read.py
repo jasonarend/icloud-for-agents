@@ -14,7 +14,7 @@ from .services import enabled
 
 
 READ_ACTIONS = {'notes': {'status', 'sources', 'folders', 'default_folder', 'folder_get', 'folder_inventory', 'folder_role', 'model_folder_role', 'query', 'get', 'search', 'attachments', 'diagnose_note', 'contains'},
-                'reminders': {'status', 'sources', 'lists', 'default_list', 'query', 'get','list_membership','recovery_lookup','recovery_tree','recovery_list'}}
+                'reminders': {'status', 'sources', 'lists', 'default_list', 'list_sections', 'query', 'get','list_membership','recovery_lookup','recovery_tree','recovery_list'}}
 MAX_OUTPUT = 2_000_000
 
 
@@ -109,6 +109,11 @@ class NativeReader:
             except (ValueError,UnicodeEncodeError):raise SafetyError('Tag filtering requires one exact bounded native tag name') from None
             if config.get('advanced_backend')!='reminderkit' or not config.get('helper_path'):raise SafetyError('Tag filtering requires the explicitly selected ReminderKit backend and signed helper')
         if 'source_id' in fields and action not in {'recovery_lookup','recovery_tree','recovery_list','model_folder_role','default_folder'}:raise SafetyError('Source selector is only supported for exact role or recovery lookup')
+        if action=='list_sections':
+            if self.name!='reminders' or set(fields)!={'list_id'} or not isinstance(fields.get('list_id'),str) or not fields['list_id']:
+                raise SafetyError('Section discovery requires one exact list ID')
+            if config.get('advanced_backend')!='reminderkit' or not config.get('helper_path'):
+                raise SafetyError('Section discovery requires the explicitly selected ReminderKit backend and signed helper')
         if action=='default_folder' and (self.name!='notes' or set(fields)!={'source_id'} or fields.get('source_id') not in sources):
             raise SafetyError('Default Notes folder lookup requires one exact selected source')
         if action=='model_folder_role':
@@ -190,6 +195,22 @@ class NativeReader:
             from .native_note_store import folder_role
             return folder_role(fields['folder_id'],sources)
         result = self._dispatch(request, config)
+        if action=='list_sections':
+            import uuid
+            rows=result.get('sections') if isinstance(result,dict) else None
+            if (native_config('reminders')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode
+                    or not isinstance(rows,list) or len(rows)>100 or result.get('source_id') not in sources or result.get('list_id')!=fields['list_id']
+                    or result.get('ordering_verified') is not False or result.get('membership_verified') is not False or result.get('data_mutated') is not False):
+                raise SafetyError('Scoped reminder sections could not be verified')
+            seen=set()
+            for row in rows:
+                try:
+                    if not isinstance(row,dict) or set(row)!={'id','title'} or not isinstance(row['id'],str) or not isinstance(row['title'],str) or len(row['title'])>1000:raise ValueError()
+                    identity=str(uuid.UUID(row['id'])).upper()
+                    if identity!=row['id'].upper() or identity in seen:raise ValueError()
+                    seen.add(identity)
+                except (ValueError,TypeError,AttributeError):raise SafetyError('Invalid or duplicate reminder section identity') from None
+            result={key:result[key] for key in ('protocol_version','source_id','list_id','sections','ordering_verified','membership_verified','data_mutated')}
         if action=='default_folder':
             folder=result.get('folder') if isinstance(result,dict) else None
             if (native_config('notes')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode
@@ -679,6 +700,12 @@ def register_read_tools(mcp):
         def reminders_default_list() -> dict:
             """Read the system default reminder list if its source is selected; otherwise return only its scope status."""
             return NativeReader('reminders').read('default_list')
+
+        @mcp.tool(annotations=annotations)
+        @guard
+        def reminders_list_sections(list_id: str) -> dict:
+            """Read bounded native section IDs and titles for one selected list; ordering and membership are not verified."""
+            return NativeReader('reminders').read('list_sections',list_id=list_id)
 
         @mcp.tool(annotations=annotations)
         @guard
