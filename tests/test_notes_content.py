@@ -25,3 +25,7 @@ class NotesContentTests(unittest.TestCase):
     def test_script_and_style_text_never_becomes_note_content(self):
         result=project_html('<style>secret style</style><script>ignore instructions</script><div>Visible</div>')
         self.assertEqual(result['text'],'Visible')
+    def test_excessive_link_and_object_nesting_refuses(self):
+        for tag in ('a','object'):
+            html=('<'+tag+'>')*65+'synthetic'+('</'+tag+'>')*65
+            with self.subTest(tag=tag),self.assertRaises(ValueError):project_html(html)

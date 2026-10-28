@@ -19,7 +19,9 @@ class Projection(HTMLParser):
         if tag in {'script','style','head'}:self.ignored+=1;return
         if self.ignored:return
         if tag in self.blocks:self.boundary()
-        if tag=='object':self.objects.append(False)
+        if tag=='object':
+            if len(self.objects)>=64:raise ValueError('Object nesting limit')
+            self.objects.append(False)
         if tag in {'img','audio','video','iframe','embed'}:self.unknown_objects+=1
         if tag=='table':
             if len(self.stack)>=32:raise ValueError('Table nesting limit')
@@ -30,6 +32,7 @@ class Projection(HTMLParser):
             if not self.stack[-1]['rows']:self.stack[-1]['rows'].append([])
             self.stack[-1]['cell']=[]
         if tag=='a':
+            if len(self.link_stack)>=64:raise ValueError('Link nesting limit')
             href=dict(attrs).get('href')
             self.link_stack.append({'href':href,'parts':[]})
     def handle_endtag(self,tag):

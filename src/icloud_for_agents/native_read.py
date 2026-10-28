@@ -1349,6 +1349,13 @@ def register_read_tools(mcp):
 
         @mcp.tool(annotations=annotations)
         @guard
+        def notes_inspect_exported_links(folder_id:str,id:str,limit:int=20,offset:int=0,expected_modified:str|None=None)->dict:
+            """Inspect bounded untrusted link elements in one scoped Notes HTML export; no target is opened and native links/backlinks may be incomplete."""
+            from .native_note_links import inspect_links
+            return inspect_links(NativeReader('notes'),folder_id,id,limit,offset,expected_modified)
+
+        @mcp.tool(annotations=annotations)
+        @guard
         def notes_export_observation(folder_id: str, id: str) -> dict:
             """Export one exact scoped note observation as JSON. Locked content and attachments are not fetched; this is not a restorable backup."""
             from .native_note_export import export_note

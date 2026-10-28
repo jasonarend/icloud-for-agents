@@ -25,6 +25,7 @@ def run():
                 rpc('initialize',{'protocolVersion':'2025-11-25','capabilities':{},'clientInfo':{'name':'synthetic-markdown','version':'1'}});process.stdin.write(b'{"jsonrpc":"2.0","method":"notifications/initialized"}\n');process.stdin.flush()
                 tools=rpc('tools/list',{})['result']['tools'];tool=next(t for t in tools if t['name']=='notes_get');assert tool['annotations']['readOnlyHint'] is True
                 assert next(t for t in tools if t['name']=='notes_export_observation')['annotations']['readOnlyHint'] is True
+                assert next(t for t in tools if t['name']=='notes_inspect_exported_links')['annotations']['readOnlyHint'] is True
                 assert next(t for t in tools if t['name']=='notes_format_list_markdown')['annotations']['readOnlyHint'] is True
                 formatted=data(rpc('tools/call',{'name':'notes_format_list_markdown','arguments':{'markdown':'# Plan\n- First\n  1. Child'}})['result'])
                 assert formatted['body']=='<h1>Plan</h1><ul><li>First<ol><li>Child</li></ol></li></ul>' and formatted['coverage']['native_checklists'] is False
@@ -58,6 +59,9 @@ def run():
                 args={'folder_id':'folder','id':'synthetic-note'};native=data(call(args));assert 'markdown' not in native['item']
                 assert call(dict(args,id='foreign-note')).get('isError')
                 locked_native=data(call(dict(args,id='synthetic-locked')))['item'];assert locked_native['locked'] is True and 'html' not in locked_native
+                links=data(rpc('tools/call',{'name':'notes_inspect_exported_links','arguments':args})['result']);assert links['links'][0]['target']=='https://example.com/spec' and links['coverage']['targets_opened'] is False
+                locked_links=data(rpc('tools/call',{'name':'notes_inspect_exported_links','arguments':dict(args,id='synthetic-locked')})['result']);assert locked_links['links'] is None and locked_links['content_available'] is False
+                assert rpc('tools/call',{'name':'notes_inspect_exported_links','arguments':dict(args,expected_modified='different')})['result'].get('isError')
                 exported=data(rpc('tools/call',{'name':'notes_export_observation','arguments':args})['result']);assert exported['item']['html']==native['item']['html'] and exported['coverage']['restorable'] is False and exported['coverage']['attachment_content_included'] is False
                 locked_export=data(rpc('tools/call',{'name':'notes_export_observation','arguments':dict(args,id='synthetic-locked')})['result']);assert locked_export['item']['locked'] is True and 'html' not in locked_export['item']
                 projected=data(call(dict(args,representation='markdown')));item=projected['item'];assert item['html']==native['item']['html'];assert 'Priority' in item['markdown'] and '| ---' in item['markdown'];assert item['markdown_projection']['round_trip_safe'] is False
