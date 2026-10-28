@@ -9,7 +9,7 @@ from icloud_for_agents.native_reminder_ical import export_ical
 class ReminderICalTests(unittest.TestCase):
     def setUp(self):
         self.item={'id':'task','source_id':'selected','list_id':'list','title':'Synthetic, title; \\','notes':'first\nsecond',
-            'completed':False,'priority':1,'due':None,'start':None,'url':None,'location':None,'public_metadata_complete':True,'content_complete':False,
+            'completed':False,'priority':1,'due':None,'start':None,'url':None,'location':None,'created':None,'modified':None,'completion_date':None,'public_metadata_complete':True,'content_complete':False,
             'has_recurrence':False,'has_alarms':False,'recurrence_rules':[],'alarms':[]}
         env={'ICLOUD_ENABLE_REMINDERS':'1','ICLOUD_MAIL_ACCESS':'read-only','ICLOUD_NATIVE_CONFIG':json.dumps({'reminders':{'source_ids':['selected']}})}
         for manager in (patch.dict(os.environ,env,clear=True),patch('platform.system',return_value='Darwin')):
@@ -47,6 +47,18 @@ class ReminderICalTests(unittest.TestCase):
         for day in ({'year':2026,'month':11,'day':1,'hour':1,'minute':30}, {'year':2026,'month':3,'day':8,'hour':2,'minute':30}):
             self.item['due']={**day,'second':0,'timezone':'America/Chicago','date_only':False}
             with self.subTest(day=day),self.assertRaises(SafetyError):self.export()
+    def test_public_timestamps_and_precision_are_explicit(self):
+        self.item.update(created=1767323045.75,modified=1767323046.1,completion_date=1767323047.5,completed=True)
+        result=self.export();content=result['content']
+        self.assertIn('CREATED:20260102T030405Z\r\n',content);self.assertIn('LAST-MODIFIED:20260102T030406Z\r\n',content)
+        self.assertIn('COMPLETED:20260102T030407Z\r\n',content);self.assertEqual(result['coverage']['timestamp_precision'],'whole_seconds_subseconds_discarded')
+        self.item['created']=-0.0000001
+        self.assertIn('CREATED:19691231T235959Z\r\n',self.export()['content'])
+        self.item['completed']=False
+        with self.assertRaises(SafetyError):self.export()
+        for invalid in (True,float('nan'),10**400):
+            self.item.update(completed=True,created=invalid)
+            with self.subTest(invalid=invalid),self.assertRaises(SafetyError):self.export()
     def test_refuses_unrepresentable_and_wrong_scope(self):
         invalid=[dict(self.item,source_id='foreign'),dict(self.item,has_recurrence=True),dict(self.item,has_alarms=True),
                  dict(self.item,public_metadata_complete=False),dict(self.item,content_complete=True),dict(self.item,priority=True),

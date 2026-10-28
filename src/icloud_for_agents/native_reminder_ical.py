@@ -1,5 +1,6 @@
 """Read-only RFC 5545 VTODO projection of a deliberately narrow public subset."""
 import hashlib
+import math
 from datetime import date,datetime,timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from .core import SafetyError
@@ -44,6 +45,14 @@ def _fold(line):
     output.append(current)
     return '\r\n'.join(output)+'\r\n'
 
+def _timestamp(value):
+    if value is None:return None
+    try:
+        if type(value) not in (int,float) or not math.isfinite(value):raise ValueError()
+        instant=datetime.fromtimestamp(math.floor(value),timezone.utc)
+        return f'{instant.year:04d}{instant.month:02d}{instant.day:02d}T{instant.hour:02d}{instant.minute:02d}{instant.second:02d}Z'
+    except (ValueError,OverflowError,OSError):raise SafetyError('Reminder timestamp cannot be represented in iCalendar') from None
+
 def export_ical(reader,identity,now=None):
     if not isinstance(identity,str) or not 1<=len(identity)<=1000:raise SafetyError('Select one exact reminder')
     item=reader.read('get',id=identity)['item']
@@ -51,11 +60,13 @@ def export_ical(reader,identity,now=None):
             or type(item.get('completed')) is not bool or type(item.get('priority')) is not int or item['priority'] not in (0,1,5,9)
             or item.get('public_metadata_complete') is not True or item.get('content_complete') is not False
             or item.get('has_recurrence') is not False or item.get('has_alarms') is not False
-            or item.get('recurrence_rules')!=[] or item.get('alarms')!=[] or any(k not in item for k in ('due','start','url','location'))):
+            or item.get('recurrence_rules')!=[] or item.get('alarms')!=[] or any(k not in item for k in ('due','start','url','location','created','modified','completion_date'))):
         raise SafetyError('iCalendar export requires complete public metadata and no recurrence or alarms')
     title=_text(item.get('title'));notes=_text(item.get('notes'));start=_date(item['start']);due=_date(item['due'])
     if start and due and start[0]!=due[0]:raise SafetyError('Start and due dates must use the same iCalendar value type')
     if start and due and due[1]<=start[1]:raise SafetyError('iCalendar due must be later than its start')
+    if item['completion_date'] is not None and not item['completed']:raise SafetyError('An incomplete reminder cannot export a completion timestamp')
+    timestamps={name:_timestamp(item[key]) for name,key in (('CREATED','created'),('LAST-MODIFIED','modified'),('COMPLETED','completion_date'))}
     stamp=now or datetime.now(timezone.utc)
     if not isinstance(stamp,datetime) or stamp.tzinfo is None:raise SafetyError('An aware export timestamp is required')
     stamp=stamp.astimezone(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
@@ -68,13 +79,15 @@ def export_ical(reader,identity,now=None):
     if item['url'] is not None:
         from .native_reminders import validate_link
         lines.append('URL:'+validate_link(item['url']))
+    for name,value in timestamps.items():
+        if value is not None:lines.append(name+':'+value)
     for name,value in (('DTSTART',start),('DUE',due)):
         if value:lines.append(name+(';VALUE=DATE' if value[0]=='DATE' else '')+':'+value[1])
     lines+=['END:VTODO','END:VCALENDAR']
     try:content=''.join(_fold(line) for line in lines)
     except UnicodeError:raise SafetyError('Reminder text is not valid Unicode') from None
     if len(content.encode('utf-8'))>1_000_000:raise SafetyError('iCalendar export exceeds one million bytes')
-    return {'format':'text/calendar','content':content,'coverage':{'restorable':False,'complete_backup':False,
+    return {'format':'text/calendar','content':content,'coverage':{'restorable':False,'complete_backup':False,'timestamp_precision':'whole_seconds_subseconds_discarded',
             'native_metadata_included':False,'limitations':['Native tags, attachments, hierarchy and advanced metadata are omitted.',
-             'Timestamps, original time-zone labels and collaboration metadata are omitted.','Only one nonrecurring reminder without alarms and with supported date semantics is represented; clients may interpret date-only due dates differently.',
+             'Unknown timestamps and original time-zone labels are omitted; fractional timestamp seconds are discarded. Collaboration metadata is omitted.','Only one nonrecurring reminder without alarms and with supported date semantics is represented; clients may interpret date-only due dates differently.',
              'The generated UID is a pseudonymous identifier for this observation, not a promise of portable identity.']}}
