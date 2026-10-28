@@ -470,6 +470,19 @@ class NativeReadTests(unittest.TestCase):
             result=NativeReader('notes').read('search',text='test',folder_id='folder')
             self.assertNotIn('html',result['items'][0]);self.assertNotIn('body',result['unavailable'][0]);self.assertNotIn('private_body',result)
 
+    def test_notes_shared_filter_requires_evidence_and_preserves_table_matches(self):
+        config={'notes':{'source_ids':['selected']}}
+        candidate={'id':'note','title':'Synthetic','source_id':'selected','folder_id':'folder','locked':False,'shared':True,'html':'<table><tr><td>needle</td></tr></table>','truncated':False}
+        page={'items':[],'table_projection_candidates':[candidate],'shared_filter':True}
+        def fresh(**extra):return {**page,'table_projection_candidates':[dict(candidate)],**extra}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=fresh()) as backend:
+            result=NativeReader('notes').read('search',text='needle',shared=True)
+            self.assertTrue(result['shared_filter']);self.assertTrue(result['items'][0]['shared'])
+            for value in (fresh(shared_filter=False),fresh(table_projection_candidates=[{**candidate,'shared':False}]),{'items':[]}):
+                backend.return_value=value
+                with self.subTest(value=value),self.assertRaises(SafetyError):NativeReader('notes').read('search',text='needle',shared=True)
+            with self.assertRaises(SafetyError):NativeReader('notes').read('search',text='needle',shared=1)
+
     def test_notes_lock_filter_requires_evidence_and_matching_results(self):
         config={'notes':{'source_ids':['selected']}}
         row={'id':'note','title':'Synthetic','source_id':'selected','folder_id':'folder','locked':True,'excerpt':'','content_complete':False}

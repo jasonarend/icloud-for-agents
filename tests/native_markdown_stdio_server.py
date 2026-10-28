@@ -23,9 +23,12 @@ def dispatch(self,request,config):
         return result
     if request['action']=='search':
         if request.get('match_scope')=='title':
-            rows=[] if request.get('locked') is True else [{'id':'synthetic-note','title':'Synthetic Title','source_id':'selected','folder_id':'folder','locked':False,'excerpt':'','content_complete':False}]
+            rows=[] if request.get('locked') is True or request.get('shared') is True else [{'id':'synthetic-note','title':'Synthetic Title','source_id':'selected','folder_id':'folder','locked':False,'excerpt':'','content_complete':False}]
             result={'protocol_version':1,'items':rows,'table_projection_candidates':[],'match_scope':'title','done':True,'next_offset':1}
             if 'locked' in request:result['locked_filter']=request['locked']
+            if 'shared' in request:
+                result['shared_filter']=request['shared']
+                for row in rows:row['shared']=False
             return result
         assert request.get('modified_from')=='2026-10-27T12:00:00Z' and request.get('modified_before')=='2026-10-27T13:00:00Z'
         return {'protocol_version':1,'items':[],'table_projection_candidates':[{'id':'synthetic-note','title':'Synthetic','source_id':'selected','folder_id':'folder','locked':False,'html':'<table><tr><td>Priority</td></tr></table>','truncated':False,'modified':'2026-10-27T12:30:00.000Z'}],'done':True,'next_offset':1,'modified_filter':{'from':request['modified_from'],'before':request['modified_before'],'semantics':'utc_inclusive_from_exclusive_before'}}

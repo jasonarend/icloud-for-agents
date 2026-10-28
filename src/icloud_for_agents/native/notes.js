@@ -97,6 +97,7 @@ function readNotes(app, req) {
         if(typeof req.text!=='string' || (req.text.length<1 && req.match_scope!=='title') || req.text.length>1000 || !Number.isInteger(req.limit) || req.limit<1 || req.limit>100 || !Number.isInteger(req.offset) || req.offset<0 || req.offset>100000)throw Error('invalid_page');
         if(req.match_scope!==undefined && req.match_scope!=='title')throw Error('invalid_fields');
         if(req.locked!==undefined && typeof req.locked!=='boolean')throw Error('invalid_fields');
+        if(req.shared!==undefined && typeof req.shared!=='boolean')throw Error('invalid_fields');
         const titleOnly=req.match_scope==='title';
         const hasModified=req.modified_from!==undefined || req.modified_before!==undefined;
         for(const value of [req.modified_from,req.modified_before])if(value!==undefined) {
@@ -129,9 +130,11 @@ function readNotes(app, req) {
                 const title=note.name(), locked=note.passwordProtected();
                 if(typeof locked!=='boolean')throw Error('lock_status_unavailable');
                 if(req.locked!==undefined && locked!==req.locked)continue;
+                let shared;
+                if(req.shared!==undefined){shared=note.shared();if(typeof shared!=='boolean')throw Error('sharing_status_unavailable');if(shared!==req.shared)continue;}
                 if(titleOnly) {
                     const boundedTitle=title.slice(0,1000);
-                    if(boundedTitle.toLowerCase().includes(needle))items.push({id:ref.id,title:boundedTitle,source_id:ref.folder.source,folder_id:ref.folder.object.id(),locked:locked,excerpt:'',content_complete:false,...(hasModified?{modified:modified}:{})});
+                    if(boundedTitle.toLowerCase().includes(needle))items.push({id:ref.id,title:boundedTitle,source_id:ref.folder.source,folder_id:ref.folder.object.id(),locked:locked,excerpt:'',content_complete:false,...(req.shared!==undefined?{shared:shared}:{}),...(hasModified?{modified:modified}:{})});
                     continue;
                 }
                 let body='';
@@ -140,7 +143,7 @@ function readNotes(app, req) {
                 const index=body.toLowerCase().indexOf(needle);
                 if(title.toLowerCase().includes(needle) || index>=0)items.push({id:ref.id,title:title.slice(0,1000),
                     source_id:ref.folder.source,folder_id:ref.folder.object.id(),locked:locked,
-                    excerpt:index>=0?body.slice(Math.max(0,index-80),index+240):'',content_complete:false,...(hasModified?{modified:modified}:{})});
+                    excerpt:index>=0?body.slice(Math.max(0,index-80),index+240):'',content_complete:false,...(req.shared!==undefined?{shared:shared}:{}),...(hasModified?{modified:modified}:{})});
                 else if(!locked) {
                     const html=note.body();
                     if(html.includes('<table')) {
@@ -148,7 +151,7 @@ function readNotes(app, req) {
                         if(projectionBytes+bounded.length>250000)unavailable.push({id:ref.id,category:'table_projection_budget'});
                         else {projectionBytes+=bounded.length;projections.push({id:ref.id,title:title.slice(0,1000),
                             source_id:ref.folder.source,folder_id:ref.folder.object.id(),locked:false,html:bounded,
-                            truncated:html.length>100000,...(hasModified?{modified:modified}:{})});}
+                            truncated:html.length>100000,...(req.shared!==undefined?{shared:shared}:{}),...(hasModified?{modified:modified}:{})});}
                     }
                 }
             } catch(_) {unavailable.push({id:ref.id,category:'note_read_unavailable'});}
@@ -158,6 +161,7 @@ function readNotes(app, req) {
             search_coverage:titleOnly?'bounded title only; no note bodies read':'title, bounded plaintext and exported table text; no native OCR/attachment/semantic index',pagination_consistency:'live_offset_may_shift',
             ...(titleOnly?{match_scope:'title'}:{}),
             ...(req.locked!==undefined?{locked_filter:req.locked}:{}),
+            ...(req.shared!==undefined?{shared_filter:req.shared}:{}),
             ...(hasModified?{modified_filter:{from:req.modified_from||null,before:req.modified_before||null,semantics:'utc_inclusive_from_exclusive_before'}}:{})});
     }
     if (req.action === 'folders') {

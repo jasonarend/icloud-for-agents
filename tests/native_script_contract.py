@@ -15,7 +15,7 @@ const fixtureNotes = [
  {id:()=> 'note-1',name:()=> 'Synthetic plain',container:()=>({id:()=> 'folder-1'}),passwordProtected:()=> false,shared:()=>false,
   attachments:()=>[{id:()=> 'attachment-1',name:()=> null,contentIdentifier:()=> 'cid:synthetic',creationDate:()=>new Date('2026-01-01T00:00:00Z'),modificationDate:()=>null,url:()=>{throw Error('missing_url')},shared:()=>false}],body:()=> '<div>Synthetic content</div><object><table><tr><td>Table-only token</td></tr></table></object>',plaintext:()=> 'Synthetic content',
   creationDate:()=> new Date('2026-01-01T00:00:00Z'),modificationDate:()=> null},
- {id:()=> 'note-2',name:()=> 'Synthetic locked',container:()=>({id:()=> 'folder-1'}),passwordProtected:()=> true,
+ {id:()=> 'note-2',name:()=> 'Synthetic locked',container:()=>({id:()=> 'folder-1'}),passwordProtected:()=> true,shared:()=>true,
   body:()=> {throw Error('locked_content_was_read');},plaintext:()=> {throw Error('locked_content_was_read');}}
 ];
 const notesCollection = ()=>fixtureNotes;
@@ -116,6 +116,10 @@ print(result)
         assert [x['id'] for x in locked_titles['items']]==['note-2'] and locked_titles['locked_filter'] is True
         unlocked_titles=call('search',text='',folder_id='folder-1',limit=10,offset=0,match_scope='title',locked=False,synthetic_title_only=True)
         assert [x['id'] for x in unlocked_titles['items']]==['note-1'] and unlocked_titles['locked_filter'] is False
+        shared_titles=call('search',text='',folder_id='folder-1',limit=10,offset=0,match_scope='title',shared=True,locked=True,synthetic_title_only=True)
+        assert [x['id'] for x in shared_titles['items']]==['note-2'] and shared_titles['shared_filter'] is True and shared_titles['items'][0]['shared'] is True
+        unshared_titles=call('search',text='',folder_id='folder-1',limit=10,offset=0,match_scope='title',shared=False,synthetic_title_only=True)
+        assert [x['id'] for x in unshared_titles['items']]==['note-1'] and unshared_titles['shared_filter'] is False
         recent=call('search',text='',folder_id='folder-1',limit=10,offset=0,match_scope='title',synthetic_title_only=True,synthetic_modified=True,modified_from='2026-10-27T12:00:00Z')
         assert [x['id'] for x in recent['items']]==['note-1'] and recent['match_scope']=='title'
         filtered_titles=call('search',text='Synthetic',folder_id='folder-1',limit=10,offset=0,match_scope='title',synthetic_title_only=True,synthetic_modified=True,modified_from='2026-10-27T12:00:00Z',modified_before='2026-10-27T12:00:01Z')
