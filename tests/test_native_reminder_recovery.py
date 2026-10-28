@@ -109,6 +109,21 @@ class ReminderRecoveryTests(ReminderExchangeTests):
             self.assertFalse(self.store._native_reminder_recovery_for(original,forged))
         forged=copy.deepcopy(plan);del forged['payload']['effects']['missing_terminal_evidence']
         self.assertFalse(self.store._native_reminder_recovery_for(original,forged))
+
+    def test_legacy_new_evidence_after_review_blocks_acceptance(self):
+        original=self.legacy();proposal=self.recovery.prepare(original,legacy_missing_terminal=True)
+        self.store.write_once(self.store.path(original,'.native-exchange-0'),{'unexpected':'synthetic late evidence'})
+        with self.assertRaises(SafetyError):self.recovery.execute(proposal['plan_id'],LEGACY_ACK)
+        self.assertFalse(self.store.operation_settled(original))
+        self.assertFalse(self.store.path(proposal['plan_id'],'.started').exists())
+
+    def test_legacy_interrupted_proof_finalizes_only_persisted_acknowledgement(self):
+        original=self.legacy();proposal=self.recovery.prepare(original,legacy_missing_terminal=True)
+        with patch.object(self.recovery,'proof',side_effect=OSError('Synthetic interruption')),self.assertRaises(OSError):
+            self.recovery.execute(proposal['plan_id'],LEGACY_ACK)
+        self.assertFalse(self.store.operation_settled(original))
+        self.assertEqual(self.recovery.finalize(proposal['plan_id'])['status'],'observed_unchanged_reminder_accepted')
+        self.assertTrue(self.store.operation_settled(original))
     def test_missing_or_forged_request_response_and_unrelated_unfinished_write_block(self):
         original=self.failed();proposal=self.recovery.prepare(original);plan=self.store.read(self.store.path(proposal['plan_id'],'.json'))
         for key in ('original_sha256','original_result_sha256','request_record_sha256','response_record_sha256'):
