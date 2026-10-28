@@ -138,6 +138,8 @@ print(result)
         assert [x['id'] for x in empty_attachment['items']]==['note-1'] and empty_attachment['attachment_filter'] is False
         bounded_lock=call('search',text='',folder_id='folder-1',limit=100,offset=0,match_scope='title',locked=True,synthetic_title_only=True,synthetic_many=True)
         assert bounded_lock['scanned']==10 and bounded_lock['next_offset']==10 and bounded_lock['done'] is False and [x['id'] for x in bounded_lock['items']]==['note-2']
+        one_lock=call('search',text='',folder_id='folder-1',limit=1,offset=0,match_scope='title',locked=True,synthetic_title_only=True,synthetic_many=True)
+        assert one_lock['scanned']==1 and one_lock['items']==[] and one_lock['next_offset']==1 and one_lock['done'] is False
         next_lock=call('search',text='',folder_id='folder-1',limit=100,offset=10,match_scope='title',locked=True,synthetic_title_only=True,synthetic_many=True)
         assert next_lock['scanned']==7 and next_lock['done'] is True and next_lock['items']==[]
         recent=call('search',text='',folder_id='folder-1',limit=10,offset=0,match_scope='title',synthetic_title_only=True,synthetic_modified=True,modified_from='2026-10-27T12:00:00Z')

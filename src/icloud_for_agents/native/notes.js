@@ -116,7 +116,7 @@ function readNotes(app, req) {
         if(req.folder_id && !folders.some(f=>f.object.id()===req.folder_id))throw Error('not_found_in_scope');
         refs.sort((a,b)=>a.id.localeCompare(b.id));
         const needle=req.text.toLowerCase(), items=[], unavailable=[], projections=[];
-        const scanLimit=(!titleOnly || req.locked!==undefined || req.shared!==undefined || req.has_attachments!==undefined || hasCreated || hasModified)?10:100;
+        const scanLimit=Math.min(req.limit,(!titleOnly || req.locked!==undefined || req.shared!==undefined || req.has_attachments!==undefined || hasCreated || hasModified)?10:100);
         let projectionBytes=0;
         let offset=req.offset, scanned=0, lockedSkipped=0, truncatedBodies=0;
         while(offset<refs.length && scanned<scanLimit && items.length+projections.length<req.limit) {
