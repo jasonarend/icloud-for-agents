@@ -116,7 +116,7 @@ function readNotes(app, req) {
         if(req.folder_id && !folders.some(f=>f.object.id()===req.folder_id))throw Error('not_found_in_scope');
         refs.sort((a,b)=>a.id.localeCompare(b.id));
         const needle=req.text.toLowerCase(), items=[], unavailable=[], projections=[];
-        const scanLimit=(req.locked!==undefined || req.shared!==undefined || req.has_attachments!==undefined || hasCreated || hasModified)?10:100;
+        const scanLimit=(!titleOnly || req.locked!==undefined || req.shared!==undefined || req.has_attachments!==undefined || hasCreated || hasModified)?10:100;
         let projectionBytes=0;
         let offset=req.offset, scanned=0, lockedSkipped=0, truncatedBodies=0;
         while(offset<refs.length && scanned<scanLimit && items.length+projections.length<req.limit) {
@@ -156,11 +156,24 @@ function readNotes(app, req) {
                 }
                 let body='';
                 if(locked)lockedSkipped++;
-                else {const full=note.plaintext();body=full.slice(0,100000);if(full.length>100000)truncatedBodies++;}
+                else {
+                    const full=note.plaintext();if(typeof full!=='string')throw Error('plaintext_unavailable');
+                    let cap=Math.min(full.length,5000000);
+                    if(cap<full.length && cap>0 && full.charCodeAt(cap-1)>=0xD800 && full.charCodeAt(cap-1)<=0xDBFF && full.charCodeAt(cap)>=0xDC00 && full.charCodeAt(cap)<=0xDFFF)cap--;
+                    body=full.slice(0,cap);if(full.length>cap)truncatedBodies++;
+                }
                 const index=body.toLowerCase().indexOf(needle);
+                const excerpt=()=>{
+                    if(index<0)return '';
+                    let start=Math.max(0,index-80), end=Math.min(body.length,index+240);
+                    const high=c=>c>=0xD800 && c<=0xDBFF,low=c=>c>=0xDC00 && c<=0xDFFF;
+                    if(start>0 && low(body.charCodeAt(start)) && high(body.charCodeAt(start-1)))start--;
+                    if(end<body.length && end>0 && high(body.charCodeAt(end-1)) && low(body.charCodeAt(end)))end++;
+                    return body.slice(start,end);
+                };
                 if(title.toLowerCase().includes(needle) || index>=0)items.push({id:ref.id,title:title.slice(0,1000),
                     source_id:ref.folder.source,folder_id:ref.folder.object.id(),locked:locked,
-                    excerpt:index>=0?body.slice(Math.max(0,index-80),index+240):'',content_complete:false,...(req.shared!==undefined?{shared:shared}:{}),...(req.has_attachments!==undefined?{has_attachments:hasAttachments}:{}),...(hasModified?{modified:modified}:{}),...(hasCreated?{created:created}:{})});
+                    excerpt:excerpt(),content_complete:false,...(req.shared!==undefined?{shared:shared}:{}),...(req.has_attachments!==undefined?{has_attachments:hasAttachments}:{}),...(hasModified?{modified:modified}:{}),...(hasCreated?{created:created}:{})});
                 else if(!locked) {
                     const html=note.body();
                     if(html.includes('<table')) {
@@ -177,6 +190,7 @@ function readNotes(app, req) {
             scanned:scanned,unavailable:unavailable,locked_bodies_excluded:lockedSkipped,truncated_bodies:truncatedBodies,
             search_coverage:titleOnly?'bounded title only; no note bodies read':'title, bounded plaintext and exported table text; no native OCR/attachment/semantic index',pagination_consistency:'live_offset_may_shift',
             ...(titleOnly?{match_scope:'title'}:{}),
+            ...(!titleOnly?{plaintext_search_limit:5000000,plaintext_search_unit:'utf16_code_units'}:{}),
             ...(req.locked!==undefined?{locked_filter:req.locked}:{}),
             ...(req.shared!==undefined?{shared_filter:req.shared}:{}),
             ...(req.has_attachments!==undefined?{attachment_filter:req.has_attachments}:{}),

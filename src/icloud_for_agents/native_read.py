@@ -472,6 +472,7 @@ class NativeReader:
             items=result.get('items')
             if (native_config('notes')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode
                     or not isinstance(items,list) or not isinstance(candidates,list) or len(items)+len(candidates)>limit
+                    or (match_scope!='title' and (type(result.get('plaintext_search_limit')) is not int or result['plaintext_search_limit']!=5000000 or result.get('plaintext_search_unit')!='utf16_code_units'))
                     or any(not isinstance(row,dict) or not isinstance(row.get('id'),str) or not row['id']
                            or row.get('source_id') not in sources or not isinstance(row.get('folder_id'),str) or not row['folder_id']
                            or (fields.get('folder_id') is not None and row['folder_id']!=fields['folder_id'])
@@ -554,9 +555,9 @@ class NativeReader:
                 allowed=('id','title','source_id','folder_id','locked','excerpt','content_complete','modified','created','match_source','text_projection_complete')+(('shared',) if shared_filter is not None else ())+(('has_attachments',) if attachment_filter is not None else ())
                 result['items']=[{key:row[key] for key in allowed if key in row} for row in result['items']]
                 result['unavailable']=[{key:row[key] for key in ('id','category') if key in row} for row in unavailable]
-                keys=('protocol_version','items','unavailable','done','next_offset','scanned','locked_bodies_excluded','truncated_bodies','pagination_consistency','modified_filter','created_filter','locked_filter','shared_filter','attachment_filter')
+                keys=('protocol_version','items','unavailable','done','next_offset','scanned','locked_bodies_excluded','truncated_bodies','pagination_consistency','plaintext_search_limit','plaintext_search_unit','modified_filter','created_filter','locked_filter','shared_filter','attachment_filter')
                 result={key:result[key] for key in keys if key in result}
-                result['search_coverage']='title, bounded plaintext and exported table text; no native OCR/attachment/semantic index'
+                result['search_coverage']='title, plaintext up to five million UTF-16 code units and bounded exported table text; no native OCR/attachment/semantic index'
         if self.name == 'notes' and action == 'get' and 'html' in result.get('item', {}):
             from .notes_content import project_html
             try:
@@ -1022,7 +1023,7 @@ def register_read_tools(mcp):
                          modified_from: str | None = None, modified_before: str | None = None,
                          match_scope: Literal['all','title'] = 'all', locked: bool | None = None, shared: bool | None = None,
                          created_from: str | None = None, created_before: str | None = None, has_attachments: bool | None = None) -> dict:
-            """Search bounded title, plaintext and exported table text, or titles only without reading bodies. An empty title-only query lists scoped notes; locked, shared and has_attachments filter observed app metadata without unlocking or downloading files. Creation and modification bounds use UTC YYYY-MM-DDTHH:MM:SSZ, inclusive from and exclusive before; follow next_offset even after empty pages."""
+            """Search titles, up to five million UTF-16 plaintext units per note and bounded exported table text, or titles only without reading bodies. An empty title-only query lists scoped notes; locked, shared and has_attachments filter observed app metadata without unlocking or downloading files. Creation and modification bounds use UTC YYYY-MM-DDTHH:MM:SSZ, inclusive from and exclusive before; follow next_offset even after empty pages."""
             return NativeReader('notes').read('search', text=text, folder_id=folder_id, limit=limit, offset=offset, modified_from=modified_from, modified_before=modified_before,match_scope=match_scope,locked=locked,shared=shared,created_from=created_from,created_before=created_before,has_attachments=has_attachments)
 
         @mcp.tool(annotations=annotations)

@@ -11,6 +11,7 @@ from icloud_for_agents.native_read import NativeReader, validate_config
 from icloud_for_agents import server
 from fastmcp.exceptions import ToolError
 
+BODY_SEARCH_EVIDENCE={'plaintext_search_limit':5000000,'plaintext_search_unit':'utf16_code_units'}
 
 class NativeReadTests(unittest.TestCase):
     def tearDown(self):
@@ -452,13 +453,22 @@ class NativeReadTests(unittest.TestCase):
     def test_search_finds_table_text_and_keeps_raw_html_internal(self):
         page={'items':[],'table_projection_candidates':[{'id':'note','title':'Synthetic','source_id':'selected',
             'folder_id':'folder','locked':False,'html':'<object><table><tr><td>A &amp; B</td></tr></table></object>','truncated':False}],
-            'done':True,'next_offset':1}
+            'done':True,'next_offset':1,**BODY_SEARCH_EVIDENCE}
         with self.env(ICLOUD_NATIVE_CONFIG=json.dumps({'notes':{'source_ids':['selected']}})),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=page):
             result=NativeReader('notes').read('search',text='A & B')
         self.assertEqual(result['items'][0]['excerpt'],'A & B')
         self.assertEqual(result['items'][0]['match_source'],'exported_table_text')
         self.assertNotIn('table_projection_candidates',result)
         self.assertNotIn('html',result['items'][0])
+
+    def test_notes_body_search_rejects_old_or_wrong_search_bounds(self):
+        config={'notes':{'source_ids':['selected']}}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch') as backend:
+            for value in ({'items':[]}, {'items':[],**BODY_SEARCH_EVIDENCE,'plaintext_search_limit':100000}, {'items':[],**BODY_SEARCH_EVIDENCE,'plaintext_search_unit':'bytes'}):
+                backend.return_value=value
+                with self.subTest(value=value),self.assertRaises(SafetyError):NativeReader('notes').read('search',text='needle')
+            backend.return_value={'items':[],**BODY_SEARCH_EVIDENCE}
+            self.assertEqual(NativeReader('notes').read('search',text='needle')['plaintext_search_limit'],5000000)
 
     def test_notes_search_always_checks_scope_and_page_bound(self):
         config={'notes':{'source_ids':['selected']}}
@@ -469,14 +479,14 @@ class NativeReadTests(unittest.TestCase):
                {'items':[{**row,'locked':True,'excerpt':'private'}]}, {'items':[],'table_projection_candidates':[{**candidate,'locked':True}]},
                {'items':[],'table_projection_candidates':[{k:v for k,v in candidate.items() if k!='locked'}]}]
         for page in pages:
-            with self.subTest(page=page),self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=page),self.assertRaises(SafetyError):
+            with self.subTest(page=page),self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value={**page,**BODY_SEARCH_EVIDENCE}),self.assertRaises(SafetyError):
                 NativeReader('notes').read('search',text='test',folder_id='folder',limit=1)
         def drift(*args):
             os.environ['ICLOUD_MAIL_ACCESS']='disabled'
-            return {'items':[row]}
+            return {'items':[row],**BODY_SEARCH_EVIDENCE}
         with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',side_effect=drift),self.assertRaises(SafetyError):
             NativeReader('notes').read('search',text='test',folder_id='folder')
-        leaking={'items':[{**row,'html':'private'}], 'unavailable':[{'id':'note','category':'note_read_unavailable','body':'private'}], 'private_body':'private'}
+        leaking={'items':[{**row,'html':'private'}], 'unavailable':[{'id':'note','category':'note_read_unavailable','body':'private'}], 'private_body':'private',**BODY_SEARCH_EVIDENCE}
         with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=leaking):
             result=NativeReader('notes').read('search',text='test',folder_id='folder')
             self.assertNotIn('html',result['items'][0]);self.assertNotIn('body',result['unavailable'][0]);self.assertNotIn('private_body',result)
@@ -484,7 +494,7 @@ class NativeReadTests(unittest.TestCase):
     def test_notes_attachment_filter_requires_evidence_and_excludes_locked_content(self):
         config={'notes':{'source_ids':['selected']}}
         candidate={'id':'note','title':'Synthetic','source_id':'selected','folder_id':'folder','locked':False,'has_attachments':True,'html':'<table><tr><td>needle</td></tr></table>','truncated':False}
-        def page(**extra):return {'items':[],'table_projection_candidates':[dict(candidate)],'attachment_filter':True,**extra}
+        def page(**extra):return {'items':[],'table_projection_candidates':[dict(candidate)],'attachment_filter':True,**BODY_SEARCH_EVIDENCE,**extra}
         with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=page()) as backend:
             result=NativeReader('notes').read('search',text='needle',has_attachments=True)
             self.assertTrue(result['attachment_filter']);self.assertTrue(result['items'][0]['has_attachments'])
@@ -496,7 +506,7 @@ class NativeReadTests(unittest.TestCase):
     def test_notes_shared_filter_requires_evidence_and_preserves_table_matches(self):
         config={'notes':{'source_ids':['selected']}}
         candidate={'id':'note','title':'Synthetic','source_id':'selected','folder_id':'folder','locked':False,'shared':True,'html':'<table><tr><td>needle</td></tr></table>','truncated':False}
-        page={'items':[],'table_projection_candidates':[candidate],'shared_filter':True}
+        page={'items':[],'table_projection_candidates':[candidate],'shared_filter':True,**BODY_SEARCH_EVIDENCE}
         def fresh(**extra):return {**page,'table_projection_candidates':[dict(candidate)],**extra}
         with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=fresh()) as backend:
             result=NativeReader('notes').read('search',text='needle',shared=True)
@@ -523,7 +533,7 @@ class NativeReadTests(unittest.TestCase):
         fields={'text':'needle','created_from':'2026-01-01T00:00:00Z','created_before':'2026-01-02T00:00:00Z'}
         evidence={'from':fields['created_from'],'before':fields['created_before'],'semantics':'utc_inclusive_from_exclusive_before'}
         candidate={'id':'note','title':'Synthetic','source_id':'selected','folder_id':'folder','locked':False,'html':'<table><tr><td>needle</td></tr></table>','truncated':False,'created':'2026-01-01T00:00:00.000Z'}
-        def page(**extra):return {'items':[],'table_projection_candidates':[dict(candidate)],'created_filter':evidence,**extra}
+        def page(**extra):return {'items':[],'table_projection_candidates':[dict(candidate)],'created_filter':evidence,**BODY_SEARCH_EVIDENCE,**extra}
         with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=page()) as backend:
             result=NativeReader('notes').read('search',**fields)
             self.assertEqual(result['items'][0]['created'],candidate['created'])
@@ -537,7 +547,7 @@ class NativeReadTests(unittest.TestCase):
         fields={'text':'table','modified_from':'2026-10-27T12:00:00Z','modified_before':'2026-10-27T13:00:00Z'}
         filter_info={'from':fields['modified_from'],'before':fields['modified_before'],'semantics':'utc_inclusive_from_exclusive_before'}
         candidate={'id':'note','title':'Synthetic','source_id':'selected','folder_id':'folder','locked':False,'html':'<table><tr><td>table</td></tr></table>','truncated':False,'modified':'2026-10-27T12:00:00.000Z'}
-        page={'items':[],'table_projection_candidates':[candidate],'modified_filter':filter_info,'done':True,'next_offset':1}
+        page={'items':[],'table_projection_candidates':[candidate],'modified_filter':filter_info,'done':True,'next_offset':1,**BODY_SEARCH_EVIDENCE}
         with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=page):
             result=NativeReader('notes').read('search',**fields)
             self.assertEqual(result['items'][0]['modified'],candidate['modified'])
