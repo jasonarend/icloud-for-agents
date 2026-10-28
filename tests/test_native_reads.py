@@ -521,12 +521,23 @@ class NativeReadTests(unittest.TestCase):
         with self.env(ICLOUD_NATIVE_CONFIG=json.dumps({'reminders':{'source_ids':['selected']}})),patch('platform.system',return_value='Darwin'),patch('subprocess.run',side_effect=AssertionError('No SDK')):
             for fields in cases:
                 with self.subTest(fields=fields),self.assertRaises(SafetyError):NativeReader('reminders').read('query',**fields)
+    def test_reminder_pages_require_selected_scope_and_progress(self):
+        config={'reminders':{'source_ids':['selected']}}
+        row={'id':'task','source_id':'selected','list_id':'list','completed':False}
+        page={'items':[row],'done':True,'next_offset':1,'pagination_consistency':'live_offset_may_shift'}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=page) as backend:
+            self.assertEqual(NativeReader('reminders').read('query',list_id='list',limit=1)['items'],[row])
+            for value in ({**page,'items':[{**row,'source_id':'foreign'}]}, {**page,'items':[{**row,'list_id':'other'}]},
+                          {**page,'next_offset':2}, {**page,'items':[],'next_offset':0,'done':False}, {**page,'done':1}):
+                backend.return_value=value
+                with self.subTest(value=value),self.assertRaises(SafetyError):NativeReader('reminders').read('query',list_id='list',limit=1)
+
     def test_completion_range_requires_evidence_and_matching_scoped_items(self):
         from datetime import datetime,timezone
         start='2026-10-27T00:00:00Z';end='2026-10-28T00:00:00Z';ts=datetime(2026,10,27,tzinfo=timezone.utc).timestamp()
         evidence={'from':start,'before':end,'semantics':'utc_inclusive_from_exclusive_before'}
         row={'id':'task','source_id':'selected','list_id':'list','completed':True,'completion_date':ts}
-        result={'protocol_version':1,'items':[row],'completion_filter':evidence}
+        result={'protocol_version':1,'items':[row],'done':True,'next_offset':1,'pagination_consistency':'live_offset_may_shift','completion_filter':evidence}
         with self.env(ICLOUD_NATIVE_CONFIG=json.dumps({'reminders':{'source_ids':['selected']}})),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=result) as backend:
             self.assertEqual(NativeReader('reminders').read('query',completed_from=start,completed_before=end)['items'],[row])
             for invalid in ({'completed_from':end,'completed_before':start},{'completed_from':start,'completed':False},{'completed_from':'2026-10-27'},{'completed_from':start,'completed_before':start}):
@@ -536,7 +547,7 @@ class NativeReadTests(unittest.TestCase):
                 with self.assertRaises(SafetyError):NativeReader('reminders').read('query',completed_from=start,completed_before=end)
 
     def test_valid_inclusive_range_and_priorities_are_forwarded_exactly(self):
-        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps({'reminders':{'source_ids':['selected']}})),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value={'items':[]}) as dispatch:
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps({'reminders':{'source_ids':['selected']}})),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value={'items':[],'done':True,'next_offset':0,'pagination_consistency':'live_offset_may_shift'}) as dispatch:
             NativeReader('reminders').read('query',due_from='2026-10-26',due_through='2026-10-28',timezone='America/Chicago',priorities=[0,1])
         request=dispatch.call_args.args[0]
         self.assertEqual((request['due_from'],request['due_through']),( '2026-10-26','2026-10-28'))
