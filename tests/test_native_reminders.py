@@ -55,6 +55,30 @@ class NativeRemindersTests(unittest.TestCase):
         self.reader.sections[0]['title']='Before';self.assertFalse(self.adapter.verify(item,{'id':section,'source_id':'selected','list_id':'list'}))
         with self.assertRaises(SafetyError):self.adapter.prepare({**change,'section_id':'22222222-2222-4222-8222-222222222222'})
 
+    def test_section_rename_reconciliation_never_replays_and_checks_target(self):
+        import tempfile
+        from pathlib import Path
+        from icloud_for_agents.approvals import PlanStore
+        from icloud_for_agents.native_changes import NativeChanges
+        self.native_reader();section='AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA';self.reader.sections=[{'id':section,'title':'Before'}];calls=[]
+        def apply(item):
+            calls.append(1);self.reader.sections[0]['title']=item['fields']['title']
+            return {'id':section,'source_id':'selected','list_id':'list'}
+        verify=self.adapter.verify;first=[True]
+        def verify_once(item,outcome):
+            if first[0]:first[0]=False;return False
+            return verify(item,outcome)
+        self.adapter.apply=apply;self.adapter.verify=verify_once
+        with tempfile.TemporaryDirectory() as directory,patch.dict(os.environ,{'ICLOUD_MAIL_ACCOUNT':'synthetic@example.com','ICLOUD_APPROVAL_POLICY':'trusted-client'}),patch.object(RemindersCreateAdapter,'backend_id',new_callable=PropertyMock,return_value='synthetic-section'):
+            engine=NativeChanges('reminders','synthetic@example.com',self.adapter,PlanStore(Path(directory)/'runtime'))
+            plan=engine.prepare_once([{'operation':'rename_section','source_id':'selected','list_id':'list','section_id':section,'fields':{'title':'After'}}])
+            self.assertEqual(engine.execute(plan['plan_id'])['status'],'failed_or_uncertain')
+            self.reader.sections[0]['title']='Wrong'
+            with self.assertRaises(SafetyError):engine.reconcile_known_changes(plan['plan_id'])
+            self.reader.sections[0]['title']='After'
+            self.assertEqual(engine.reconcile_known_changes(plan['plan_id'])['status'],'applied_after_readback_reconciliation')
+            self.assertEqual(len(calls),1)
+
     def test_bad_dates_boolean_components_and_dst_ambiguity_refused(self):
         for value in ({'year':True,'month':1,'day':1},{'year':2026,'month':2,'day':30},
                       {'year':2026,'month':1,'day':1,'hour':12},
