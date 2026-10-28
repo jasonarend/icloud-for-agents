@@ -11,7 +11,7 @@ def _plain(value):
     # guessed or silently converted to plain text.
     if (not value.strip() or any((ord(c)<32 and c!='\t') or ord(c)==127 or 0xD800<=ord(c)<=0xDFFF for c in value)
             or any(c in value for c in '*_`~[]<>\\') or re.match(r'^(?:#{1,6} |[-+] |[0-9]+[.)] )',value)
-            or re.fullmatch(r'[-=]{3,}',value) or value.endswith('  ')
+            or re.fullmatch(r'[-=]{3,}',value.strip()) or value.endswith('  ')
             or re.search(r'&(?:#[0-9]+|#x[0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]+);',value)):
         raise SafetyError('Only plain text is supported inside headings, paragraphs and list items')
     return escape(value)
