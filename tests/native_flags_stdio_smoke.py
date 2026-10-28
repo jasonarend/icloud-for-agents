@@ -47,6 +47,7 @@ def run():
                 urgent=data(rpc('tools/call',{'name':'reminders_get','arguments':{'id':'synthetic-task','include_native_urgent':True}})['result']);assert urgent['item']['native_metadata']['urgent'] is False
                 assert rpc('tools/call',{'name':'reminders_get','arguments':{'id':'synthetic-task','include_native_urgent':1}})['result'].get('isError')
                 combined=data(rpc('tools/call',{'name':'reminders_get','arguments':{'id':'synthetic-task','include_native_tags':True,'include_native_urgent':True}})['result']);assert combined['item']['native_metadata']['coverage']==['tags','urgent']
+                section=data(call({'id':'synthetic-task','include_native_section':True}))['item']['native_metadata'];assert section['section']['title']=='Synthetic section' and section['coverage']==['section']
                 recovery=next(t for t in tools if t['name']=='reminders_recovery_lookup');assert recovery['annotations']['readOnlyHint'] is True
                 lookup=data(rpc('tools/call',{'name':'reminders_recovery_lookup','arguments':{'id':'synthetic-task','source_id':'selected'}})['result']);assert lookup['found_as_root'] is True and lookup['data_mutated'] is False
                 assert rpc('tools/call',{'name':'reminders_recovery_lookup','arguments':{'id':'synthetic-task','source_id':'foreign'}})['result'].get('isError')

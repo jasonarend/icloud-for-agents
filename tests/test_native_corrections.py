@@ -64,7 +64,7 @@ class NativeCorrectionTests(unittest.TestCase):
             if action=='get' and fields.get('include_native_urgent'):
                 result['item']['native_metadata']={**{k:result['item'][k] for k in ('id','source_id','list_id')},'coverage':['urgent'],'urgent':urgent}
             if action=='get' and fields.get('include_native_metadata'):
-                result['item']['native_metadata']={**{k:result['item'][k] for k in ('id','source_id','list_id')},'coverage':['flagged','tags','hierarchy','children'],'flagged':flag,'flag_state':int(flag),'tags':[],'tags_complete':True,'is_subtask':False,'parent_id':None,'has_subtasks':False,'hierarchy_complete':False,'children_status':'provider_reported','child_ids':[],'children_complete':False,'children_fetch_status':'provider_reported'}
+                result['item']['native_metadata']={**{k:result['item'][k] for k in ('id','source_id','list_id')},'coverage':['flagged','tags','hierarchy','children','section'],'section':None,'section_status':'provider_not_reported','flagged':flag,'flag_state':int(flag),'tags':[],'tags_complete':True,'is_subtask':False,'parent_id':None,'has_subtasks':False,'hierarchy_complete':False,'children_status':'provider_reported','child_ids':[],'children_complete':False,'children_fetch_status':'provider_reported'}
             return result
         adapter.reader.read=enriched
         engine=NativeChanges('reminders','synthetic@example.com',adapter,PlanStore(Path(self.temp.name)/'native-runtime'))
@@ -180,7 +180,7 @@ class NativeCorrectionTests(unittest.TestCase):
             if action=='get' and fields.get('include_native_urgent'):
                 result['item']['native_metadata']={**{k:result['item'][k] for k in ('id','source_id','list_id')},'coverage':['urgent'],'urgent':False}
             if action=='get' and fields.get('include_native_metadata'):
-                result['item']['native_metadata']={**{k:result['item'][k] for k in ('id','source_id','list_id')},'coverage':['flagged','tags','hierarchy','children'],'flagged':flag[0],'flag_state':int(flag[0]),'tags':copy.deepcopy(tags),'tags_complete':True,'is_subtask':False,'parent_id':None,'has_subtasks':False,'hierarchy_complete':False,'children_status':'provider_reported','child_ids':[],'children_complete':False,'children_fetch_status':'provider_reported'}
+                result['item']['native_metadata']={**{k:result['item'][k] for k in ('id','source_id','list_id')},'coverage':['flagged','tags','hierarchy','children','section'],'section':None,'section_status':'provider_not_reported','flagged':flag[0],'flag_state':int(flag[0]),'tags':copy.deepcopy(tags),'tags_complete':True,'is_subtask':False,'parent_id':None,'has_subtasks':False,'hierarchy_complete':False,'children_status':'provider_reported','child_ids':[],'children_complete':False,'children_fetch_status':'provider_reported'}
             return result
         adapter.reader.read=enriched;engine=NativeChanges('reminders','synthetic@example.com',adapter,PlanStore(Path(self.temp.name)/'flag-fixture'));fail=[True]
         def apply(item):
@@ -201,7 +201,7 @@ class NativeCorrectionTests(unittest.TestCase):
                 def enriched(action,**fields):
                     result=read(action,**fields)
                     if action=='get' and fields.get('include_native_urgent'):result['item']['native_metadata']={**{k:result['item'][k] for k in ('id','source_id','list_id')},'coverage':['urgent'],'urgent':urgent[0]}
-                    if action=='get' and fields.get('include_native_metadata'):result['item']['native_metadata']={**{k:result['item'][k] for k in ('id','source_id','list_id')},'coverage':['flagged','tags','hierarchy','children'],'flagged':False,'flag_state':0,'tags':copy.deepcopy(tags),'tags_complete':True,'is_subtask':False,'parent_id':None,'has_subtasks':False,'hierarchy_complete':False,'children_status':'provider_reported','child_ids':[],'children_complete':False,'children_fetch_status':'provider_reported'}
+                    if action=='get' and fields.get('include_native_metadata'):result['item']['native_metadata']={**{k:result['item'][k] for k in ('id','source_id','list_id')},'coverage':['flagged','tags','hierarchy','children','section'],'section':None,'section_status':'provider_not_reported','flagged':False,'flag_state':0,'tags':copy.deepcopy(tags),'tags_complete':True,'is_subtask':False,'parent_id':None,'has_subtasks':False,'hierarchy_complete':False,'children_status':'provider_reported','child_ids':[],'children_complete':False,'children_fetch_status':'provider_reported'}
                     return result
                 adapter.reader.read=enriched;engine=NativeChanges('reminders','synthetic@example.com',adapter,PlanStore(Path(self.temp.name)/('urgent-'+target)));calls=[0];real_verify=adapter.verify
                 def apply(item):

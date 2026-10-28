@@ -320,7 +320,7 @@ class RemindersCreateAdapter:
               'fidelity_verified':True,'effects':{'existing_content':'only explicitly listed public EventKit fields change',
               'native_metadata':'advanced native-field preservation requires live acceptance',
               'notifications':'Apple controls sync and notification delivery'}}
-        if native_config('reminders').get('advanced_backend')=='reminderkit':item['effects']['native_metadata']='Observed flags, native tags, urgent state and partial hierarchy metadata must be unchanged before dispatch and during independent readback; complete subtree and other native metadata remain unverified.'
+        if native_config('reminders').get('advanced_backend')=='reminderkit':item['effects']['native_metadata']='Observed flags, native tags, urgent state, section relationship and partial hierarchy metadata must be unchanged before dispatch and during independent readback. An unreported section remains unknown; complete subtree and other native metadata remain unverified.'
         if operation=='set_completed':
             item['effects']['hierarchy']='Change this reminder’s completion state. Apple controls any effects on related reminders; descendant completion states are not verified by this operation.'
         if 'alarms' in item['fields']:item['effects']['notifications']='Replace the complete supported time/location alarm set; may schedule, reschedule or cancel notifications on synced devices. Past triggers may notify immediately; delivery remains controlled by Apple.'
@@ -410,9 +410,12 @@ class RemindersCreateAdapter:
         return item
     def native_snapshot(self,public_item):
         if native_config('reminders').get('advanced_backend')!='reminderkit':return None
-        observed=dict(self.reader.read('get',id=public_item['id'],include_native_metadata=True,include_native_tags=True,include_native_hierarchy=True,include_native_children=True)['item'])
+        observed=dict(self.reader.read('get',id=public_item['id'],include_native_metadata=True,include_native_tags=True,include_native_hierarchy=True,include_native_children=True,include_native_section=True)['item'])
         metadata=observed.pop('native_metadata',None)
-        if (observed!=public_item or not isinstance(metadata,dict) or metadata.get('coverage')!=['flagged','tags','hierarchy','children']
+        if (observed!=public_item or not isinstance(metadata,dict) or metadata.get('coverage')!=['flagged','tags','hierarchy','children','section']
+                or metadata.get('section_status') not in {'provider_reported','provider_not_reported'}
+                or (metadata.get('section_status')=='provider_not_reported' and metadata.get('section') is not None)
+                or (metadata.get('section_status')=='provider_reported' and not isinstance(metadata.get('section'),dict))
                 or type(metadata.get('flagged')) is not bool or metadata.get('tags_complete') is not True
                 or not isinstance(metadata.get('tags'),list) or type(metadata.get('is_subtask')) is not bool
                 or (metadata.get('has_subtasks') is not None and type(metadata['has_subtasks']) is not bool)

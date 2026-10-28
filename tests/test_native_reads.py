@@ -69,6 +69,17 @@ class NativeReadTests(unittest.TestCase):
         with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',side_effect=AssertionError('No helper')):
             with self.assertRaises(SafetyError):NativeReader('reminders').read('list_sections',list_id='list')
 
+    def test_section_membership_distinguishes_reported_from_unknown(self):
+        config={'reminders':{'source_ids':['selected'],'advanced_backend':'reminderkit','helper_path':'/synthetic/helper'}}
+        metadata={'id':'task','source_id':'selected','list_id':'list','coverage':['section'],'section':None,'section_status':'provider_not_reported'}
+        response={'protocol_version':1,'item':{'id':'task','source_id':'selected','list_id':'list','native_metadata':metadata}}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=response):
+            self.assertIsNone(NativeReader('reminders').read('get',id='task',include_native_section=True)['item']['native_metadata']['section'])
+            metadata.update(section={'id':'11111111-1111-4111-8111-111111111111','title':'Synthetic'},section_status='provider_reported')
+            self.assertEqual(NativeReader('reminders').read('get',id='task',include_native_section=True)['item']['native_metadata']['section']['title'],'Synthetic')
+            metadata['section']['id']='invalid'
+            with self.assertRaises(SafetyError):NativeReader('reminders').read('get',id='task',include_native_section=True)
+
     def test_optional_native_store_status_is_owner_selected_and_read_only(self):
         config={'notes':{'source_ids':['selected'],'access_mode':'read-only','helper_path':'/synthetic/helper','metadata_backend':'notes-store-readonly','folder_write_backend':'notes-shared'}}
         calls=[]

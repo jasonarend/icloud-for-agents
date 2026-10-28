@@ -28,6 +28,12 @@ func ICloudRemindersReadUrgent(_ input:Data)->Data {
     return try! JSONSerialization.data(withJSONObject:["native_metadata":value])
 }
 func ICloudRemindersReadFlag(_ input:Data)->Data {output(input,false)}
+func ICloudRemindersReadSection(_ input:Data)->Data {
+    privateReads+=1
+    var value=try! JSONSerialization.jsonObject(with:input) as! [String:Any]
+    value["backend"]="reminderkit-section-v1";value["coverage"]=["section"];value["section"]=NSNull();value["section_status"]="provider_not_reported";value["native_metadata_complete"]=false;value["observation_consistency"]="separate_provider_reads"
+    return try! JSONSerialization.data(withJSONObject:["native_metadata":value])
+}
 func ICloudRemindersReadTags(_ input:Data)->Data {output(input,true)}
 func ICloudRemindersReadChildren(_ input:Data)->Data {
     privateReads+=1
@@ -47,8 +53,8 @@ func ICloudRemindersReadHierarchy(_ input:Data)->Data {
 CHECKS='''
 let reminder=EKReminder()
 precondition(selectedNativeMetadata(reminder,[:])==nil && privateReads==0)
-let expected=selectedNativeMetadata(reminder,["include_native_metadata":true,"include_native_tags":true,"include_native_hierarchy":true,"include_native_children":true])!
-precondition(expected["coverage"] as! [String]==["flagged","tags","hierarchy","children"])
+let expected=selectedNativeMetadata(reminder,["include_native_metadata":true,"include_native_tags":true,"include_native_hierarchy":true,"include_native_children":true,"include_native_section":true])!
+precondition(expected["coverage"] as! [String]==["flagged","tags","hierarchy","children","section"])
 precondition(nativeSnapshotMatches(reminder,expected))
 let combined=selectedNativeMetadata(reminder,["include_native_metadata":true,"include_native_tags":true,"include_native_hierarchy":true])!
 precondition(combined["coverage"] as! [String]==["flagged","tags","hierarchy"] && combined["backend"] as! String=="reminderkit-combined-v1" && combined["hierarchy_complete"] as! Bool==false)
@@ -80,7 +86,7 @@ def run():
         from icloud_for_agents.native_protocol import mutation_request
         metadata={'id':'task','source_id':'selected','list_id':'list','flagged':False,'flag_state':0,
                   'tags':[{'id':'tag','name':'Project','native_type':0}],'tags_complete':True,
-                  'coverage':['flagged','tags','hierarchy','children'],'backend':'reminderkit-combined-v1',
+                  'coverage':['flagged','tags','hierarchy','children','section'],'section':None,'section_status':'provider_not_reported','backend':'reminderkit-combined-v1',
                   'is_subtask':False,'parent_id':None,'has_subtasks':False,'hierarchy_complete':False,'children_status':'provider_reported',
                   'child_ids':['synthetic-child'],'children_complete':False,'children_fetch_status':'provider_reported',
                   'native_metadata_complete':False,'observation_consistency':'separate_provider_reads'}

@@ -81,7 +81,7 @@ class NativeRemindersTests(unittest.TestCase):
     def native_reader(self):
         import copy
         os.environ['ICLOUD_NATIVE_CONFIG']=json.dumps({'reminders':{'access_mode':'write-enabled','source_ids':['selected'],'advanced_backend':'reminderkit','helper_path':'/synthetic/helper'}})
-        metadata={'flagged':False,'flag_state':0,'tags':[],'tags_complete':True,'coverage':['flagged','tags','hierarchy','children'],'native_metadata_complete':False,'is_subtask':False,'parent_id':None,'has_subtasks':False,'hierarchy_complete':False,'children_status':'provider_reported','child_ids':[],'children_complete':False,'children_fetch_status':'provider_reported'}
+        metadata={'flagged':False,'flag_state':0,'tags':[],'tags_complete':True,'coverage':['flagged','tags','hierarchy','children','section'],'section':None,'section_status':'provider_not_reported','native_metadata_complete':False,'is_subtask':False,'parent_id':None,'has_subtasks':False,'hierarchy_complete':False,'children_status':'provider_reported','child_ids':[],'children_complete':False,'children_fetch_status':'provider_reported'}
         read=self.reader.read
         def enriched(action,**fields):
             result=read(action,**fields)
@@ -102,6 +102,8 @@ class NativeRemindersTests(unittest.TestCase):
         self.assertFalse(self.adapter.verify(item,outcome));metadata.update(flagged=False,flag_state=0)
         metadata['tags']=[{'id':'tag','name':'Project','native_type':0}]
         self.assertFalse(self.adapter.verify(item,outcome));metadata['tags']=[]
+        metadata.update(section={'id':'11111111-1111-4111-8111-111111111111','title':'Changed'},section_status='provider_reported')
+        self.assertFalse(self.adapter.verify(item,outcome));metadata.update(section=None,section_status='provider_not_reported')
         metadata['has_subtasks']=True;metadata['child_ids']=['unexpected-child'];self.assertFalse(self.adapter.verify(item,outcome))
 
     def test_urgent_drift_blocks_nonurgent_write_readback_and_snapshot(self):
@@ -211,7 +213,7 @@ class NativeRemindersTests(unittest.TestCase):
         with self.assertRaises(SafetyError):self.existing()
         metadata['tags_complete']=True;metadata['coverage']=['flagged']
         with self.assertRaises(SafetyError):self.existing()
-        metadata['coverage']=['flagged','tags','hierarchy','children'];metadata['child_ids']=['contradictory-child']
+        metadata['coverage']=['flagged','tags','hierarchy','children','section'];metadata['child_ids']=['contradictory-child']
         with self.assertRaises(SafetyError):self.existing()
         metadata['child_ids']=[];metadata['is_subtask']=True;metadata['parent_id']=None
         with self.assertRaises(SafetyError):self.existing()
