@@ -1241,6 +1241,14 @@ def register_read_tools(mcp):
     if enabled('notes'):
         @mcp.tool(annotations=annotations)
         @guard
+        def notes_format_list_markdown(markdown:str)->dict:
+            """Convert bounded plain headings, paragraphs and nested lists to HTML for a separately approved Notes change. Unsupported Markdown and checklists are refused; no Notes data is read."""
+            if not enabled('notes'):raise SafetyError('Native service is disabled')
+            from .notes_list_format import format_lists
+            return format_lists(markdown)
+
+        @mcp.tool(annotations=annotations)
+        @guard
         def notes_model_folder_role(folder_id: str, source_id: str) -> dict:
             """Inspect an exact folder's native ordinary/trash role with explicitly enabled advanced Notes store access; no mutation or permission prompt. An unavailable or unsupported model refuses."""
             return NativeReader('notes').read('model_folder_role',folder_id=folder_id,source_id=source_id)

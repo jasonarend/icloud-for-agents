@@ -25,6 +25,10 @@ def run():
                 rpc('initialize',{'protocolVersion':'2025-11-25','capabilities':{},'clientInfo':{'name':'synthetic-markdown','version':'1'}});process.stdin.write(b'{"jsonrpc":"2.0","method":"notifications/initialized"}\n');process.stdin.flush()
                 tools=rpc('tools/list',{})['result']['tools'];tool=next(t for t in tools if t['name']=='notes_get');assert tool['annotations']['readOnlyHint'] is True
                 assert next(t for t in tools if t['name']=='notes_export_observation')['annotations']['readOnlyHint'] is True
+                assert next(t for t in tools if t['name']=='notes_format_list_markdown')['annotations']['readOnlyHint'] is True
+                formatted=data(rpc('tools/call',{'name':'notes_format_list_markdown','arguments':{'markdown':'# Plan\n- First\n  1. Child'}})['result'])
+                assert formatted['body']=='<h1>Plan</h1><ul><li>First<ol><li>Child</li></ol></li></ul>' and formatted['coverage']['native_checklists'] is False
+                assert rpc('tools/call',{'name':'notes_format_list_markdown','arguments':{'markdown':'- [ ] Native checkbox'}})['result'].get('isError')
                 default_tool=next(t for t in tools if t['name']=='notes_default_folder');assert default_tool['annotations']['readOnlyHint'] is True
                 default=data(rpc('tools/call',{'name':'notes_default_folder','arguments':{'source_id':'selected'}})['result']);assert default['folder']['id']=='folder'
                 assert rpc('tools/call',{'name':'notes_default_folder','arguments':{'source_id':'foreign'}})['result'].get('isError')
