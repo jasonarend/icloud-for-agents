@@ -61,11 +61,20 @@ def run(policy):
                 assert call('reminders_execute_approved',{'plan_id':plan['plan_id']}).get('isError')
                 scope={'scenario':'Synthetic list sections','rules':[{'operation':'create_section','source_id':'selected','container_id':'list','fields':['title'],'destinations':[]}],'max_batch':1,'max_24h':1,'expires':None}
                 grant=data(call('reminders_prepare_grant',{'scope':scope}));approve(grant);assert data(call('reminders_activate_grant',{'grant_id':grant['plan_id']}))['grant_active'] is True
-                batch=data(call('reminders_prepare_with_grant',{'grant_id':grant['plan_id'],'changes':[section('Synthetic two')]}));assert data(call('reminders_execute_approved',{'plan_id':batch['plan_id']}))['status']=='applied'
+                batch=data(call('reminders_prepare_with_grant',{'grant_id':grant['plan_id'],'changes':[section('Synthetic two')]}));assert data(call('reminders_execute_approved',{'plan_id':batch['plan_id']}))['status']=='applied';second_id=batch['review']['payload']['changes'][0]['section_id']
                 quota=data(call('reminders_prepare_with_grant',{'grant_id':grant['plan_id'],'changes':[section('Synthetic quota')]}))
                 assert call('reminders_execute_approved',{'plan_id':quota['plan_id']}).get('isError')
                 assert data(call('reminders_revoke_grant',{'grant_id':grant['plan_id']}))['status']=='revoked'
                 assert call('reminders_prepare_with_grant',{'grant_id':grant['plan_id'],'changes':[section('Synthetic three')]}).get('isError')
+                section_id=plan['review']['payload']['changes'][0]['section_id']
+                def rename(sid,title):return {'operation':'rename_section','source_id':'selected','list_id':'list','section_id':sid,'fields':{'title':title}}
+                rename_plan=data(call('reminders_prepare_once',{'changes':[rename(section_id,'Renamed once')]}));approve(rename_plan);assert data(call('reminders_execute_approved',{'plan_id':rename_plan['plan_id']}))['status']=='applied'
+                scope={'scenario':'Synthetic section rename','rules':[{'operation':'rename_section','source_id':'selected','container_id':'list','fields':['title'],'destinations':[section_id]}],'max_batch':1,'max_24h':2,'expires':None}
+                grant=data(call('reminders_prepare_grant',{'scope':scope}));approve(grant);assert data(call('reminders_activate_grant',{'grant_id':grant['plan_id']}))['grant_active'] is True
+                batch=data(call('reminders_prepare_with_grant',{'grant_id':grant['plan_id'],'changes':[rename(section_id,'Renamed by scenario')]}));assert data(call('reminders_execute_approved',{'plan_id':batch['plan_id']}))['status']=='applied'
+                assert call('reminders_prepare_with_grant',{'grant_id':grant['plan_id'],'changes':[rename(second_id,'Not allowed')]}).get('isError')
+                assert data(call('reminders_revoke_grant',{'grant_id':grant['plan_id']}))['status']=='revoked'
+
             finally:
                 process.stdin.close()
                 try:process.wait(timeout=10)

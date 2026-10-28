@@ -34,6 +34,9 @@ class Adapter(RemindersCreateAdapter):
         if item['operation']=='create_section':
             self.reader.sections.append({'id':item['section_id'],'title':item['fields']['title']});self.reader.sections.sort(key=lambda row:row['id'])
             return {'id':item['section_id'],'source_id':'selected','list_id':'list'}
+        if item['operation']=='rename_section':
+            target=next(s for s in self.reader.sections if s['id']==item['section_id']);target['title']=item['fields']['title']
+            return {'id':item['section_id'],'source_id':'selected','list_id':'list'}
         assert item['operation']=='create_subtask';self.children[item['child_id']]=item['fields']['title']
         return {'id':item['child_id'],'parent_id':item['id'],'source_id':'selected','list_id':'list'}
 adapter=Adapter()

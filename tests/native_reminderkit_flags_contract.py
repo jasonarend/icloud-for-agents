@@ -110,7 +110,7 @@ static NSArray *fixtureSections;
 @implementation FixtureStore
 -(id)fetchListWithObjectID:(id)objectID error:(NSError **)error{return [[objectID uuid] isEqual:fixture.list.remObjectID.uuid]?fixture.list:nil;}
 -(id)fetchListSectionsWithListObjectID:(id)objectID error:(NSError **)error{return fixtureSections;}
--(id)fetchListSectionWithObjectID:(id)objectID error:(NSError **)error{*error=[NSError errorWithDomain:@"com.apple.reminderkit" code:-3000 userInfo:nil];return nil;}
+-(id)fetchListSectionWithObjectID:(id)objectID error:(NSError **)error{for(FixtureSection *section in fixtureSections)if([section.remObjectID.uuid isEqual:[objectID uuid]])return section;*error=[NSError errorWithDomain:@"com.apple.reminderkit" code:-3000 userInfo:nil];return nil;}
 -(id)fetchReminderIncludingMarkedForDeleteWithObjectID:(id)objectID error:(NSError **)error{if(childLookupError){*error=[NSError errorWithDomain:@"synthetic" code:9 userInfo:nil];return nil;}return childCollision?fixture:nil;}
 -(id)fetchReminderWithObjectID:(id)objectID error:(NSError **)error{
  if(denied){*error=[NSError errorWithDomain:@"synthetic" code:1 userInfo:@{NSLocalizedDescriptionKey:@"private-content-must-not-leak"}];return nil;}
@@ -161,6 +161,13 @@ static int flagSaves=0;static BOOL saveFails=NO;
 @end
 @implementation FixtureReminderChange
 @end
+@interface FixtureSectionChange:NSObject
+@property NSString *displayName;
+@property FixtureSectionStorage *storage;
+@end
+@implementation FixtureSectionChange
+-(void)setDisplayName:(NSString *)name {self.storage.displayName=name;}
+@end
 @interface FixtureListChange:NSObject
 -(id)sectionsContextChangeItem;
 @end
@@ -172,6 +179,7 @@ static int flagSaves=0;static BOOL saveFails=NO;
 -(id)initWithStore:(id)store;
 -(id)updateReminder:(id)reminder;
 -(id)updateList:(id)list;
+-(id)updateListSection:(id)section;
 -(id)addListSectionWithDisplayName:(id)title toListSectionContextChangeItem:(id)context listSectionObjectID:(id)identity;
 -(id)addReminderWithTitle:(id)title toReminderSubtaskContextChangeItem:(id)context reminderObjectID:(id)identity;
 -(BOOL)saveSynchronouslyWithError:(NSError **)error;
@@ -179,6 +187,7 @@ static int flagSaves=0;static BOOL saveFails=NO;
 @implementation FixtureSave
 -(id)initWithStore:(id)store{return [super init];}
 -(id)updateList:(id)list{return [FixtureListChange new];}
+-(id)updateListSection:(id)section{FixtureSectionChange *c=[FixtureSectionChange new];c.storage=[FixtureSectionStorage new];return c;}
 -(id)addListSectionWithDisplayName:(id)title toListSectionContextChangeItem:(id)context listSectionObjectID:(id)identity{return [NSObject new];}
 -(id)updateReminder:(id)reminder{self.change=[FixtureReminderChange new];self.change.dueDateDeltaAlertContext=[FixtureEarlyChange new];self.change.subtaskContext=[NSObject new];self.change.flaggedContext=[FixtureFlagChange new];self.change.urgentAlarmContext=[FixtureUrgentChange new];self.change.urgentAlarmContext.enabled=((FixtureUrgent *)fixture.urgentAlarmContext).enabled;self.change.hashtagContext=[FixtureTagChange new];self.change.hashtagContext.hashtags=[NSMutableArray arrayWithArray:((FixtureTags *)fixture.hashtagContext).hashtags ?: @[]];return self.change;}
 -(id)addReminderWithTitle:(id)title toReminderSubtaskContextChangeItem:(id)context reminderObjectID:(id)identity{return [NSObject new];}
@@ -206,6 +215,9 @@ int main(){@autoreleasepool{
  NSCAssert([membership()[@"native_metadata"][@"section_status"] isEqual:@"provider_reported"],@"section membership observed");
  section.storage.accountID=Identity(@"REMCDAccount",other);NSCAssert(readSections()[@"error"] && membership()[@"error"],@"foreign section account refused");section.storage.accountID=fixture.account.remObjectID;
  section.list.account.remObjectID=Identity(@"REMCDAccount",other);NSCAssert(membership()[@"error"],@"foreign account membership refused");section.list.account.remObjectID=Identity(@"REMCDAccount",source);section.storage.accountID=fixture.account.remObjectID;
+ NSDictionary *rename=@{@"source_id":source,@"list_id":list,@"section_id":other,@"title":@"Renamed",@"expected_sections":readSections()[@"sections"]};NSData *renameData=[NSJSONSerialization dataWithJSONObject:rename options:0 error:NULL];NSDictionary *(^renameSection)(BOOL)=^NSDictionary *(BOOL allow){return [NSJSONSerialization JSONObjectWithData:ICloudRemindersRenameSection(renameData,^{return allow;}) options:0 error:NULL];};
+ NSCAssert(renameSection(NO)[@"error"] && flagSaves==0,@"closed section rename gate never saves");NSCAssert(renameSection(YES)[@"result"] && flagSaves==1,@"exact section rename dispatches once");flagSaves=0;
+ section.storage.displayName=@"Changed";NSCAssert(renameSection(YES)[@"error"] && flagSaves==0,@"stale inventory refuses section rename");section.storage.displayName=@"Synthetic";
  fixtureSections=@[section,section];NSCAssert(readSections()[@"error"],@"duplicate sections refused");fixtureSections=@[];NSCAssert([readSections()[@"sections"] count]==0,@"empty list distinct from error");
  NSCAssert([membership()[@"native_metadata"][@"section_status"] isEqual:@"provider_not_reported"] && membership()[@"native_metadata"][@"section"]==[NSNull null],@"unreported membership is not inferred absent");
  fixture.storage=[FixtureStorage new];NSDictionary *(^early)(void)=^NSDictionary *{return [NSJSONSerialization JSONObjectWithData:ICloudRemindersReadEarly(membershipData) options:0 error:NULL];};

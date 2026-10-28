@@ -44,6 +44,17 @@ class NativeRemindersTests(unittest.TestCase):
         self.assertTrue(self.adapter.verify(item,outcome))
         self.reader.membership['count']=3;self.assertFalse(self.adapter.verify(item,outcome));self.reader.membership['count']=2
         self.reader.sections.append({'id':'extra','title':'Other'});self.assertFalse(self.adapter.verify(item,outcome))
+    def test_section_rename_binds_exact_inventory_and_readback(self):
+        section='11111111-1111-4111-8111-111111111111';change={'operation':'rename_section','source_id':'selected','list_id':'list','section_id':section,'fields':{'title':'After'}}
+        with self.assertRaises(SafetyError):self.adapter.prepare(change)
+        self.native_reader();self.reader.sections=[{'id':section,'title':'Before'}]
+        item=self.adapter.prepare(change)
+        self.reader.sections[0]['title']='After'
+        self.assertTrue(self.adapter.verify(item,{'id':section,'source_id':'selected','list_id':'list'}))
+        self.reader.membership['count']+=1;self.assertFalse(self.adapter.verify(item,{'id':section,'source_id':'selected','list_id':'list'}));self.reader.membership['count']-=1
+        self.reader.sections[0]['title']='Before';self.assertFalse(self.adapter.verify(item,{'id':section,'source_id':'selected','list_id':'list'}))
+        with self.assertRaises(SafetyError):self.adapter.prepare({**change,'section_id':'22222222-2222-4222-8222-222222222222'})
+
     def test_bad_dates_boolean_components_and_dst_ambiguity_refused(self):
         for value in ({'year':True,'month':1,'day':1},{'year':2026,'month':2,'day':30},
                       {'year':2026,'month':1,'day':1,'hour':12},
@@ -119,6 +130,14 @@ class NativeRemindersTests(unittest.TestCase):
         metadata['early_alerts'][0]['native_count']=-6
         self.assertFalse(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
         with self.assertRaises(SafetyError):self.existing('add_early',{'unit':'minutes','count':5})
+
+    def test_due_change_reviews_early_notification_and_refuses_unsafe_clear(self):
+        metadata=self.native_reader();metadata.update(early_alerts=[{'native_unit':0,'native_count':-5}],early_payload_fingerprint='a'*64)
+        due={'year':2027,'month':1,'day':1,'hour':10,'minute':0,'timezone':'UTC'};self.reader.item['due']=due
+        item=self.existing('update_reminder',{'due':dict(due,day=2)})
+        self.assertIn('reschedules',item['effects']['early_reminder'])
+        for replacement in (None,{'year':2027,'month':1,'day':2}):
+            with self.subTest(replacement=replacement),self.assertRaises(SafetyError):self.existing('update_reminder',{'due':replacement})
 
     def test_early_readback_reconciliation_requires_exact_observed_state(self):
         import tempfile

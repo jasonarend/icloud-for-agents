@@ -153,7 +153,7 @@ def alarm_effects(alarms,due):
 
 
 class RemindersCreateAdapter:
-    operations={'create_list','create_reminder','create_section','update_reminder','set_completed','move_reminder','rename_list','set_recurrence','set_list_color','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','add_early','create_subtask'}
+    operations={'create_list','create_reminder','create_section','rename_section','update_reminder','set_completed','move_reminder','rename_list','set_recurrence','set_list_color','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','add_early','create_subtask'}
     def __init__(self):self.reader=NativeReader('reminders')
     @property
     def backend_id(self):
@@ -234,6 +234,23 @@ class RemindersCreateAdapter:
               'effects':{'section':'Create one native section; preserve the observed existing sections and list reminder membership.','ordering':'Apple determines display order; section ordering and reminder membership within sections are not verified.','sharing':'Apple may sync the list change to devices or existing participants; EventKit does not expose participant state.'}}
         item['before']=self.section_snapshot(item)
         if len(item['before']['sections'])>=100 or any(s['title']==title for s in item['before']['sections']):raise SafetyError('A matching section exists or section inventory reached its bound')
+        return item
+
+    def prepare_section_rename(self,change):
+        import uuid
+        if set(change)!={'operation','source_id','list_id','section_id','fields'} or change.get('operation')!='rename_section':raise SafetyError('Select one exact source, list and section')
+        if change['source_id'] not in planning_access('reminders')['source_ids'] or not isinstance(change['list_id'],str) or not 1<=len(change['list_id'])<=1000:raise SafetyError('Select one exact source and list')
+        try:
+            section=change['section_id']
+            if not isinstance(section,str) or str(uuid.UUID(section)).upper()!=section.upper():raise ValueError()
+        except ValueError:raise SafetyError('Select one exact native section ID') from None
+        if native_config('reminders').get('advanced_backend')!='reminderkit':raise SafetyError('Section renaming requires the explicitly selected ReminderKit backend')
+        fields=change['fields'];title=fields.get('title') if isinstance(fields,dict) else None
+        if not isinstance(fields,dict) or set(fields)!={'title'} or not isinstance(title,str) or not title.strip() or len(title)>1000 or len(title.encode('utf-8'))>4000 or any(ord(c)<32 for c in title):raise SafetyError('Use one exact bounded section title')
+        item={'operation':'rename_section','source_id':change['source_id'],'list_id':change['list_id'],'id':change['list_id'],'section_id':section,'fields':{'title':title},'fidelity_verified':True,
+              'effects':{'section':'Rename only the selected native section; preserve observed sections and list reminder membership.','ordering':'Apple controls display order; section membership and ordering remain unverified.','sharing':'Apple may sync the list change to devices or existing participants; EventKit does not expose participant state.'}}
+        item['before']=self.section_snapshot(item);matches=[s for s in item['before']['sections'] if s['id'].upper()==section.upper()]
+        if len(matches)!=1 or matches[0]['title']==title or any(s['title']==title for s in item['before']['sections']):raise SafetyError('Section is absent, unchanged or duplicates an existing title')
         return item
 
     def prepare_recurrence(self,change):
@@ -336,6 +353,14 @@ class RemindersCreateAdapter:
         if operation=='create_subtask':
             metadata=item['before'].get('native_metadata');children=metadata.get('child_ids') if isinstance(metadata,dict) else None
             if item['before']['item'].get('completed') is not False or not isinstance(children,list) or len(children)>=100 or item['child_id'] in children:raise SafetyError('Subtask creation requires an incomplete parent and a bounded observed child list')
+        if operation=='update_reminder' and 'due' in fields:
+            metadata=item['before'].get('native_metadata');early=metadata.get('early_alerts') if isinstance(metadata,dict) else None
+            if early:
+                due=fields['due']
+                if not isinstance(due,dict) or due.get('hour') is None or due.get('minute') is None:raise SafetyError('Clear the native early reminder before removing its timed due date')
+                item['effects']['early_reminder']='Changing the due date also reschedules the observed native early reminder; Apple controls notification delivery.'
+            elif metadata is None:
+                item['effects']['early_reminder']='Native early-reminder state is unavailable on this backend; changing the due date may reschedule or remove an early notification.'
         if operation=='add_early':
             metadata=item['before'].get('native_metadata');due=item['before']['item'].get('due')
             if not isinstance(metadata,dict) or metadata.get('early_alerts')!=[] or metadata.get('early_payload_fingerprint') is not None:raise SafetyError('Adding an early reminder requires an observed empty native early-alert state')
@@ -369,6 +394,7 @@ class RemindersCreateAdapter:
 
     def prepare(self,change):
         if isinstance(change,dict) and change.get('operation')=='create_section':return self.prepare_section(change)
+        if isinstance(change,dict) and change.get('operation')=='rename_section':return self.prepare_section_rename(change)
         if isinstance(change,dict) and change.get('operation')=='set_list_color':return self.prepare_list_color(change)
         if isinstance(change,dict) and change.get('operation')=='set_recurrence':return self.prepare_recurrence(change)
         if isinstance(change,dict) and change.get('operation')=='rename_list':return self.prepare_list_rename(change)
@@ -452,7 +478,7 @@ class RemindersCreateAdapter:
         # Apply this to fresh plans and rechecks of already approved plans.
         if item['operation']=='move_reminder':
             raise SafetyError('Reminder moves are unavailable until complete hierarchy effects can be verified before dispatch')
-        if item['operation']=='create_section':return self.section_snapshot(item)
+        if item['operation'] in {'create_section','rename_section'}:return self.section_snapshot(item)
         if item['operation'] in {'rename_list','set_list_color'}:return self.list_rename_snapshot(item)
         lists=[c for c in self.lists() if c['source_id']==item['source_id']]
         if item['operation'] in {'update_reminder','set_completed','move_reminder','set_recurrence','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','add_early','create_subtask'}:
@@ -497,6 +523,10 @@ class RemindersCreateAdapter:
 
     def verify(self,item,outcome):
         if outcome.get('source_id')!=item['source_id'] or not isinstance(outcome.get('id'),str):return False
+        if item['operation']=='rename_section':
+            if outcome.get('id')!=item['section_id'] or outcome.get('source_id')!=item['source_id'] or outcome.get('list_id')!=item['list_id']:return False
+            observed=self.section_snapshot(item);before=item['before'];expected=[dict(s,title=item['fields']['title']) if s['id'].upper()==item['section_id'].upper() else s for s in before['sections']]
+            return observed==dict(before,sections=expected)
         if item['operation']=='create_section':
             if outcome['id']!=item['section_id'] or outcome.get('list_id')!=item['list_id']:return False
             observed=self.section_snapshot(item);before=item['before'];expected=sorted(before['sections']+[{'id':item['section_id'],'title':item['fields']['title']}],key=lambda s:s['id'])

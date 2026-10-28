@@ -114,6 +114,28 @@ NSData *ICloudRemindersCreateSection(NSData *data,BOOL (^enterMutation)(void)){
         return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":newID,@"source_id":identity[@"source_id"],@"list_id":identity[@"list_id"],@"saved_locally":@YES}});
     }@catch(NSException *exception){return EncodeFlag(@{@"protocol_version":@1,@"error":dispatched?@"mutation_failed_or_uncertain":@"private_metadata_unavailable",@"mutation_dispatched":@(dispatched)});}
 }
+// Rename one previously inventoried ordinary section after exact scope checks.
+NSData *ICloudRemindersRenameSection(NSData *data,BOOL (^enterMutation)(void)){
+    __block BOOL dispatched=NO;
+    @try {
+        id request=[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
+        if(![request isKindOfClass:NSDictionary.class] || [request count]!=5 || !enterMutation || ![request[@"title"] isKindOfClass:NSString.class] || ![request[@"title"] length] || [request[@"title"] length]>1000 || ![request[@"expected_sections"] isKindOfClass:NSArray.class])return EncodeFlag(FlagFailure(@"invalid_public_identity"));
+        NSString *sectionID=request[@"section_id"];NSUUID *uuid=[sectionID isKindOfClass:NSString.class]?[[NSUUID alloc]initWithUUIDString:sectionID]:nil;if(!uuid||!UUIDEqual(uuid.UUIDString,sectionID))return EncodeFlag(FlagFailure(@"invalid_public_identity"));
+        NSDictionary *identity=@{@"source_id":request[@"source_id"]?:[NSNull null],@"list_id":request[@"list_id"]?:[NSNull null]};NSData *bytes=[NSJSONSerialization dataWithJSONObject:identity options:0 error:NULL];id observed=[NSJSONSerialization JSONObjectWithData:ICloudRemindersListSections(bytes) options:0 error:NULL];
+        if(![observed[@"sections"] isEqual:request[@"expected_sections"]])return EncodeFlag(FlagFailure(@"snapshot_changed"));
+        NSArray *matches=[observed[@"sections"] filteredArrayUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(id row,NSDictionary *bindings){return UUIDEqual(row[@"id"],sectionID);}]];if(matches.count!=1 || [matches[0][@"title"] isEqual:request[@"title"]])return EncodeFlag(FlagFailure(@"snapshot_changed"));
+        for(NSDictionary *row in observed[@"sections"])if([row[@"title"] isEqual:request[@"title"]])return EncodeFlag(FlagFailure(@"snapshot_changed"));
+        Class ids=NSClassFromString(@"REMObjectID"),storeClass=NSClassFromString(@"REMStore"),saveClass=NSClassFromString(@"REMSaveRequest");
+        if(!MethodMatches(storeClass,@"fetchListSectionWithObjectID:error:",@"@@:@^@",NO)||!MethodMatches(saveClass,@"initWithStore:",@"@@:@",NO)||!MethodMatches(saveClass,@"updateListSection:",@"@@:@",NO)||!MethodMatches(saveClass,@"saveSynchronouslyWithError:",@"B@:^@",NO))return EncodeFlag(FlagFailure(@"unsupported_section_write"));
+        id store=[storeClass new];NSURL *url=[NSURL URLWithString:[@"x-apple-reminderkit://REMCDListSection/" stringByAppendingString:sectionID]];id oid=((id(*)(id,SEL,id))objc_msgSend)((id)ids,NSSelectorFromString(@"objectIDWithURL:"),url);NSError *error=nil;id section=((id(*)(id,SEL,id,NSError **))objc_msgSend)(store,NSSelectorFromString(@"fetchListSectionWithObjectID:error:"),oid,&error);id list=ObjectValue(section,@"list"),storage=ObjectValue(section,@"storage");
+        if(error || !UUIDEqual(ObjectUUID(section,@"REMCDListSection"),sectionID) || !UUIDEqual(ObjectUUID(list,@"REMCDList"),identity[@"list_id"]) || !UUIDEqual(ObjectUUID(ObjectValue(list,@"account"),@"REMCDAccount"),identity[@"source_id"]) || ![ObjectValue(storage,@"displayName") isEqual:matches[0][@"title"]])return EncodeFlag(FlagFailure(@"native_identity_mismatch"));
+        id save=((id(*)(id,SEL,id))objc_msgSend)([saveClass alloc],NSSelectorFromString(@"initWithStore:"),store),change=((id(*)(id,SEL,id))objc_msgSend)(save,NSSelectorFromString(@"updateListSection:"),section);
+        SEL setter=NSSelectorFromString(@"setDisplayName:");id changeStorage=ObjectValue(change,@"storage");if(!change || !changeStorage || ![change respondsToSelector:setter] || !MethodMatches([changeStorage class],@"setDisplayName:",@"v@:@",NO))return EncodeFlag(FlagFailure(@"unsupported_section_write"));((void(*)(id,SEL,id))objc_msgSend)(change,setter,request[@"title"]);
+        if(![ObjectValue(changeStorage,@"displayName") isEqual:request[@"title"]])return EncodeFlag(FlagFailure(@"unsupported_section_write"));
+        if(!enterMutation())return EncodeFlag(FlagFailure(@"native_dispatch_cancelled"));dispatched=YES;error=nil;BOOL saved=((BOOL(*)(id,SEL,NSError **))objc_msgSend)(save,NSSelectorFromString(@"saveSynchronouslyWithError:"),&error);
+        if(!saved||error)return EncodeFlag(@{@"protocol_version":@1,@"error":@"mutation_failed_or_uncertain",@"mutation_dispatched":@YES});return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":sectionID,@"source_id":identity[@"source_id"],@"list_id":identity[@"list_id"],@"saved_locally":@YES}});
+    }@catch(NSException *exception){return EncodeFlag(@{@"protocol_version":@1,@"error":dispatched?@"mutation_failed_or_uncertain":@"private_metadata_unavailable",@"mutation_dispatched":@(dispatched)});}
+}
 // Read the provider's section relationship for one already scoped reminder.
 NSData *ICloudRemindersReadSection(NSData *data){
     @try {

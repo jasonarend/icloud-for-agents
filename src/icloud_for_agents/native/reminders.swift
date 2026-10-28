@@ -529,10 +529,10 @@ func reminderRecurrence(_ value:Any,due:DateComponents?)->EKRecurrenceRule? {
     return rule
 }
 if action == "apply" {
-    if let change=req["change"] as? [String:Any],let operation=change["operation"] as? String,["set_flagged","remove_tag","add_tag","replace_tag","set_urgent","add_early","create_subtask","create_section"].contains(operation) {
+    if let change=req["change"] as? [String:Any],let operation=change["operation"] as? String,["set_flagged","remove_tag","add_tag","replace_tag","set_urgent","add_early","create_subtask","create_section","rename_section"].contains(operation) {
         privateReminderGateArmed=true;NativeMutationGate.armDeadline()
     }
-    if let item=req["change"] as? [String:Any],item["operation"] as? String == "create_section" {
+    if let item=req["change"] as? [String:Any],let operation=item["operation"] as? String,["create_section","rename_section"].contains(operation) {
         guard let source=item["source_id"] as? String,sourceIDs.contains(source),let listID=item["list_id"] as? String,
               let sectionID=item["section_id"] as? String,let fields=item["fields"] as? [String:Any],Set(fields.keys)==["title"],let title=fields["title"] as? String,!title.isEmpty,
               let before=item["before"] as? [String:Any],let expectedList=before["list"] as? [String:Any],let expectedSiblings=before["siblings"] as? [[String:Any]],
@@ -541,10 +541,11 @@ if action == "apply" {
         let siblings=lists.filter{$0.source.sourceIdentifier==source && $0.calendarIdentifier != listID}.sorted{$0.calendarIdentifier<$1.calendarIdentifier}
         guard NSDictionary(dictionary:listRecord(list)).isEqual(to:expectedList),NSArray(array:siblings.map(listRecord)).isEqual(to:expectedSiblings),
               !expectedSections.contains(where:{$0["title"] as? String==title}),
+              (operation=="create_section" || expectedSections.filter({$0["id"] as? String==sectionID}).count==1),
               let payload=try? JSONSerialization.data(withJSONObject:["source_id":source,"list_id":listID,"section_id":sectionID,"title":title,"expected_sections":expectedSections]) else {fail("snapshot_changed")}
         store.fetchReminders(matching:store.predicateForReminders(in:[list])) {values in
             guard let values=values,values.count<=100000,NSDictionary(dictionary:membershipRecord(values,list)).isEqual(to:expectedMembers) else {fail("snapshot_changed")}
-            guard let response=(try? JSONSerialization.jsonObject(with:ICloudRemindersCreateSection(payload,{NativeMutationGate.beginMutation()}))) as? [String:Any] else {fail("invalid_mutation")}
+            guard let response=(try? JSONSerialization.jsonObject(with:operation=="create_section" ? ICloudRemindersCreateSection(payload,{NativeMutationGate.beginMutation()}) : ICloudRemindersRenameSection(payload,{NativeMutationGate.beginMutation()}))) as? [String:Any] else {fail("invalid_mutation")}
             if response["error"] != nil {fail((response["mutation_dispatched"] as? Bool)==true ? "mutation_failed_or_uncertain" : "unsupported_edit_target")}
             guard let output=response["result"] as? [String:Any] else {fail("mutation_failed_or_uncertain")}
             respond(["protocol_version":1,"result":output])

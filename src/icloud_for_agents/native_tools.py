@@ -273,10 +273,11 @@ def register_change_tools(mcp):
             replace_tag requires both tag_id and tag_name and creates a new tag identity.
             create_subtask uses the exact parent id and fields.title; it creates a
             native child with a preassigned identity and checks observed siblings.
+            rename_section uses source_id, list_id, section_id and fields.title; it preserves the observed section inventory and reminder membership.
             create_section uses source_id, list_id and fields.title; it creates a
             native section with a preassigned identity and checks observed sections
             and list membership. Section order and section membership are unverified.
-            A create_subtask grant selects exact parent IDs in destinations.
+            A create_subtask grant selects exact parent IDs in destinations; a rename_section grant selects exact section IDs there.
             Ordinary recurring edits are refused. set_recurrence requires exact id
             and fields.recurrence_scope="exact_native_rule" plus fields.recurrence
             (rule or null). Rules require frequency, interval, and end (null, count
