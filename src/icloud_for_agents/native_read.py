@@ -464,7 +464,7 @@ class NativeReader:
         try:
             with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
                 encoded = json.dumps(request, ensure_ascii=False).encode()
-                if len(encoded) > 65536:
+                if len(encoded) > 240000:
                     raise SafetyError('Native request exceeds input limit')
                 process = subprocess.run(command, input=encoded, stdout=output, stderr=errors,
                                timeout=75 if action=="request_access" else 40, check=False, env=env)

@@ -43,6 +43,7 @@ jobs:
           .venv/bin/python tests/native_tag_add_stdio_smoke.py
           .venv/bin/python tests/native_tag_replace_stdio_smoke.py
           .venv/bin/python tests/native_once_stdio_smoke.py
+          .venv/bin/python tests/native_large_note_stdio_smoke.py
           .venv/bin/python tests/native_grant_stdio_smoke.py
           .venv/bin/python tests/native_move_recovery_stdio_smoke.py
           .venv/bin/python tests/native_edit_recovery_stdio_smoke.py
@@ -60,6 +61,7 @@ jobs:
           .venv/bin/python tests/native_notes_store_status_contract.py
           .venv/bin/python tests/native_notes_launch_contract.py
           .venv/bin/python tests/native_dispatch_gate_contract.py
+          .venv/bin/python tests/native_request_bounds_contract.py
           .venv/bin/python tests/native_recovery_view_contract.py
           .venv/bin/python tests/native_reminderkit_flags_contract.py
           .venv/bin/python tests/native_reminder_preservation_contract.py

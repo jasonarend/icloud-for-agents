@@ -23,7 +23,7 @@ class NativeProtocolTests(unittest.TestCase):
         self.assertNotIn('derived_text',request['change']['before']['note'])
         self.assertEqual(item,original)
     def test_true_native_envelope_overflow_is_refused_before_plan_creation(self):
-        item=self.item();item['before']['note']['html']='b'*50000
+        item=self.item();item['before']['note']['html']='b'*240000
         adapter=type('Adapter',(),{'operations':{'append_note'}})()
         engine=NativeChanges('notes','synthetic@example.com',adapter,object())
         with self.assertRaises(SafetyError):engine.check_item(item,{'source_ids':['selected']})

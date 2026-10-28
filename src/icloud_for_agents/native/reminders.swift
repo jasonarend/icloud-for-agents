@@ -60,14 +60,14 @@ func respond(_ value: [String: Any]) -> Never {
     exit(0)
 }
 func requestData() -> Data {
-    guard let directory = ipcDirectory else { return FileHandle.standardInput.readData(ofLength: 65537) }
+    guard let directory = ipcDirectory else { return FileHandle.standardInput.readData(ofLength: 262145) }
     let fd = open(directory.appendingPathComponent("request.json").path, O_RDONLY | O_NOFOLLOW)
     guard fd >= 0 else { exit(2) }
     var info = stat()
     guard fstat(fd, &info) == 0, info.st_uid == getuid(), info.st_mode & S_IFMT == S_IFREG,
-          info.st_mode & 0o777 == 0o600, info.st_size <= 65536 else { close(fd); exit(2) }
+          info.st_mode & 0o777 == 0o600, info.st_size <= 262144 else { close(fd); exit(2) }
     let stream = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
-    return stream.readData(ofLength: 65537)
+    return stream.readData(ofLength: 262145)
 }
 var notesEventSendCount=0
 let notesSendWithoutConsent: OSASendUPP = { event,reply,mode,priority,ticks,idle,filter,refCon in
@@ -166,7 +166,7 @@ func dateParts(_ date: DateComponents?) -> Any {
     return value
 }
 let data = requestData()
-guard data.count <= 65536, let req = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+guard data.count <= 262144, let req = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
       req["protocol_version"] as? Int == 1, let action = req["action"] as? String else { fail("invalid_request") }
 responseRequestID = req["request_id"] as? String
 requestAction=action

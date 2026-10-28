@@ -85,7 +85,7 @@ class NotesCreationRecovery:
             snapshot=self.snapshot(item,candidate_id);self.validate_target(item,snapshot,action)
             if action=='repair_title_only_candidate':
                 repair={'operation':'repair_note_body','source_id':item['source_id'],'folder_id':item['folder_id'],'id':candidate_id,'fields':item['fields'],'before':snapshot}
-                if len(json.dumps(mutation_request('notes',repair),ensure_ascii=False).encode())>65000:raise SafetyError('Recovery exceeds the fixed helper request limit')
+                if len(json.dumps(mutation_request('notes',repair),ensure_ascii=False).encode())>239000:raise SafetyError('Recovery exceeds the fixed helper request limit')
             identifier=uuid.uuid4().hex
             plan={'plan_id':identifier,'kind':'notes_recovery','created':self.store.clock(),'expires':self.store.clock()+1800,
                 'native_recovery_of':original_id,'payload':{'account':self.account,'context':self.context(),

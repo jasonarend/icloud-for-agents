@@ -1,5 +1,5 @@
 """Exercise the shipped Notes mutation script using synthetic JXA objects only."""
-import json
+import json,base64
 from pathlib import Path
 import subprocess
 import tempfile
@@ -31,9 +31,9 @@ const editable={container:()=>({id:()=> 'folder'}),name:()=> 'Existing',password
  attachments:()=>[],modificationDate:()=>new Date('2026-10-26T12:00:00Z'),id:()=>{
  if(editBody!==requestedEditBody)throw Error('edit_body_mismatch');return 'edit-id';}};
 Object.defineProperty(editable,'body',{get:()=>()=>editBody,set:value=>{editBody=value;if(makeEditFail)throw Error('setter_failed_after_write');}});
-const saved=['temporary-old','repair-id','edit-id','move-id'];
-folder.notes={id:()=>saved.filter(id=>id!=='move-id' || !moved),byId:id=>id==='move-id'?moving:id==='edit-id'?editable:id==='repair-id'?repair:({name:()=>(id==='new-note' || id==='other-new')?"'); Application('Mail'); //":'Old draft'}),push:n=>{
- if(n.body()!=="<div>&#39;); Application(&#39;Mail&#39;); //</div><div>Body</div>")throw Error('unexpected_body');
+let syntheticLargeCreate=false;const saved=['temporary-old','repair-id','edit-id','move-id'];
+folder.notes={id:()=>saved.filter(id=>id!=='move-id' || !moved),byId:id=>id==='move-id'?moving:id==='edit-id'?editable:id==='repair-id'?repair:({name:()=>(id==='new-note' || id==='other-new')?(syntheticLargeCreate?'Transcript':"'); Application('Mail'); //"):'Old draft'}),push:n=>{
+ if(syntheticLargeCreate ? n.body()!=='<div>Transcript</div><div>'+('x'.repeat(80000))+'</div>' : n.body()!=="<div>&#39;); Application(&#39;Mail&#39;); //</div><div>Body</div>")throw Error('unexpected_body');
  saved.splice(0,saved.length,'permanent-old','repair-id','edit-id','move-id','new-note');
  if(makeAmbiguous)saved.push('other-new');
 }};
@@ -57,7 +57,7 @@ function run() {
  destinationShared=req.synthetic_destination_shared===true;moveFails=req.synthetic_move_fail===true;
  makeAmbiguous=req.synthetic_ambiguous===true;
  makeConstructorFail=req.synthetic_constructor_fail===true;makeEditFail=req.synthetic_edit_fail===true;
- requestedEditBody=req.change.fields.html;
+ requestedEditBody=req.change.fields.html;syntheticLargeCreate=req.change.fields.title==='Transcript';
  let gateCalls=0;
  const result=JSON.parse(applyNotes(app,req,()=>{gateCalls++;return req.synthetic_gate_open!==false && (req.synthetic_gate_limit===null || gateCalls<=req.synthetic_gate_limit);}));
  result.synthetic_gate_calls=gateCalls;result.synthetic_saved_ids=saved.slice();return JSON.stringify(result);
@@ -69,6 +69,18 @@ function run() {
                 capture_output=True,text=True,timeout=10)
         note={'operation':'create_note','source_id':'selected','folder_id':'folder',
               'fields':{'title':"'); Application('Mail'); //",'html':'<div>Body</div>'}}
+        large=dict(note,fields={'title':'Transcript','html':'<div>'+('x'*80000)+'</div>'})
+        accepted=call(large);assert accepted.returncode==0 and json.loads(accepted.stdout).get('result',{}).get('id')=='new-note',accepted.stdout[:500]
+        oversized=dict(note,fields={'title':'Transcript','html':'x'*90001});assert json.loads(call(oversized).stdout).get('error')
+        # Exercise the actual large base64-in-source OSAKit route used by the helper.
+        payload=base64.b64encode(json.dumps({'protocol_version':1,'action':'apply','source_ids':['selected'],'change':large}).encode()).decode()
+        bridge_script=Path(directory)/'large-embedded.js'
+        bridge_script.write_text(FIXTURE+'\n'+source+"\nfunction run(){const req=JSON.parse(ObjC.unwrap($.NSString.alloc.initWithDataEncoding($.NSData.alloc.initWithBase64EncodedStringOptions('"+payload+"',0),$.NSUTF8StringEncoding)));syntheticLargeCreate=true;return applyNotes(app,req,()=>true);}")
+        swift=Path(directory)/'large-bridge.swift';swift.write_text('import Foundation\nimport OSAKit\nlet source=try String(contentsOfFile:CommandLine.arguments[1],encoding:.utf8)\nlet script=OSAScript(source:source,language:OSALanguage(forName:"JavaScript"))\nvar error:NSDictionary?\nguard let result=script.executeAndReturnError(&error)?.stringValue else {exit(2)}\nprint(result)\n')
+        executable=Path(directory)/'large-bridge';subprocess.run(['/usr/bin/swiftc',str(swift),'-o',str(executable)],capture_output=True,check=True,timeout=60)
+        embedded=subprocess.run([str(executable),str(bridge_script)],capture_output=True,text=True,timeout=30)
+        assert embedded.returncode==0 and json.loads(embedded.stdout)['result']['id']=='new-note',embedded.stderr
+
         cancelled=json.loads(call(note,gate_open=False).stdout);assert cancelled.get('mutation_dispatched') is False and cancelled.get('error')=='notes_operation_failed',cancelled
         between=json.loads(call(note,gate_limit=1).stdout);assert between['mutation_dispatched'] is True and 'new-note' not in between['synthetic_saved_ids']
         response=call(note);assert response.returncode==0,response.stderr

@@ -79,7 +79,7 @@ def application_request(helper, request, timeout=40):
     directory=Path(tempfile.mkdtemp(prefix='request-',dir=root)).resolve()
     request=dict(request,request_id=directory.name)
     encoded=json.dumps(request,ensure_ascii=False).encode()
-    if len(encoded)>65536:
+    if len(encoded)>240000:
         shutil.rmtree(directory)
         raise SafetyError('Native request exceeds input limit')
     request_path=directory/'request.json'
@@ -146,8 +146,8 @@ def _pending_at(root,service):
             info=os.fstat(stream.fileno())
             if not stat.S_ISREG(info.st_mode) or info.st_uid!=os.getuid() or stat.S_IMODE(info.st_mode)!=0o600:
                 raise SafetyError('Invalid pending native request file')
-            raw=stream.read(65537)
-        if len(raw)>65536:raise SafetyError('Oversized pending native request')
+            raw=stream.read(240001)
+        if len(raw)>240000:raise SafetyError('Oversized pending native request')
         request=json.loads(raw)
         if request.get('service')!=service:continue
         result.append({'request_id':directory.name,'action':request.get('action'),

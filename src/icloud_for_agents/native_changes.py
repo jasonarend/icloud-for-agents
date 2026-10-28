@@ -79,7 +79,7 @@ class NativeChanges:
             raise SafetyError('Native operation cannot preserve required content')
         if not isinstance(item.get('effects'),dict):
             raise SafetyError('Native operation must describe its effects')
-        if len(json.dumps(mutation_request(self.name,item),ensure_ascii=False).encode())>65000:
+        if len(json.dumps(mutation_request(self.name,item),ensure_ascii=False).encode())>(239000 if self.name=='notes' else 65000):
             raise SafetyError('Native operation exceeds the fixed request limit; narrow the content or attachment scope')
 
     @contextmanager

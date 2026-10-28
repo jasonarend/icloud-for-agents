@@ -2,7 +2,7 @@
 import json
 import os
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, PropertyMock
 
 from icloud_for_agents.core import SafetyError
 from icloud_for_agents.native_notes import NotesCreateAdapter, prepare_content
@@ -38,6 +38,30 @@ class NativeNotesTests(unittest.TestCase):
         content=prepare_content({'title':'Spec','body':'<unsafe>&\nsecond'})
         self.assertIn('&lt;unsafe&gt;&amp;<br>',content['html'])
         self.assertEqual(content['expected_text'],'<unsafe>& second')
+    def test_larger_plain_note_is_bounded_and_escaped(self):
+        body='Transcript line.\n'*3000
+        item=self.prepare(fields={'title':'Transcript','body':body})
+        self.assertEqual(item['fields']['expected_text'],' '.join(body.split()))
+        self.assertLessEqual(len(item['fields']['html'].encode()),90000)
+        with self.assertRaises(SafetyError):prepare_content({'title':'Transcript','body':'x'*80001})
+        with self.assertRaises(SafetyError):prepare_content({'title':'Transcript','body':'&'*20000})
+        import tempfile
+        from pathlib import Path
+        from icloud_for_agents.native_changes import NativeChanges
+        from icloud_for_agents.approvals import PlanStore
+        with tempfile.TemporaryDirectory() as directory,patch.dict(os.environ,{'ICLOUD_MAIL_ACCOUNT':'synthetic@example.com','ICLOUD_APPROVAL_POLICY':'trusted-client'}),patch.object(NotesCreateAdapter,'backend_id',new_callable=PropertyMock,return_value='synthetic-notes'):
+            engine=NativeChanges('notes','synthetic@example.com',self.adapter,PlanStore(Path(directory)/'runtime'))
+            plan=engine.prepare_once([{'operation':'create_note','source_id':'selected','folder_id':'folder','fields':{'title':'Transcript','body':body}}])
+            self.assertEqual(plan['review']['payload']['changes'][0]['fields']['expected_text'],' '.join(body.split()))
+            maximum=engine.prepare_once([{'operation':'create_note','source_id':'selected','folder_id':'folder','fields':{'title':'Transcript','body':'x'*80000}}]);self.assertEqual(len(maximum['review']['payload']['changes'][0]['fields']['expected_text']),80000)
+            def apply(item):
+                self.reader.note.update(title=item['fields']['title'],html='<div>'+item['fields']['title']+'</div>'+item['fields']['html'],text=item['fields']['expected_text'])
+                return {'id':'created','source_id':'selected','folder_id':'folder'}
+            self.adapter.apply=apply
+            self.assertEqual(engine.execute(maximum['plan_id'])['status'],'applied')
+
+
+
     def test_supported_rich_html_has_reviewable_text(self):
         content=prepare_content({'title':'Spec','format':'html','body':'<h2>Decision</h2><table><tr><td>A</td><td>B</td></tr></table>'})
         self.assertEqual(content['expected_text'],'Decision A B')
@@ -90,7 +114,7 @@ class NativeNotesTests(unittest.TestCase):
             self.assertFalse(self.adapter.verify(item,outcome));self.reader.note[key]=prior
     def test_unknown_formats_overlong_unicode_and_blank_titles_refused(self):
         for fields in ({'title':'Spec','format':'markdown'}, {'title':' '}, {'title':'x\ny'},
-                       {'title':'Spec','body':'😀'*6000}):
+                       {'title':'Spec','body':'😀'*20001}):
             with self.subTest(fields=fields),self.assertRaises(SafetyError):prepare_content(fields)
 
     def edit(self,operation='append_note',fields=None):
@@ -129,7 +153,7 @@ class NativeNotesTests(unittest.TestCase):
             return {'attachments':[{'id':'native'}],'done':True} if action=='attachments' else original(action,**fields)
         self.reader.read=attached
         with self.assertRaises(SafetyError):self.edit()
-        self.reader.read=original;self.reader.note['html']='<div>'+('a'*29000)+'</div>'
+        self.reader.read=original;self.reader.note['html']='<div>'+('a'*89000)+'</div>'
         with self.assertRaises(SafetyError):self.edit(fields={'body':'b'*2000})
     def test_existing_note_identity_and_exact_complete_content_are_verified(self):
         item=self.edit();self.reader.note['html']=item['fields']['html']

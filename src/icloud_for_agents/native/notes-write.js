@@ -129,7 +129,7 @@ function applyNotes(app, req, beginMutation, nativePhase) {
         if(!visible)throw Error('moved_identity_uncertain');
         return JSON.stringify({protocol_version:1,result:{id:item.id,source_id:item.source_id,folder_id:fields.destination_folder_id,saved_locally:true}});
     }
-    if(typeof fields.html!=='string' || fields.html.length>30000)throw Error('invalid_fields');
+    if(typeof fields.html!=='string' || fields.html.length>90000)throw Error('invalid_fields');
     // Notes derives its title from the first body paragraph. Supplying both name
     // and body can leave a title-only draft, depending on property assignment order.
     const escapeText=text=>text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');

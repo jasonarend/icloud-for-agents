@@ -66,6 +66,13 @@ class NativeApplicationTests(unittest.TestCase):
         self.assertNotIn('private synthetic',json.dumps(records))
         self.assertEqual(pending_requests('reminders'),[])
 
+    def test_large_bounded_request_retains_pending_metadata_without_body(self):
+        with patch('subprocess.run',return_value=SimpleNamespace(returncode=1)):
+            with self.assertRaises(SafetyError):application_request(self.helper,{'protocol_version':1,'service':'notes','action':'apply','change':{'body':'x'*80000}})
+        records=pending_requests('notes');self.assertEqual(len(records),1);self.assertNotIn('xxxxx',json.dumps(records))
+        with patch('subprocess.run',side_effect=AssertionError('No launch')),self.assertRaises(SafetyError):
+            application_request(self.helper,{'protocol_version':1,'service':'notes','action':'apply','change':{'body':'x'*240001}})
+
     def test_bad_runtime_and_helper_never_launch(self):
         runtime=self.root/'runtime';runtime.mkdir(mode=0o755)
         with patch('subprocess.run',side_effect=AssertionError('No launch')),self.assertRaises(SafetyError):self.request()

@@ -40,12 +40,12 @@ def prepare_content(fields):
         raise SafetyError('Use exact title/body/format fields')
     title,body=fields.get('title'),fields.get('body','')
     if (not isinstance(title,str) or not title.strip() or len(title)>1000 or '\n' in title
-            or any(ord(c)<32 for c in title) or not isinstance(body,str) or len(body.encode())>20000 or '\x00' in body):
+            or any(ord(c)<32 for c in title) or not isinstance(body,str) or len(body.encode())>80000 or '\x00' in body):
         raise SafetyError('Invalid bounded Notes content')
     format=fields.get('format','text')
     if format not in {'text','html'}:raise SafetyError('Use text or explicit supported HTML')
     html=('<div>'+escape(body).replace('\n','<br>')+'</div>') if format=='text' else body
-    if len(html.encode())>30000:raise SafetyError('Rendered Notes HTML exceeds native input limit')
+    if len(html.encode())>90000:raise SafetyError('Rendered Notes HTML exceeds native input limit')
     parser=SafeHTML();parser.feed(html);parser.close()
     return {'title':title,'html':html,'expected_text':' '.join(''.join(parser.text).split())}
 
@@ -306,7 +306,7 @@ class NotesCreateAdapter:
             html='<div>'+escape(title)+'</div>'+content['html']
             effect='Replace this entire supported title/body with the explicit supplied content'
         if item['operation']=='replace_text':item['requested_edit']=dict(fields)
-        if len(html.encode())>30000:raise SafetyError('Combined Notes body exceeds the native write limit')
+        if len(html.encode())>90000:raise SafetyError('Combined Notes body exceeds the native write limit')
         item.update(fields={'title':title,'html':html,'expected_text':project_html(html)['text']},before=before,
                     fidelity_verified=True,effects={'existing_content':effect,'native_objects':'Existing attachments, tables, checklists and unknown structures refused',
                     'sharing':'none','sync_status':'unconfirmed',
@@ -348,7 +348,7 @@ class NotesCreateAdapter:
             raise SafetyError('Shared Notes writes need separate collaboration support')
         if operation=='create_folder' and item['before']['matching_titles']>0:
             raise SafetyError('Folder title already exists under this parent')
-        if len(json.dumps(item,ensure_ascii=False).encode())>60000:
+        if len(json.dumps(item,ensure_ascii=False).encode())>220000:
             raise SafetyError('Prepared note exceeds native request limit')
         return item
 
