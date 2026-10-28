@@ -926,7 +926,9 @@ def register_read_tools(mcp):
                 return {k:result[k] for k in ('protocol_version','id','folder_id','source_id','locked','content_available','data_mutated')}
             if (result.get('content_available') is not True or not isinstance(result.get('text'),str) or len(result['text'])>limit+1 or len(result['text'].encode('utf-8','surrogatepass'))>40004
                     or type(result.get('offset')) is not int or result['offset']!=offset or type(result.get('next_offset')) is not int or not offset<=result['next_offset']<=5000000
-                    or result['next_offset']-offset!=len(result['text'].encode('utf-16-le','surrogatepass'))//2 or any(0xD800<=ord(c)<=0xDFFF for c in result['text']) or type(result.get('done')) is not bool or (not result['done'] and result['next_offset']==offset) or type(result.get('source_truncated')) is not bool
+                    or result['next_offset']-offset!=len(result['text'].encode('utf-16-le','surrogatepass'))//2 or result['next_offset']-offset>limit+1
+                    or (result['next_offset']-offset>limit and (not result['text'] or ord(result['text'][-1])<=0xFFFF))
+                    or any(0xD800<=ord(c)<=0xDFFF for c in result['text']) or type(result.get('done')) is not bool or (not result['done'] and result['next_offset']==offset) or type(result.get('source_truncated')) is not bool
                     or result.get('content_complete') is not False or result.get('pagination_consistency')!='live_note_may_change' or result.get('offset_unit')!='utf16_code_units'
                     or 'modified' not in result or (result.get('modified') is not None and not isinstance(result['modified'],str)) or (expected_modified is not None and result.get('modified')!=expected_modified)):
                 raise SafetyError('Native plaintext page could not be verified')

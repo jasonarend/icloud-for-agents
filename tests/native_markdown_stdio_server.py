@@ -32,6 +32,8 @@ def dispatch(self,request,config):
         modified='2026-10-27T12:30:00Z'
         if request.get('expected_modified') not in (None,modified):return {'protocol_version':1,'error':'snapshot_changed'}
         text='Synthetic text café 🚀';raw=text.encode('utf-16-le');offset=request['offset'];end=min(len(raw)//2,offset+request['limit'])
+        if identity=='oversized-note':end=min(len(raw)//2,end+2)
+        if identity=='extra-ascii-note':end=min(len(raw)//2,end+1)
         if offset>len(raw)//2:return {'protocol_version':1,'error':'invalid_page'}
         try:page=raw[offset*2:end*2].decode('utf-16-le')
         except UnicodeDecodeError:end+=1;page=raw[offset*2:end*2].decode('utf-16-le')
