@@ -70,6 +70,8 @@ class NativeReadTests(unittest.TestCase):
                 backend.return_value=invalid
                 with self.assertRaises(SafetyError):
                     NativeReader('notes').read('search',text='needle',folder_id='folder',match_scope='plaintext')
+            with self.assertRaisesRegex(SafetyError, 'all, title or plaintext'):
+                NativeReader('notes').read('search',text='needle',match_scope='unsupported')
 
     def test_default_reminder_list_is_scoped_and_older_helpers_fail_closed(self):
         config={'reminders':{'source_ids':['selected']}}

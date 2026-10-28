@@ -171,7 +171,7 @@ class NativeReader:
                 (representation!='native' and (self.name!='notes' or action!='get'))):raise SafetyError('Markdown is a read-only Notes get representation')
         match_scope=fields.pop('match_scope','all')
         if not isinstance(match_scope,str) or match_scope not in {'all','title','plaintext'} or (match_scope!='all' and (self.name!='notes' or action!='search')):
-            raise SafetyError('Title-only search is supported only for Notes search')
+            raise SafetyError('Notes search scope must be all, title or plaintext')
         if set(fields) - {'id', 'folder_id', 'list_id', 'group_id', 'limit', 'offset', 'completed', 'locked', 'shared', 'has_attachments', 'text', 'due_date', 'timezone', 'include_overdue', 'due_from', 'due_through', 'priorities', 'flagged', 'tag', 'urgent', 'has_current_assignment', 'has_native_attachments', 'source_id', 'modified_from', 'modified_before', 'created_from', 'created_before', 'expected_modified', 'completed_from', 'completed_before'}:
             raise SafetyError('Unknown native read fields')
         locked_filter=fields.get('locked')
