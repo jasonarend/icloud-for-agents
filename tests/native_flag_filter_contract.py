@@ -35,7 +35,7 @@ def run():
     source=(ROOT/'src/icloud_for_agents/native/reminders.swift').read_text();start=source.index('    if nativeFlag != nil || nativeTag != nil || nativeUrgent != nil || nativeAssignment != nil || nativeAttachment != nil {',source.index('    let filtered = reminders.filter'))
     code=source[start:source.index('    let page = Array(filtered.dropFirst(offset)',start)]
     with tempfile.TemporaryDirectory(prefix='reminder-flag-filter-') as directory:
-        p=Path(directory);(p/'main.swift').write_text(FIXTURE+'\nlet completionEvidence:[String:Any]?=nil\n'+code+'\nprint("missing filter")\n')
+        p=Path(directory);(p/'main.swift').write_text(FIXTURE+'\nlet completionEvidence:[String:Any]?=nil\nlet modificationEvidence:[String:Any]?=nil\n'+code+'\nprint("missing filter")\n')
         compiled=subprocess.run(['/usr/bin/swiftc',str(p/'main.swift'),'-o',str(p/'contract')],capture_output=True,text=True,timeout=60);assert compiled.returncode==0,compiled.stderr
         def call(scenario,offset):return subprocess.run([str(p/'contract'),scenario,str(offset)],capture_output=True,text=True,check=True,timeout=5).stdout.strip()
         first=json.loads(call('true',0));assert first['items']==[] and first['next_offset']==1 and first['done'] is False and first['native_flag_filter']['scanned']==1
