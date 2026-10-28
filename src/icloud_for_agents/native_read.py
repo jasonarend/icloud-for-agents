@@ -212,7 +212,6 @@ class NativeReader:
             return folder_role(fields['folder_id'],sources)
         result = self._dispatch(request, config)
         if self.name=='reminders' and action=='lists':
-            import math
             rows=result.get('lists') if isinstance(result,dict) else None
             if (native_config('reminders')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode
                     or not isinstance(rows,list) or len(rows)>limit or type(result.get('done')) is not bool
@@ -222,7 +221,7 @@ class NativeReader:
                            or row.get('source_id') not in sources or not isinstance(row.get('title'),str) or len(row['title'])>1000
                            or type(row.get('writable')) is not bool or 'color' not in row
                            or (row['color'] is not None and (not isinstance(row['color'],dict) or set(row['color'])!={'red','green','blue','alpha'}
-                               or any(type(v) not in (int,float) or not math.isfinite(v) or not 0<=v<=1 for v in row['color'].values()))) for row in rows)
+                               or any(type(v) not in (int,float) or not 0<=v<=1 for v in row['color'].values()))) for row in rows)
                     or len({row['id'] for row in rows})!=len(rows)):
                 raise SafetyError('Configured helper did not verify scoped Reminders lists')
             result={'protocol_version':1,'lists':[{k:row[k] for k in ('id','title','source_id','writable','color')} for row in rows],
@@ -363,9 +362,8 @@ class NativeReader:
                     raise SafetyError('Default reminder list has invalid or unselected identity')
                 color=value['color']
                 if color is not None:
-                    import math
                     if (not isinstance(color,dict) or set(color)!={'red','green','blue','alpha'} or any(
-                            type(channel) not in (int,float) or not math.isfinite(channel) or not 0<=channel<=1 for channel in color.values())):
+                            type(channel) not in (int,float) or not 0<=channel<=1 for channel in color.values())):
                         raise SafetyError('Default reminder list has invalid color metadata')
             elif value is not None:raise SafetyError('Default reminder list exposed an unselected identity')
         if action=='model_folder_role':

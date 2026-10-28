@@ -38,7 +38,9 @@ class NativeReadTests(unittest.TestCase):
         with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=valid) as backend:
             self.assertEqual(NativeReader('reminders').read('default_list'),valid)
             self.assertEqual(backend.call_args.args[0]['source_ids'],['selected'])
-            for invalid in ({'protocol_version':1},dict(valid,list=dict(valid['list'],source_id='other')),{'protocol_version':1,'state':'outside_selected_scope','list':valid['list']}):
+            for invalid in ({'protocol_version':1},dict(valid,list=dict(valid['list'],source_id='other')),
+                            dict(valid,list=dict(valid['list'],color={'red':10**400,'green':0,'blue':0,'alpha':1})),
+                            {'protocol_version':1,'state':'outside_selected_scope','list':valid['list']}):
                 backend.return_value=invalid
                 with self.assertRaises(SafetyError):NativeReader('reminders').read('default_list')
             for state in ('unavailable','outside_selected_scope'):
@@ -530,6 +532,7 @@ class NativeReadTests(unittest.TestCase):
             self.assertNotIn('private',result);self.assertNotIn('private',result['lists'][0])
             for value in ({**page,'lists':[{**row,'source_id':'foreign'}]}, {**page,'lists':[{**row,'writable':1}]},
                           {**page,'lists':[{**row,'color':{'red':float('nan'),'green':0,'blue':0,'alpha':1}}]},
+                          {**page,'lists':[{**row,'color':{'red':10**400,'green':0,'blue':0,'alpha':1}}]},
                           {**page,'next_offset':2}, {**page,'lists':[],'next_offset':0,'done':False}):
                 backend.return_value=value
                 with self.subTest(value=value),self.assertRaises(SafetyError):NativeReader('reminders').read('lists',limit=1)
