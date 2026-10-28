@@ -157,9 +157,37 @@ class NativeGrantTests(unittest.TestCase):
         self.store.consume(p['plan_id'],self.engine.account);self.manager.revoke(p['plan_id'])
         with self.assertRaises(SafetyError):self.manager.finalize(p['plan_id'])
         self.assertTrue(self.store.operation_settled(p['plan_id']))
-    def test_note_move_grant_cannot_be_newly_proposed(self):
+    def test_note_move_grant_needs_explicit_ordinary_role_verification(self):
         scope=self.scope();scope['rules'][0].update(operation='move_note',fields=['destination_folder_id'],destinations=['destination'])
-        with self.assertRaisesRegex(SafetyError,'special folder roles'):self.manager.prepare(scope)
+        from icloud_for_agents.native_notes import NotesCreateAdapter
+        self.adapter.move_folders=NotesCreateAdapter().move_folders
+        with self.assertRaisesRegex(SafetyError,'explicitly selected read-only metadata'):self.manager.prepare(scope)
+
+    def test_note_move_grant_rechecks_roles_ancestors_destinations_and_revocation(self):
+        scope=self.scope();scope['rules'][0].update(operation='move_note',fields=['destination_folder_id'],destinations=['destination'])
+        state={'revision':1,'special':False,'shared':False,'parent':'selected'}
+        def folders(item):
+            if state['special'] or state['shared'] or item['fields']['destination_folder_id']!='destination':raise SafetyError('Unsafe folder role or sharing')
+            origin=copy.deepcopy(self.adapter.folder);target=dict(origin,id='destination',parent_id=state['parent'])
+            return origin,target,[{'folder_id':v['id'],'source_id':'selected','native_folder_type':0,'parent_pk':None,'revision':state['revision']} for v in (origin,target)]
+        self.adapter.move_folders=folders
+        original_prepare=self.adapter.prepare
+        def prepare(change):
+            item=original_prepare(change);item['before'].update(note={'title':'Synthetic','html':'<div>Synthetic</div>','modified':'2026-10-28T00:00:00Z'},attachments=[])
+            return item
+        self.adapter.prepare=prepare
+        self.adapter.snapshot=lambda item:{'item':{'list_id':'folder'},'note':{'title':'Synthetic','html':'<div>Synthetic</div>','modified':'2026-10-28T00:00:00Z'},'attachments':[]}
+        identity=self.activate(scope);change={'operation':'move_note','source_id':'selected','folder_id':'folder','id':'known-note','fields':{'destination_folder_id':'destination'}}
+        state['revision']=2
+        plan=self.engine.prepare_with_grant(identity,[change]);self.assertEqual(self.engine.execute(plan['plan_id'])['status'],'applied')
+        for key,value in [('special',True),('shared',True),('parent','different-parent')]:
+            old=state[key];state[key]=value
+            with self.assertRaises(SafetyError):self.engine.prepare_with_grant(identity,[change])
+            state[key]=old
+        with self.assertRaises(SafetyError):self.engine.prepare_with_grant(identity,[dict(change,fields={'destination_folder_id':'other'})])
+        plan=self.engine.prepare_with_grant(identity,[change]);self.manager.revoke(identity)
+        with self.assertRaises(SafetyError):self.engine.execute(plan['plan_id'])
+        self.assertEqual(len(self.adapter.calls),1)
 
     def test_reminder_move_grant_cannot_be_newly_proposed(self):
         manager=NativeGrants(NativeChanges('reminders',self.engine.account,Adapter('reminders'),self.store))

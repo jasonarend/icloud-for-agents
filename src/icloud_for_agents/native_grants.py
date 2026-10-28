@@ -88,6 +88,21 @@ class NativeGrants:
             root=rule['operation'] in {'create_folder','create_list'}
             if not root and rule['container_id']==rule['source_id']:raise SafetyError('An item operation needs a real container ID')
             if rule['operation']=='create_list' and rule['container_id']!=rule['source_id']:raise SafetyError('List creation targets its selected source root')
+            if self.name=='notes' and rule['operation']=='move_note':
+                destinations=[];roles={};source=None
+                for destination in rule['destinations']:
+                    origin,target,checked=self.engine.adapter.move_folders({'source_id':rule['source_id'],
+                        'folder_id':rule['container_id'],'fields':{'destination_folder_id':destination}})
+                    if source is not None and source!=origin:raise SafetyError('Move source changed during grant review')
+                    source=origin;destinations.append(target)
+                    for role in checked:
+                        # Membership writes can increment the native revision.
+                        # Roles, names, account relations and ancestry stay bound.
+                        stable={key:value for key,value in role.items() if key!='revision'}
+                        if role['folder_id'] in roles and roles[role['folder_id']]!=stable:raise SafetyError('Move folder role changed during grant review')
+                        roles[role['folder_id']]=stable
+                result.append({'source':dict(source,verified_move_roles=[roles[key] for key in sorted(roles)]),'destinations':destinations})
+                continue
             source=self.container(rule['source_id'],rule['container_id'])
             if (self.name=='notes' and rule['operation'] in {'copy_observation','create_note','append_note','prepend_note','replace_text','update_note','create_folder'}
                     and rule['container_id']!=rule['source_id']):
@@ -120,8 +135,6 @@ class NativeGrants:
         return result
     def prepare(self,scope,*,_replaces=None):
         validate_scope(self.name,scope,self.store.clock())
-        if self.name=='notes' and any(rule['operation']=='move_note' for rule in scope['rules']):
-            raise SafetyError('Notes move grants are unavailable until special folder roles can be verified')
         if self.name=='reminders' and any(rule['operation']=='move_reminder' for rule in scope['rules']):
             raise SafetyError('Reminder move grants are unavailable until complete hierarchy effects can be verified')
         context=self.engine.context(True)
@@ -134,6 +147,8 @@ class NativeGrants:
                  'sharing':'Notes private ancestors checked; EventKit does not expose reminder-list participant state.',
                  'quotas':'All admitted batch items count, including uncertain or refused items; no automatic refund.'}}
         if self.name=='notes':payload['effects']['folder_role']=('The optional native model checks selected content folders and their ancestors before admission; separate provider reads are not atomic.' if native_config('notes').get('folder_write_backend')=='notes-shared' else 'Notes content authority is limited to the account default creation folder; its identity is rechecked before dispatch.')
+        if self.name=='notes' and any(rule['operation']=='move_note' for rule in scope['rules']):
+            payload['effects']['move_scope']='Moves require explicitly selected read-only metadata, ordinary unshared source/destination ancestors and exact destination IDs. Roles and ancestry are rechecked at admission; every note retains its own content and attachment snapshot. No Recently Deleted, cross-account or shared moves.'
         if any(rule['operation']=='copy_observation' for rule in scope['rules']):
             payload['effects']['observation_copy']='Allows new lossy copies from caller-supplied observations in this exact scope; originals are unchanged, and copies do not retain original identity, native metadata or attachments. Duplicates may result. Each batch discloses its omissions and selected fields.'
             if self.name=='reminders':payload['effects']['observation_copy']+=' Reminder copies start incomplete; copied dates and absolute alarms can affect notifications controlled by Apple. Past alarms may notify immediately.'
