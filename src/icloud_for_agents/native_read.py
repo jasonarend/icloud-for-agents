@@ -1331,3 +1331,10 @@ def register_read_tools(mcp):
         def notes_get(folder_id: str, id: str, representation: Literal['native','markdown']='native') -> dict:
             """Read scoped unlocked Notes HTML/text; optional Markdown is a bounded lossy view with an explicit loss report, never a native backup. No assets are fetched."""
             return NativeReader('notes').read('get', folder_id=folder_id, id=id, representation=representation)
+
+        @mcp.tool(annotations=annotations)
+        @guard
+        def notes_export_observation(folder_id: str, id: str) -> dict:
+            """Export one exact scoped note observation as JSON. Locked content and attachments are not fetched; this is not a restorable backup."""
+            from .native_note_export import export_note
+            return export_note(NativeReader('notes'),folder_id,id)

@@ -24,6 +24,7 @@ def run():
             try:
                 rpc('initialize',{'protocolVersion':'2025-11-25','capabilities':{},'clientInfo':{'name':'synthetic-markdown','version':'1'}});process.stdin.write(b'{"jsonrpc":"2.0","method":"notifications/initialized"}\n');process.stdin.flush()
                 tools=rpc('tools/list',{})['result']['tools'];tool=next(t for t in tools if t['name']=='notes_get');assert tool['annotations']['readOnlyHint'] is True
+                assert next(t for t in tools if t['name']=='notes_export_observation')['annotations']['readOnlyHint'] is True
                 default_tool=next(t for t in tools if t['name']=='notes_default_folder');assert default_tool['annotations']['readOnlyHint'] is True
                 default=data(rpc('tools/call',{'name':'notes_default_folder','arguments':{'source_id':'selected'}})['result']);assert default['folder']['id']=='folder'
                 assert rpc('tools/call',{'name':'notes_default_folder','arguments':{'source_id':'foreign'}})['result'].get('isError')
@@ -53,6 +54,8 @@ def run():
                 args={'folder_id':'folder','id':'synthetic-note'};native=data(call(args));assert 'markdown' not in native['item']
                 assert call(dict(args,id='foreign-note')).get('isError')
                 locked_native=data(call(dict(args,id='synthetic-locked')))['item'];assert locked_native['locked'] is True and 'html' not in locked_native
+                exported=data(rpc('tools/call',{'name':'notes_export_observation','arguments':args})['result']);assert exported['item']['html']==native['item']['html'] and exported['coverage']['restorable'] is False and exported['coverage']['attachment_content_included'] is False
+                locked_export=data(rpc('tools/call',{'name':'notes_export_observation','arguments':dict(args,id='synthetic-locked')})['result']);assert locked_export['item']['locked'] is True and 'html' not in locked_export['item']
                 projected=data(call(dict(args,representation='markdown')));item=projected['item'];assert item['html']==native['item']['html'];assert 'Priority' in item['markdown'] and '| ---' in item['markdown'];assert item['markdown_projection']['round_trip_safe'] is False
                 text_tool=next(t for t in tools if t['name']=='notes_read_text');assert text_tool['annotations']['readOnlyHint'] is True
                 first=data(rpc('tools/call',{'name':'notes_read_text','arguments':dict(args,limit=10)})['result']);assert first['text']=='Synthetic ' and first['next_offset']==10 and first['done'] is False and 'html' not in first and 'request_id' not in first
