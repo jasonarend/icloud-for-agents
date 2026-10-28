@@ -9,7 +9,7 @@ from icloud_for_agents.native_reminder_ical import export_ical
 class ReminderICalTests(unittest.TestCase):
     def setUp(self):
         self.item={'id':'task','source_id':'selected','list_id':'list','title':'Synthetic, title; \\','notes':'first\nsecond',
-            'completed':False,'priority':1,'due':None,'start':None,'public_metadata_complete':True,'content_complete':False,
+            'completed':False,'priority':1,'due':None,'start':None,'url':None,'location':None,'public_metadata_complete':True,'content_complete':False,
             'has_recurrence':False,'has_alarms':False,'recurrence_rules':[],'alarms':[]}
         env={'ICLOUD_ENABLE_REMINDERS':'1','ICLOUD_MAIL_ACCESS':'read-only','ICLOUD_NATIVE_CONFIG':json.dumps({'reminders':{'source_ids':['selected']}})}
         for manager in (patch.dict(os.environ,env,clear=True),patch('platform.system',return_value='Darwin')):
@@ -32,6 +32,15 @@ class ReminderICalTests(unittest.TestCase):
     def test_complete_utc_fields(self):
         self.item['due']={'year':2026,'month':10,'day':28,'hour':14,'minute':30,'second':0,'timezone':'UTC','date_only':False}
         self.assertIn('DUE:20261028T143000Z\r\n',self.export()['content'])
+    def test_url_and_location_are_preserved_without_property_injection(self):
+        self.item['url']='https://example.com/notes?a=1&b=2';self.item['location']='Office, West; floor 2\nATTENDEE:evil'
+        content=self.export()['content'].replace('\r\n ','')
+        self.assertIn('URL:https://example.com/notes?a=1&b=2\r\n',content)
+        self.assertIn('LOCATION:Office\\, West\\; floor 2\\nATTENDEE:evil\r\n',content)
+        self.assertNotIn('\r\nATTENDEE:',content)
+        for value in ('https://example.com/\r\nATTENDEE:evil','javascript:alert(1)','https://user:pass@example.com'):
+            self.item['url']=value
+            with self.subTest(value=value),self.assertRaises(SafetyError):self.export()
     def test_iana_timezone_conversion_and_dst_refusals(self):
         self.item['due']={'year':2026,'month':10,'day':28,'hour':8,'minute':0,'second':0,'timezone':'America/Chicago','date_only':False}
         self.assertIn('DUE:20261028T130000Z\r\n',self.export()['content'])

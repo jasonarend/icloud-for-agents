@@ -51,7 +51,7 @@ def export_ical(reader,identity,now=None):
             or type(item.get('completed')) is not bool or type(item.get('priority')) is not int or item['priority'] not in (0,1,5,9)
             or item.get('public_metadata_complete') is not True or item.get('content_complete') is not False
             or item.get('has_recurrence') is not False or item.get('has_alarms') is not False
-            or item.get('recurrence_rules')!=[] or item.get('alarms')!=[] or 'due' not in item or 'start' not in item):
+            or item.get('recurrence_rules')!=[] or item.get('alarms')!=[] or any(k not in item for k in ('due','start','url','location'))):
         raise SafetyError('iCalendar export requires complete public metadata and no recurrence or alarms')
     title=_text(item.get('title'));notes=_text(item.get('notes'));start=_date(item['start']);due=_date(item['due'])
     if start and due and start[0]!=due[0]:raise SafetyError('Start and due dates must use the same iCalendar value type')
@@ -64,6 +64,10 @@ def export_ical(reader,identity,now=None):
     lines=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//iCloud for Agents//Reminder Observation//EN',
            'BEGIN:VTODO','UID:'+uid,'DTSTAMP:'+stamp,'SUMMARY:'+title,'DESCRIPTION:'+notes,
            'STATUS:'+('COMPLETED' if item['completed'] else 'NEEDS-ACTION'),'PRIORITY:'+str(item['priority'])]
+    if item['location'] is not None:lines.append('LOCATION:'+_text(item['location']))
+    if item['url'] is not None:
+        from .native_reminders import validate_link
+        lines.append('URL:'+validate_link(item['url']))
     for name,value in (('DTSTART',start),('DUE',due)):
         if value:lines.append(name+(';VALUE=DATE' if value[0]=='DATE' else '')+':'+value[1])
     lines+=['END:VTODO','END:VCALENDAR']
@@ -72,5 +76,5 @@ def export_ical(reader,identity,now=None):
     if len(content.encode('utf-8'))>1_000_000:raise SafetyError('iCalendar export exceeds one million bytes')
     return {'format':'text/calendar','content':content,'coverage':{'restorable':False,'complete_backup':False,
             'native_metadata_included':False,'limitations':['Native tags, attachments, hierarchy and advanced metadata are omitted.',
-             'URL, location, timestamps, original time-zone labels and collaboration metadata are omitted.','Only one nonrecurring reminder without alarms and with supported date semantics is represented; clients may interpret date-only due dates differently.',
+             'Timestamps, original time-zone labels and collaboration metadata are omitted.','Only one nonrecurring reminder without alarms and with supported date semantics is represented; clients may interpret date-only due dates differently.',
              'The generated UID is a pseudonymous identifier for this observation, not a promise of portable identity.']}}
