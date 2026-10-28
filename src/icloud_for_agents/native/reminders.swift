@@ -881,6 +881,8 @@ let selected = lists.filter { requestedList == nil || $0.calendarIdentifier == r
 let nativeFlag=req["flagged"]
 let nativeUrgent=req["urgent"]
 let nativeTag=req["tag"]
+let nativeAssignment=req["has_current_assignment"]
+if let assignment=nativeAssignment {guard let value=assignment as? NSNumber,CFGetTypeID(value)==CFBooleanGetTypeID() else {fail("invalid_request")}}
 if let urgent=nativeUrgent {guard let value=urgent as? NSNumber,CFGetTypeID(value)==CFBooleanGetTypeID() else {fail("invalid_request")}}
 if let flag=nativeFlag {guard let value=flag as? NSNumber,CFGetTypeID(value)==CFBooleanGetTypeID() else {fail("invalid_request")}}
 if let raw=nativeTag {
@@ -901,12 +903,13 @@ func completionInRange(_ completed:Bool,_ value:Date?,_ from:Date?,_ before:Date
 }
 guard !selected.isEmpty else {
     if requestedList != nil { fail("not_found_in_scope") }
-    if nativeFlag != nil || nativeTag != nil || nativeUrgent != nil {
+    if nativeFlag != nil || nativeTag != nil || nativeUrgent != nil || nativeAssignment != nil {
         let evidence:[String:Any]=["scanned":0,"matched":0,"observation_consistency":"separate_provider_reads"]
         var response:[String:Any]=["protocol_version":1,"items":[],"done":true,"next_offset":offset,"pagination_consistency":"live_offset_may_shift"]
         if nativeFlag != nil {response["native_flag_filter"]=evidence}
         if nativeUrgent != nil {response["native_urgent_filter"]=evidence}
         if nativeTag != nil {response["native_tag_filter"]=evidence}
+        if nativeAssignment != nil {response["native_assignment_filter"]=evidence}
         if let completionEvidence=completionEvidence {response["completion_filter"]=completionEvidence}
         respond(response)
     }
@@ -957,11 +960,11 @@ store.fetchReminders(matching: predicate) { reminders in
         return dueMatches && rangeMatches && completionInRange(r.isCompleted,r.completionDate,completionFrom,completionBefore) && (priorities == nil || priorities!.contains(r.priority)) && (completed == nil || r.isCompleted == completed) &&
         (text == nil || ((r.title ?? "") + "\n" + (r.notes ?? "")).localizedCaseInsensitiveContains(text!))
     }.sorted { $0.calendarItemIdentifier < $1.calendarItemIdentifier }
-    if nativeFlag != nil || nativeTag != nil || nativeUrgent != nil {
+    if nativeFlag != nil || nativeTag != nil || nativeUrgent != nil || nativeAssignment != nil {
         let scanned=Array(filtered.dropFirst(offset).prefix(limit))
         var matches:[[String:Any]]=[]
         for reminder in scanned {
-            let selections:[String:Any]=["include_native_metadata":nativeFlag != nil,"include_native_tags":nativeTag != nil,"include_native_urgent":nativeUrgent != nil]
+            let selections:[String:Any]=["include_native_metadata":nativeFlag != nil,"include_native_tags":nativeTag != nil,"include_native_urgent":nativeUrgent != nil,"include_native_assignment":nativeAssignment != nil]
             guard let native=selectedNativeMetadata(reminder,selections) else {fail("private_metadata_unavailable")}
             if let expected=nativeFlag as? NSNumber {
                 guard let value=native["flagged"] as? NSNumber,CFGetTypeID(value)==CFBooleanGetTypeID() else {fail("private_metadata_unavailable")}
@@ -969,6 +972,10 @@ store.fetchReminders(matching: predicate) { reminders in
             }
             if let expected=nativeUrgent as? NSNumber {
                 guard let value=native["urgent"] as? NSNumber,CFGetTypeID(value)==CFBooleanGetTypeID() else {fail("private_metadata_unavailable")}
+                if value.boolValue != expected.boolValue {continue}
+            }
+            if let expected=nativeAssignment as? NSNumber {
+                guard let value=native["current_assignment_reported"] as? NSNumber,CFGetTypeID(value)==CFBooleanGetTypeID() else {fail("private_metadata_unavailable")}
                 if value.boolValue != expected.boolValue {continue}
             }
             if let expected=nativeTag as? String {
@@ -983,6 +990,7 @@ store.fetchReminders(matching: predicate) { reminders in
         if nativeFlag != nil {response["native_flag_filter"]=evidence}
         if nativeUrgent != nil {response["native_urgent_filter"]=evidence}
         if nativeTag != nil {response["native_tag_filter"]=evidence}
+        if nativeAssignment != nil {response["native_assignment_filter"]=evidence}
         if let completionEvidence=completionEvidence {response["completion_filter"]=completionEvidence}
         respond(response)
     }

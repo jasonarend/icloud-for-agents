@@ -108,6 +108,10 @@ class NativeReader:
         if urgent is not None:
             if self.name!='reminders' or action!='query' or type(urgent) is not bool:raise SafetyError('Urgent filtering requires a Boolean on a Reminders query')
             if config.get('advanced_backend')!='reminderkit' or not config.get('helper_path'):raise SafetyError('Urgent filtering requires the explicitly selected ReminderKit backend and signed helper')
+        assignment_filter=fields.get('has_current_assignment')
+        if assignment_filter is not None:
+            if self.name!='reminders' or action!='query' or type(assignment_filter) is not bool:raise SafetyError('Assignment observation filtering requires a Boolean on a Reminders query')
+            if config.get('advanced_backend')!='reminderkit' or not config.get('helper_path'):raise SafetyError('Assignment filtering requires the explicitly selected ReminderKit backend and signed helper')
         tag=fields.get('tag')
         if tag is not None:
             try:
@@ -148,7 +152,7 @@ class NativeReader:
         match_scope=fields.pop('match_scope','all')
         if not isinstance(match_scope,str) or match_scope not in {'all','title'} or (match_scope!='all' and (self.name!='notes' or action!='search')):
             raise SafetyError('Title-only search is supported only for Notes search')
-        if set(fields) - {'id', 'folder_id', 'list_id', 'limit', 'offset', 'completed', 'locked', 'shared', 'has_attachments', 'text', 'due_date', 'timezone', 'include_overdue', 'due_from', 'due_through', 'priorities', 'flagged', 'tag', 'urgent', 'source_id', 'modified_from', 'modified_before', 'created_from', 'created_before', 'expected_modified', 'completed_from', 'completed_before'}:
+        if set(fields) - {'id', 'folder_id', 'list_id', 'limit', 'offset', 'completed', 'locked', 'shared', 'has_attachments', 'text', 'due_date', 'timezone', 'include_overdue', 'due_from', 'due_through', 'priorities', 'flagged', 'tag', 'urgent', 'has_current_assignment', 'source_id', 'modified_from', 'modified_before', 'created_from', 'created_before', 'expected_modified', 'completed_from', 'completed_before'}:
             raise SafetyError('Unknown native read fields')
         locked_filter=fields.get('locked')
         if locked_filter is not None and (self.name!='notes' or action!='search' or type(locked_filter) is not bool):
@@ -445,11 +449,11 @@ class NativeReader:
                     value=metadata['section']['id']
                     if str(uuid.UUID(value)).upper()!=value.upper():raise ValueError()
                 except (ValueError,AttributeError):raise SafetyError('Configured helper returned an invalid section identity') from None
-        if flagged is not None or tag is not None or urgent is not None:
+        if flagged is not None or tag is not None or urgent is not None or assignment_filter is not None:
             items=result.get('items') if isinstance(result,dict) else None
-            keys=(['native_flag_filter'] if flagged is not None else [])+(['native_tag_filter'] if tag is not None else [])+(['native_urgent_filter'] if urgent is not None else [])
+            keys=(['native_flag_filter'] if flagged is not None else [])+(['native_tag_filter'] if tag is not None else [])+(['native_urgent_filter'] if urgent is not None else [])+(['native_assignment_filter'] if assignment_filter is not None else [])
             evidence=result.get(keys[0]) if isinstance(result,dict) else None
-            expected=(['flagged'] if flagged is not None else [])+(['tags'] if tag is not None else [])+(['urgent'] if urgent is not None else [])
+            expected=(['flagged'] if flagged is not None else [])+(['tags'] if tag is not None else [])+(['urgent'] if urgent is not None else [])+(['assignment'] if assignment_filter is not None else [])
             if (not isinstance(items,list) or not isinstance(evidence,dict)
                     or any(result.get(key)!=evidence for key in keys)
                     or type(evidence.get('scanned')) is not int or not 0<=evidence['scanned']<=limit
@@ -464,6 +468,7 @@ class NativeReader:
                         or x['native_metadata'].get('coverage')!=expected
                         or (flagged is not None and x['native_metadata'].get('flagged') is not flagged)
                         or (urgent is not None and x['native_metadata'].get('urgent') is not urgent)
+                        or (assignment_filter is not None and (x['native_metadata'].get('current_assignment_reported') is not assignment_filter or type(x['native_metadata'].get('assignment_record_count')) is not int or not 0<=x['native_metadata']['assignment_record_count']<=100 or x['native_metadata'].get('assignment_metadata_complete') is not False or (assignment_filter and x['native_metadata']['assignment_record_count']==0)))
                         or (tag is not None and (x['native_metadata'].get('tags_complete') is not True
                             or not isinstance(x['native_metadata'].get('tags'),list) or len(x['native_metadata']['tags'])>200
                             or any(not isinstance(t,dict) or not isinstance(t.get('id'),str) or not isinstance(t.get('name'),str) or type(t.get('native_type')) is not int for t in x['native_metadata']['tags'])
@@ -932,18 +937,18 @@ def register_read_tools(mcp):
         def reminders_query(limit: int = 50, offset: int = 0, list_id: str | None = None,
                             completed: bool | None = None, text: str | None = None,
                             due_from: str | None = None, due_through: str | None = None,
-                            timezone: str | None = None, priorities: list[int] | None = None, flagged: bool | None = None, tag: str | None = None, urgent: bool | None = None, completed_from: str | None = None, completed_before: str | None = None) -> dict:
+                            timezone: str | None = None, priorities: list[int] | None = None, flagged: bool | None = None, tag: str | None = None, urgent: bool | None = None, completed_from: str | None = None, completed_before: str | None = None, has_current_assignment: bool | None = None) -> dict:
             """Read bounded tasks with due-date, completion, priority, flag, urgent and exact tag filters. Completion bounds use YYYY-MM-DDTHH:MM:SSZ; completed_from is inclusive and completed_before exclusive, and select completed tasks with known completion dates. Due ranges require an IANA timezone. Follow next_offset even on empty filtered pages."""
             return NativeReader('reminders').read('query',limit=limit,offset=offset,list_id=list_id,
-                completed=completed,text=text,due_from=due_from,due_through=due_through,timezone=timezone,priorities=priorities,flagged=flagged,tag=tag,urgent=urgent,completed_from=completed_from,completed_before=completed_before)
+                completed=completed,text=text,due_from=due_from,due_through=due_through,timezone=timezone,priorities=priorities,flagged=flagged,tag=tag,urgent=urgent,completed_from=completed_from,completed_before=completed_before,has_current_assignment=has_current_assignment)
 
         @mcp.tool(annotations=annotations)
         @guard
         def reminders_daily(date: str, timezone: str, include_overdue: bool = True,
-                            limit: int = 50, offset: int = 0, flagged: bool | None = None, list_id: str | None = None, tag: str | None = None, urgent: bool | None = None) -> dict:
-            """Read incomplete reminders due on a date, optionally overdue, flagged, urgent, tagged, or in one list. Follow next_offset until done; no scheduling or delivery."""
+                            limit: int = 50, offset: int = 0, flagged: bool | None = None, list_id: str | None = None, tag: str | None = None, urgent: bool | None = None, has_current_assignment: bool | None = None) -> dict:
+            """Read incomplete reminders due on a date, optionally overdue, flagged, urgent, tagged, in one list, or filtered by the provider current-assignment observation. Follow next_offset until done; no scheduling or delivery."""
             return NativeReader('reminders').read('query', due_date=date, timezone=timezone,
-                include_overdue=include_overdue, completed=False, limit=limit, offset=offset, flagged=flagged, list_id=list_id, tag=tag, urgent=urgent)
+                include_overdue=include_overdue, completed=False, limit=limit, offset=offset, flagged=flagged, list_id=list_id, tag=tag, urgent=urgent,has_current_assignment=has_current_assignment)
 
         @mcp.tool(annotations=annotations)
         @guard

@@ -34,14 +34,15 @@ def dispatch(self,request,config):
     if request['action']=='query' and ('completed_from' in request or 'completed_before' in request):
         result={'protocol_version':1,'items':[],'done':True,'next_offset':request['offset'],'pagination_consistency':'live_offset_may_shift','completion_filter':{'from':request.get('completed_from'),'before':request.get('completed_before'),'semantics':'utc_inclusive_from_exclusive_before'}}
         evidence={'scanned':0,'matched':0,'observation_consistency':'separate_provider_reads'}
-        for field,key in (('flagged','native_flag_filter'),('urgent','native_urgent_filter'),('tag','native_tag_filter')):
+        for field,key in (('flagged','native_flag_filter'),('urgent','native_urgent_filter'),('tag','native_tag_filter'),('has_current_assignment','native_assignment_filter')):
             if field in request:result[key]=evidence
         return result
     if request['action']=='query':
-        assert (type(request.get('flagged')) is bool or type(request.get('urgent')) is bool or isinstance(request.get('tag'),str)) and request['limit']==1
+        assert (type(request.get('flagged')) is bool or type(request.get('urgent')) is bool or isinstance(request.get('tag'),str) or type(request.get('has_current_assignment')) is bool) and request['limit']==1
         if 'due_date' in request:assert request['due_date']=='2026-10-27' and request['timezone']=='UTC' and request['completed'] is False and request['list_id']=='list'
         result={'protocol_version':1,'items':[],'done':False,'next_offset':1,'pagination_consistency':'live_offset_may_shift'}
         evidence={'scanned':1,'matched':0,'observation_consistency':'separate_provider_reads'}
+        if 'has_current_assignment' in request:result['native_assignment_filter']=evidence
         if 'flagged' in request:result['native_flag_filter']=evidence
         if 'tag' in request:result['native_tag_filter']=evidence
         if 'urgent' in request:result['native_urgent_filter']=evidence
