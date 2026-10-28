@@ -42,6 +42,42 @@ class EditRecoveryTests(EditObservationTests):
         from icloud_for_agents.native_edit_recovery import NotesEditRecovery
         self.recovery=NotesEditRecovery(self.account,self.store,self.adapter)
     def proposal(self):return self.recovery.prepare(self.plan['plan_id'],'new')
+    def historical_completed(self):
+        from contextlib import ExitStack
+        from icloud_for_agents.native_protocol import mutation_request
+        from icloud_for_agents.native_edit_recovery import NotesEditRecovery
+        store=PlanStore(self.store.root/'historical');backend='notes-creation-v1:'+('a'*64)
+        with patch.object(self.adapter,'backend_id',backend):
+            engine=NativeChanges('notes',self.account,self.adapter,store)
+            item=copy.deepcopy(self.plan['review']['payload']['changes'][0])
+            original=store.prepare('notes_change',{'account':self.account,'context':engine.context(True),'changes':[item]})
+            store.consume(original['plan_id'],self.account);store.finish(original['plan_id'],{'status':'failed_or_uncertain','phase':'mutation','attempted':[],'completed':[],'do_not_retry':True})
+            legacy=mutation_request('notes',item);legacy['change'].pop('folder_guard')
+            store.write_once(store.path(original['plan_id'],'.native-exchange-0'),{'plan_sha256':original['sha256'],'request_sha256':digest(legacy),'helper_fingerprint':'a'*64,'backend_id':backend})
+            manager=NotesEditRecovery(self.account,store,self.adapter)
+            with ExitStack() as stack:
+                for module in ('native_protocol','native_edit_recovery','native_edit_observation'):
+                    stack.enter_context(patch('icloud_for_agents.'+module+'.mutation_request',return_value=legacy))
+                review=manager.prepare(original['plan_id'],'new');manager.execute(review['plan_id'])
+        return store,original,review
+
+    def test_completed_historical_edit_proof_survives_added_folder_guard(self):
+        store,original,review=self.historical_completed()
+        self.assertTrue(store.operation_settled(original['plan_id']))
+        stored=store.read(store.path(review['plan_id'],'.json'))
+        self.assertFalse(store._native_edit_recovery_for(original['plan_id'],stored))
+        self.assertEqual(store.status(original['plan_id'])['status'],'observed_unchanged_note_accepted')
+        with self.assertRaises(SafetyError):store.consume(original['plan_id'],self.account)
+
+    def test_historical_edit_requires_original_transport_binding_and_completed_proof(self):
+        store,original,review=self.historical_completed();identity=original['plan_id']
+        binding_path=store.path(identity,'.native-exchange-0');binding=store.read(binding_path)
+        for key in ('plan_sha256','request_sha256','helper_fingerprint','backend_id'):
+            forged=dict(binding);forged[key]='invalid';binding_path.write_text(json.dumps(forged))
+            self.assertFalse(store.operation_settled(identity))
+        binding_path.write_text(json.dumps(binding));self.assertTrue(store.operation_settled(identity))
+        store.path(identity,'.native-edit-recovery-result').unlink()
+        self.assertFalse(store.operation_settled(identity))
     def test_reviewed_acceptance_preserves_original_result_without_replay(self):
         original=self.store.path(self.plan['plan_id'],'.result').read_bytes();p=self.proposal();r=self.recovery.execute(p['plan_id'])
         self.assertFalse(r['native_data_changed']);self.assertFalse(r['causal_dispatch_proven']);self.assertTrue(self.store.operation_settled(self.plan['plan_id']))

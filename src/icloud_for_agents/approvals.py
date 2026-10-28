@@ -261,15 +261,31 @@ class PlanStore:
                 and proof.get('original_result_sha256')==digest(self.read(self.path(original_id,'.result')))
                 and result.get('after_sha256')==digest(recovery['payload']['observed']) and proof.get('observed_sha256')==result['after_sha256'])
 
-    def _native_edit_recovery_for(self,original_id,recovery):
+    def _native_edit_recovery_for(self,original_id,recovery,*,completed=False):
         if recovery.get('kind')!='notes_edit_recovery' or recovery.get('payload',{}).get('original_id')!=original_id:return False
         from .native_protocol import mutation_request
         original=self.read(self.path(original_id,'.json'));result=self.read(self.path(original_id,'.result'));items=original.get('payload',{}).get('changes',[]);payload=recovery.get('payload',{});observed=payload.get('observed',{})
+        request_matches=False
+        if len(items)==1 and isinstance(items[0],dict):
+            request=mutation_request('notes',items[0]);request_matches=payload.get('request_sha256')==digest(request)
+            if not request_matches and completed and 'folder_guard' in request.get('change',{}):
+                # Completed receipts predating folder_guard bind the original
+                # envelope and immutable transport record. Never admit a new
+                # recovery or dispatch with the historical envelope.
+                request['change'].pop('folder_guard')
+                path=self.path(original_id,'.native-exchange-0')
+                if path.exists():
+                    binding=self.read(path);backend=original.get('payload',{}).get('context',{}).get('backend')
+                    fingerprint=binding.get('helper_fingerprint')
+                    request_matches=(isinstance(fingerprint,str) and len(fingerprint)==64
+                        and isinstance(backend,str) and backend.startswith('notes-creation-v1:'+fingerprint)
+                        and binding.get('backend_id')==backend and binding.get('plan_sha256')==digest(original)
+                        and binding.get('request_sha256')==payload.get('request_sha256')==digest(request))
         if (original.get('kind')!='notes_change' or len(items)!=1 or items[0].get('operation') not in {'append_note','prepend_note','replace_text','update_note'}
                 or result.get('status')!='failed_or_uncertain' or result.get('phase') not in {'mutation','verification'}
                 or payload.get('account')!=original['payload'].get('account') or payload.get('original_sha256')!=digest(original)
                 or payload.get('original_result_sha256')!=digest(result) or payload.get('original_item_sha256')!=digest(items[0])
-                or payload.get('request_sha256')!=digest(mutation_request('notes',items[0])) or payload.get('operation')!='accept_observed_unchanged_note'
+                or not request_matches or payload.get('operation')!='accept_observed_unchanged_note'
                 or payload.get('context',{}).get('source_ids')!=original['payload'].get('context',{}).get('source_ids')):return False
         item=items[0]
         if (observed.get('plan_id')!=original_id or observed.get('note_id')!=item.get('id') or observed.get('source_id')!=item.get('source_id')
@@ -302,7 +318,7 @@ class PlanStore:
         if policy=='local-receipt':
             receipt=self.read(self.path(recovery['plan_id'],'.approved'))
             if receipt.get('plan_id')!=recovery['plan_id'] or receipt.get('sha256')!=digest(recovery):return False
-        return (self._native_edit_recovery_for(original_id,recovery) and proof.get('status')=='reviewed_unchanged_note_accepted'
+        return (self._native_edit_recovery_for(original_id,recovery,completed=True) and proof.get('status')=='reviewed_unchanged_note_accepted'
                 and started.get('sha256')==digest(recovery) and result.get('status')=='completed'
                 and result.get('recovery_state')=='observed_unchanged_note_accepted_after_review' and result.get('native_data_changed') is False
                 and result.get('causal_dispatch_proven') is False and proof.get('recovery_result_sha256')==digest(result)
