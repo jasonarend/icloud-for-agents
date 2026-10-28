@@ -10,6 +10,7 @@ def run():
     source=(ROOT/'src/icloud_for_agents/native/reminders.swift').read_text()
     start=source.index('func dueDay(_ reminder: EKReminder)')
     function=source[start:source.index('let predicate = store.predicateForReminders(in: selected)',start)]
+    completion=source[source.index('func completionInRange('):source.index('guard !selected.isEmpty else {')]
     fixture='''
 struct EKReminder {
  var dueDateComponents: DateComponents?
@@ -18,6 +19,7 @@ struct EKReminder {
  var notes:String?=nil
  var isCompleted=false
  var priority=0
+ var completionDate:Date?=nil
 }
 var zone=TimeZone(identifier:"America/Chicago")
 func components(_ year:Int,_ month:Int,_ day:Int,_ hour:Int?=nil,_ minute:Int?=nil,_ timezone:String?=nil)->DateComponents {
@@ -30,6 +32,8 @@ func components(_ year:Int,_ month:Int,_ day:Int,_ hour:Int?=nil,_ minute:Int?=n
     filter_start=source.index('    let filtered = reminders.filter { r in',start)
     filter_code=source[filter_start:source.index('    if nativeFlag != nil || nativeTag != nil || nativeUrgent != nil {',filter_start)]
     filter_fixture='''
+var completionFrom:Date?=nil
+var completionBefore:Date?=nil
 var req:[String:Any]=[:]
 var dueFilter:String?=nil
 var dueFrom:String?="2026-10-27"
@@ -42,7 +46,7 @@ let reminders=[
  EKReminder(dueDateComponents:components(2026,10,27),calendarItemIdentifier:"b",title:"Today",notes:"",priority:1),
  EKReminder(dueDateComponents:components(2026,10,29),calendarItemIdentifier:"c",title:"Later",notes:"Synthetic body",priority:5),
  EKReminder(dueDateComponents:nil,calendarItemIdentifier:"undated",title:"Undated",notes:"",priority:9),
- EKReminder(dueDateComponents:components(2026,10,27),calendarItemIdentifier:"done",title:"Done",notes:"",isCompleted:true,priority:1)]
+ EKReminder(dueDateComponents:components(2026,10,27),calendarItemIdentifier:"done",title:"Done",notes:"",isCompleted:true,priority:1,completionDate:Date(timeIntervalSince1970:100))]
 '''
     filter_assertions='''
 zone=TimeZone(identifier:"America/Chicago")
@@ -57,6 +61,12 @@ req["include_overdue"]=false
 precondition(filteredIDs()==["b"])
 dueFilter=nil;text="BODY"
 precondition(filteredIDs()==["c"])
+text=nil;completed=nil;completionFrom=Date(timeIntervalSince1970:100);completionBefore=Date(timeIntervalSince1970:200)
+precondition(filteredIDs()==["done"])
+precondition(completionInRange(true,Date(timeIntervalSince1970:100),completionFrom,completionBefore))
+precondition(!completionInRange(true,Date(timeIntervalSince1970:200),completionFrom,completionBefore))
+precondition(!completionInRange(false,Date(timeIntervalSince1970:150),completionFrom,completionBefore))
+precondition(!completionInRange(true,nil,completionFrom,completionBefore))
 '''
     assertions=''' 
 precondition(dueDay(EKReminder(dueDateComponents:nil))==nil)
@@ -71,11 +81,11 @@ print("passed")
 '''
     with tempfile.TemporaryDirectory(prefix='icloud-date-contract-') as directory:
         script=Path(directory)/'dates.swift';binary=Path(directory)/'dates'
-        script.write_text('import Foundation\n'+fixture+function+filter_fixture+'\nfunc filteredIDs()->[String] {\n'+filter_code+'return filtered.map { $0.calendarItemIdentifier }\n}\n'+assertions+filter_assertions)
+        script.write_text('import Foundation\n'+fixture+completion+function+filter_fixture+'\nfunc filteredIDs()->[String] {\n'+filter_code+'return filtered.map { $0.calendarItemIdentifier }\n}\n'+assertions+filter_assertions)
         subprocess.run(['/usr/bin/swiftc',str(script),'-o',str(binary)],capture_output=True,check=True,timeout=60)
         result=subprocess.run([str(binary)],capture_output=True,text=True,check=True,timeout=10)
         assert result.stdout.strip()=='passed'
-    return {'status':'passed','in_memory_only':True,'checks':['undated','date_only_travel','timed_timezone_day_boundary','DST_transition','year_boundary','inclusive_range','priority_and_completion','undated_exclusion','overdue','case_insensitive_search']}
+    return {'status':'passed','in_memory_only':True,'checks':['undated','date_only_travel','timed_timezone_day_boundary','DST_transition','year_boundary','inclusive_range','priority_and_completion','undated_exclusion','overdue','case_insensitive_search','completion_utc_inclusive_exclusive_and_unknown']}
 
 
 if __name__=='__main__':

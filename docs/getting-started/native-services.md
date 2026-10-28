@@ -298,6 +298,8 @@ Each node includes its title and completion state from a separate provider obser
 
 **Tagged Reminder queries**
 
+`reminders_query` also accepts `completed_from` and `completed_before` as UTC timestamps in `YYYY-MM-DDTHH:MM:SSZ` form. The lower bound is inclusive and the upper bound exclusive; only reminders with an observed completion time in the interval are returned. Incomplete reminders or missing completion times do not match. An updated native helper is required. The range boundaries have synthetic coverage, and read-only tests checked both an empty dedicated list and matching reminders in a selected source.
+
 With the optional ReminderKit backend, `reminders_query` and `reminders_daily` accept `tag` as one exact, case-sensitive native tag name. It can be combined with the flag and other supported filters. The name is matched as returned by the native metadata read; no `#` is added or removed. Tag filtering is read-only and does not create or modify tags.
 
 Each page checks at most `limit` public candidates against their scoped native metadata. Continue until `done` is true, even when a page contains no matches. Live changes can shift pages or occur between provider reads. Missing tag metadata, identity mismatches, and helpers that do not verify the requested filter are refused.

@@ -453,6 +453,20 @@ class NativeReadTests(unittest.TestCase):
         with self.env(ICLOUD_NATIVE_CONFIG=json.dumps({'reminders':{'source_ids':['selected']}})),patch('platform.system',return_value='Darwin'),patch('subprocess.run',side_effect=AssertionError('No SDK')):
             for fields in cases:
                 with self.subTest(fields=fields),self.assertRaises(SafetyError):NativeReader('reminders').read('query',**fields)
+    def test_completion_range_requires_evidence_and_matching_scoped_items(self):
+        from datetime import datetime,timezone
+        start='2026-10-27T00:00:00Z';end='2026-10-28T00:00:00Z';ts=datetime(2026,10,27,tzinfo=timezone.utc).timestamp()
+        evidence={'from':start,'before':end,'semantics':'utc_inclusive_from_exclusive_before'}
+        row={'id':'task','source_id':'selected','list_id':'list','completed':True,'completion_date':ts}
+        result={'protocol_version':1,'items':[row],'completion_filter':evidence}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps({'reminders':{'source_ids':['selected']}})),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=result) as backend:
+            self.assertEqual(NativeReader('reminders').read('query',completed_from=start,completed_before=end)['items'],[row])
+            for invalid in ({'completed_from':end,'completed_before':start},{'completed_from':start,'completed':False},{'completed_from':'2026-10-27'},{'completed_from':start,'completed_before':start}):
+                with self.subTest(invalid=invalid),self.assertRaises(SafetyError):NativeReader('reminders').read('query',**invalid)
+            for bad in (dict(result,completion_filter=None),dict(result,items=[dict(row,source_id='foreign')]),dict(result,items=[dict(row,completed=False)]),dict(result,items=[dict(row,completion_date=ts+86400)]),dict(result,items=[dict(row,completion_date=True)]),dict(result,items=[dict(row,completion_date=float('nan'))]),dict(result,items=[dict(row,completion_date=10**400)])):
+                backend.return_value=bad
+                with self.assertRaises(SafetyError):NativeReader('reminders').read('query',completed_from=start,completed_before=end)
+
     def test_valid_inclusive_range_and_priorities_are_forwarded_exactly(self):
         with self.env(ICLOUD_NATIVE_CONFIG=json.dumps({'reminders':{'source_ids':['selected']}})),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value={'items':[]}) as dispatch:
             NativeReader('reminders').read('query',due_from='2026-10-26',due_through='2026-10-28',timezone='America/Chicago',priorities=[0,1])

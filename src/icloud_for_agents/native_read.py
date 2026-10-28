@@ -3,7 +3,7 @@ import json
 import os
 from pathlib import Path
 import platform
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import subprocess
 import tempfile
@@ -145,7 +145,7 @@ class NativeReader:
         match_scope=fields.pop('match_scope','all')
         if not isinstance(match_scope,str) or match_scope not in {'all','title'} or (match_scope!='all' and (self.name!='notes' or action!='search')):
             raise SafetyError('Title-only search is supported only for Notes search')
-        if set(fields) - {'id', 'folder_id', 'list_id', 'limit', 'offset', 'completed', 'text', 'due_date', 'timezone', 'include_overdue', 'due_from', 'due_through', 'priorities', 'flagged', 'tag', 'urgent', 'source_id', 'modified_from', 'modified_before', 'expected_modified'}:
+        if set(fields) - {'id', 'folder_id', 'list_id', 'limit', 'offset', 'completed', 'text', 'due_date', 'timezone', 'include_overdue', 'due_from', 'due_through', 'priorities', 'flagged', 'tag', 'urgent', 'source_id', 'modified_from', 'modified_before', 'expected_modified', 'completed_from', 'completed_before'}:
             raise SafetyError('Unknown native read fields')
         modified={k:fields[k] for k in ('modified_from','modified_before') if fields.get(k) is not None}
         if modified:
@@ -157,6 +157,16 @@ class NativeReader:
                     datetime.strptime(value,'%Y-%m-%dT%H:%M:%SZ')
                 if len(modified)==2 and modified['modified_from']>=modified['modified_before']:raise ValueError()
             except (ValueError,TypeError):raise SafetyError('Notes modification bounds require ordered UTC timestamps; the upper bound is exclusive') from None
+        completion_bounds={k:fields[k] for k in ('completed_from','completed_before') if fields.get(k) is not None}
+        if completion_bounds:
+            import re
+            try:
+                if self.name!='reminders' or action!='query' or fields.get('completed') is False:raise ValueError()
+                for value in completion_bounds.values():
+                    if not isinstance(value,str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z',value):raise ValueError()
+                    datetime.strptime(value,'%Y-%m-%dT%H:%M:%SZ')
+                if len(completion_bounds)==2 and completion_bounds['completed_from']>=completion_bounds['completed_before']:raise ValueError()
+            except (ValueError,TypeError):raise SafetyError('Completion bounds require ordered UTC timestamps and cannot select incomplete reminders') from None
         limit, offset = fields.get('limit', 50), fields.get('offset', 0)
         max_limit,max_offset=(10000,5000000) if self.name=='notes' and action=='text_page' else (100,100000)
         if type(limit) is not int or not 1 <= limit <= max_limit or type(offset) is not int or not 0 <= offset <= max_offset:
@@ -238,6 +248,16 @@ class NativeReader:
                             raise SafetyError('Invalid attachment field observation')
             allowed=('protocol_version','attachments','done','next_offset','content_downloaded','metadata_complete','metadata_requested','source_id','folder_id','note_id','locked','content_available','excluded_locked_note')
             result={key:result[key] for key in allowed if key in result}
+        if completion_bounds:
+            evidence={'from':completion_bounds.get('completed_from'),'before':completion_bounds.get('completed_before'),'semantics':'utc_inclusive_from_exclusive_before'}
+            lower=datetime.strptime(completion_bounds['completed_from'],'%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc).timestamp() if 'completed_from' in completion_bounds else None
+            upper=datetime.strptime(completion_bounds['completed_before'],'%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc).timestamp() if 'completed_before' in completion_bounds else None
+            rows=result.get('items') if isinstance(result,dict) else None
+            if (not isinstance(result,dict) or result.get('completion_filter')!=evidence or not isinstance(rows,list) or len(rows)>limit
+                    or any(not isinstance(row,dict) or not isinstance(row.get('id'),str) or not row['id'] or not isinstance(row.get('list_id'),str) or not row['list_id'] or row.get('source_id') not in sources or (fields.get('list_id') is not None and row.get('list_id')!=fields['list_id'])
+                        or row.get('completed') is not True or type(row.get('completion_date')) not in (int,float) or not -1_000_000_000_000<=row['completion_date']<=1_000_000_000_000
+                        or (lower is not None and row['completion_date']<lower) or (upper is not None and row['completion_date']>=upper) for row in rows)):
+                raise SafetyError('Configured helper did not verify the requested completion range; update or review its compatibility')
         if action=='list_features':
             keys={'protocol_version','source_id','list_id','grocery_categorization','grocery_shopping_session','is_group','shared','shared_to_me','can_be_shared','sharing_metadata_complete','list_type_verified','data_mutated','backend'}
             if (native_config('reminders')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode or not isinstance(result,dict) or set(result)!=keys
@@ -764,10 +784,10 @@ def register_read_tools(mcp):
         def reminders_query(limit: int = 50, offset: int = 0, list_id: str | None = None,
                             completed: bool | None = None, text: str | None = None,
                             due_from: str | None = None, due_through: str | None = None,
-                            timezone: str | None = None, priorities: list[int] | None = None, flagged: bool | None = None, tag: str | None = None, urgent: bool | None = None) -> dict:
-            """Bounded tasks with optional date, priority, native flag, urgent state and exact tag filters. Follow next_offset even on empty filtered pages."""
+                            timezone: str | None = None, priorities: list[int] | None = None, flagged: bool | None = None, tag: str | None = None, urgent: bool | None = None, completed_from: str | None = None, completed_before: str | None = None) -> dict:
+            """Bounded tasks with due dates, UTC completion bounds, priority, native flag, urgent state and exact tag filters. Follow next_offset even on empty filtered pages."""
             return NativeReader('reminders').read('query',limit=limit,offset=offset,list_id=list_id,
-                completed=completed,text=text,due_from=due_from,due_through=due_through,timezone=timezone,priorities=priorities,flagged=flagged,tag=tag,urgent=urgent)
+                completed=completed,text=text,due_from=due_from,due_through=due_through,timezone=timezone,priorities=priorities,flagged=flagged,tag=tag,urgent=urgent,completed_from=completed_from,completed_before=completed_before)
 
         @mcp.tool(annotations=annotations)
         @guard

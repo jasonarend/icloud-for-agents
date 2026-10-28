@@ -29,6 +29,12 @@ def dispatch(self,request,config):
         assert request['source_id']=='selected'
         child=request['id']=='synthetic-child';root='synthetic-parent' if child else request['id'];children=['synthetic-child'] if request['id']=='synthetic-parent' else None
         return {'protocol_version':1,'id':request['id'],'source_id':'selected','found_as_root':not child,'found_in_view':True,'parent_id':root if child else None,'recovery_root_id':root,'view':'provider_recently_deleted','reported_child_ids':children,'children_status':'provider_reported' if children is not None else 'unavailable','children_complete':False,'data_mutated':False,'observation_consistency':'separate_provider_reads'}
+    if request['action']=='query' and ('completed_from' in request or 'completed_before' in request):
+        result={'protocol_version':1,'items':[],'done':True,'next_offset':request['offset'],'pagination_consistency':'live_offset_may_shift','completion_filter':{'from':request.get('completed_from'),'before':request.get('completed_before'),'semantics':'utc_inclusive_from_exclusive_before'}}
+        evidence={'scanned':0,'matched':0,'observation_consistency':'separate_provider_reads'}
+        for field,key in (('flagged','native_flag_filter'),('urgent','native_urgent_filter'),('tag','native_tag_filter')):
+            if field in request:result[key]=evidence
+        return result
     if request['action']=='query':
         assert (type(request.get('flagged')) is bool or type(request.get('urgent')) is bool or isinstance(request.get('tag'),str)) and request['limit']==1
         if 'due_date' in request:assert request['due_date']=='2026-10-27' and request['timezone']=='UTC' and request['completed'] is False and request['list_id']=='list'

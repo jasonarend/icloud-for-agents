@@ -881,6 +881,19 @@ if let flag=nativeFlag {guard let value=flag as? NSNumber,CFGetTypeID(value)==CF
 if let raw=nativeTag {
     guard let tag=raw as? String,!tag.isEmpty,tag.lengthOfBytes(using:.utf8)<=512,!tag.unicodeScalars.contains(where:{$0.value<32}) else {fail("invalid_request")}
 }
+let completionFromText=req["completed_from"] as? String
+let completionBeforeText=req["completed_before"] as? String
+if (req["completed_from"] != nil && completionFromText == nil) || (req["completed_before"] != nil && completionBeforeText == nil) {fail("invalid_date_filter")}
+let completionFormatter=ISO8601DateFormatter()
+let completionFrom=completionFromText.flatMap {completionFormatter.date(from:$0)}
+let completionBefore=completionBeforeText.flatMap {completionFormatter.date(from:$0)}
+if (completionFromText != nil && completionFrom == nil) || (completionBeforeText != nil && completionBefore == nil) || (completionFrom != nil && completionBefore != nil && completionFrom! >= completionBefore!) || ((completionFrom != nil || completionBefore != nil) && (req["completed"] as? Bool)==false) {fail("invalid_date_filter")}
+let completionEvidence:[String:Any]? = (completionFromText != nil || completionBeforeText != nil) ? ["from":completionFromText ?? NSNull() as Any,"before":completionBeforeText ?? NSNull() as Any,"semantics":"utc_inclusive_from_exclusive_before"] : nil
+func completionInRange(_ completed:Bool,_ value:Date?,_ from:Date?,_ before:Date?)->Bool {
+    if from == nil && before == nil {return true}
+    guard completed,let value=value else {return false}
+    return (from == nil || value >= from!) && (before == nil || value < before!)
+}
 guard !selected.isEmpty else {
     if requestedList != nil { fail("not_found_in_scope") }
     if nativeFlag != nil || nativeTag != nil || nativeUrgent != nil {
@@ -889,10 +902,13 @@ guard !selected.isEmpty else {
         if nativeFlag != nil {response["native_flag_filter"]=evidence}
         if nativeUrgent != nil {response["native_urgent_filter"]=evidence}
         if nativeTag != nil {response["native_tag_filter"]=evidence}
+        if let completionEvidence=completionEvidence {response["completion_filter"]=completionEvidence}
         respond(response)
     }
-    respond(["protocol_version": 1, "items": [], "done": true, "next_offset": offset,
-             "pagination_consistency": "live_offset_may_shift"])
+    var response:[String:Any]=["protocol_version": 1, "items": [], "done": true, "next_offset": offset,
+             "pagination_consistency": "live_offset_may_shift"]
+    if let completionEvidence=completionEvidence {response["completion_filter"]=completionEvidence}
+    respond(response)
 }
 let dueFilter = req["due_date"] as? String
 let dueFrom = req["due_from"] as? String
@@ -933,7 +949,7 @@ store.fetchReminders(matching: predicate) { reminders in
             (req["include_overdue"] as? Bool == true ? day! <= dueFilter! : day! == dueFilter!))
         let rangeMatches=(dueFrom == nil && dueThrough == nil) || (day != nil &&
             (dueFrom == nil || day! >= dueFrom!) && (dueThrough == nil || day! <= dueThrough!))
-        return dueMatches && rangeMatches && (priorities == nil || priorities!.contains(r.priority)) && (completed == nil || r.isCompleted == completed) &&
+        return dueMatches && rangeMatches && completionInRange(r.isCompleted,r.completionDate,completionFrom,completionBefore) && (priorities == nil || priorities!.contains(r.priority)) && (completed == nil || r.isCompleted == completed) &&
         (text == nil || ((r.title ?? "") + "\n" + (r.notes ?? "")).localizedCaseInsensitiveContains(text!))
     }.sorted { $0.calendarItemIdentifier < $1.calendarItemIdentifier }
     if nativeFlag != nil || nativeTag != nil || nativeUrgent != nil {
@@ -962,12 +978,15 @@ store.fetchReminders(matching: predicate) { reminders in
         if nativeFlag != nil {response["native_flag_filter"]=evidence}
         if nativeUrgent != nil {response["native_urgent_filter"]=evidence}
         if nativeTag != nil {response["native_tag_filter"]=evidence}
+        if let completionEvidence=completionEvidence {response["completion_filter"]=completionEvidence}
         respond(response)
     }
     let page = Array(filtered.dropFirst(offset).prefix(limit)).map(object)
     let next = offset + page.count
-    respond(["protocol_version": 1, "items": page, "done": next >= filtered.count,
-             "next_offset": next, "pagination_consistency": "live_offset_may_shift"])
+    var response:[String:Any]=["protocol_version": 1, "items": page, "done": next >= filtered.count,
+             "next_offset": next, "pagination_consistency": "live_offset_may_shift"]
+    if let completionEvidence=completionEvidence {response["completion_filter"]=completionEvidence}
+    respond(response)
 }
 RunLoop.current.run(until: Date(timeIntervalSinceNow: 30))
 fail("read_timeout")
