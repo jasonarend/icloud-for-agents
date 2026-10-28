@@ -45,10 +45,10 @@ class NativeRemindersTests(unittest.TestCase):
         self.reader.membership['count']=3;self.assertFalse(self.adapter.verify(item,outcome));self.reader.membership['count']=2
         self.reader.sections.append({'id':'extra','title':'Other'});self.assertFalse(self.adapter.verify(item,outcome))
     def test_section_rename_binds_exact_inventory_and_readback(self):
-        section='11111111-1111-4111-8111-111111111111';change={'operation':'rename_section','source_id':'selected','list_id':'list','section_id':section,'fields':{'title':'After'}}
+        section='AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA';change={'operation':'rename_section','source_id':'selected','list_id':'list','section_id':section,'fields':{'title':'After'}}
         with self.assertRaises(SafetyError):self.adapter.prepare(change)
         self.native_reader();self.reader.sections=[{'id':section,'title':'Before'}]
-        item=self.adapter.prepare(change)
+        item=self.adapter.prepare({**change,'section_id':section.lower()});self.assertEqual(item['section_id'],section)
         self.reader.sections[0]['title']='After'
         self.assertTrue(self.adapter.verify(item,{'id':section,'source_id':'selected','list_id':'list'}))
         self.reader.membership['count']+=1;self.assertFalse(self.adapter.verify(item,{'id':section,'source_id':'selected','list_id':'list'}));self.reader.membership['count']-=1

@@ -51,6 +51,12 @@ def validate_scope(name,scope,now):
         if (not isinstance(dest,list) or len(dest)>20 or any(not exact(d) for d in dest)
                 or len(set(dest))!=len(dest) or bool(dest)!=(op in {'move_note','move_reminder','create_subtask','rename_section'})):
             raise SafetyError('Moves require exact destinations, subtask creation exact parents and section renames exact section IDs; other rules cannot grant them')
+        if op=='rename_section':
+            import uuid
+            try:
+                normalized=[str(uuid.UUID(value)).upper() for value in dest]
+                if any(str(uuid.UUID(value)).upper()!=value.upper() for value in dest) or len(set(normalized))!=len(normalized):raise ValueError()
+            except (ValueError,AttributeError):raise SafetyError('Section grant targets must be distinct exact UUIDs') from None
         identity=(op,rule['source_id'],rule['container_id'])
         if identity in seen:raise SafetyError('Duplicate native grant selector; combine its field scope explicitly')
         seen.add(identity)
@@ -107,9 +113,9 @@ class NativeGrants:
                 if sections.get('source_id')!=rule['source_id'] or sections.get('list_id')!=rule['container_id']:raise SafetyError('Section grant list scope is invalid')
                 destinations=[]
                 for section_id in rule['destinations']:
-                    matches=[s for s in sections.get('sections',[]) if s.get('id')==section_id]
+                    matches=[s for s in sections.get('sections',[]) if isinstance(s.get('id'),str) and s['id'].upper()==section_id.upper()]
                     if len(matches)!=1:raise SafetyError('Section grant target is absent or outside the exact list')
-                    destinations.append({'id':section_id,'source_id':rule['source_id'],'list_id':rule['container_id']})
+                    destinations.append({'id':matches[0]['id'],'source_id':rule['source_id'],'list_id':rule['container_id']})
             else:destinations=[self.container(rule['source_id'],d) for d in rule['destinations']]
             result.append({'source':source,'destinations':destinations})
         return result
@@ -260,7 +266,7 @@ class NativeGrants:
                 dest=item['fields'].get('destination_folder_id' if self.name=='notes' else 'list_id')
                 if op in {'move_note','move_reminder'} and dest not in rule['destinations']:continue
                 if op=='create_subtask' and item['id'] not in rule['destinations']:continue
-                if op=='rename_section' and item['section_id'] not in rule['destinations']:continue
+                if op=='rename_section' and item['section_id'].upper() not in {value.upper() for value in rule['destinations']}:continue
                 return
         raise SafetyError('Native change exceeds the approved scenario source/container/operation/fields')
     def check_batch(self,plan,grant):

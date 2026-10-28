@@ -244,6 +244,7 @@ class RemindersCreateAdapter:
             section=change['section_id']
             if not isinstance(section,str) or str(uuid.UUID(section)).upper()!=section.upper():raise ValueError()
         except ValueError:raise SafetyError('Select one exact native section ID') from None
+        section=str(uuid.UUID(section)).upper()
         if native_config('reminders').get('advanced_backend')!='reminderkit':raise SafetyError('Section renaming requires the explicitly selected ReminderKit backend')
         fields=change['fields'];title=fields.get('title') if isinstance(fields,dict) else None
         if not isinstance(fields,dict) or set(fields)!={'title'} or not isinstance(title,str) or not title.strip() or len(title)>1000 or len(title.encode('utf-8'))>4000 or any(ord(c)<32 for c in title):raise SafetyError('Use one exact bounded section title')
