@@ -852,6 +852,27 @@ def register_read_tools(mcp):
 
         @mcp.tool(annotations=annotations)
         @guard
+        def notes_read_text(folder_id: str, id: str, offset: int=0, limit: int=10000) -> dict:
+            """Read a bounded page of the note's exported plaintext. Follow next_offset; a truncated source cannot be paged beyond its observed prefix."""
+            if type(offset) is not int or not 0<=offset<=100000 or type(limit) is not int or not 1<=limit<=10000:
+                raise SafetyError('Text pages require offset 0..100000 and limit 1..10000')
+            result=NativeReader('notes').read('get',folder_id=folder_id,id=id)
+            item=result.get('item')
+            if not isinstance(item,dict) or item.get('id')!=id:raise SafetyError('Exact note identity was not verified')
+            if item.get('locked') is True:
+                return {'id':id,'folder_id':folder_id,'locked':True,'content_available':False,'data_mutated':False}
+            if item.get('folder_id')!=folder_id or not isinstance(item.get('source_id'),str) or not isinstance(item.get('text'),str) or type(item.get('truncated')) is not bool:
+                raise SafetyError('Plaintext availability and scope could not be verified')
+            text=item['text']
+            if offset>len(text):raise SafetyError('Text offset is beyond the observed note content')
+            page=text[offset:offset+limit];next_offset=offset+len(page);source_truncated=item['truncated']
+            return {'id':id,'folder_id':folder_id,'source_id':item['source_id'],'locked':False,'content_available':True,
+                    'text':page,'offset':offset,'next_offset':next_offset,'done':next_offset>=len(text),
+                    'source_truncated':source_truncated,'content_complete':False,'modified':item.get('modified'),'pagination_consistency':'live_note_may_change',
+                    'data_mutated':False}
+
+        @mcp.tool(annotations=annotations)
+        @guard
         def notes_get(folder_id: str, id: str, representation: Literal['native','markdown']='native') -> dict:
             """Read scoped unlocked Notes HTML/text; optional Markdown is a bounded lossy view with an explicit loss report, never a native backup. No assets are fetched."""
             return NativeReader('notes').read('get', folder_id=folder_id, id=id, representation=representation)

@@ -19,7 +19,8 @@ def dispatch(self,request,config):
             return {'protocol_version':1,'items':[{'id':'synthetic-note','title':'Synthetic Title','source_id':'selected','folder_id':'folder','locked':False,'excerpt':'','content_complete':False}],'table_projection_candidates':[],'match_scope':'title','done':True,'next_offset':1}
         assert request.get('modified_from')=='2026-10-27T12:00:00Z' and request.get('modified_before')=='2026-10-27T13:00:00Z'
         return {'protocol_version':1,'items':[],'table_projection_candidates':[{'id':'synthetic-note','title':'Synthetic','source_id':'selected','folder_id':'folder','html':'<table><tr><td>Priority</td></tr></table>','truncated':False,'modified':'2026-10-27T12:30:00.000Z'}],'done':True,'next_offset':1,'modified_filter':{'from':request['modified_from'],'before':request['modified_before'],'semantics':'utc_inclusive_from_exclusive_before'}}
-    return {'protocol_version':1,'item':{'id':'synthetic-note','folder_id':'folder','source_id':'selected','html':'<h1>Product spec</h1><p><strong>Decision</strong></p><object><table><tr><td>Priority</td><td>High</td></tr></table></object>','truncated':False,'locked':False}}
+    if request.get('id')=='synthetic-locked':return {'protocol_version':1,'item':{'id':'synthetic-locked','locked':True,'content_available':False}}
+    return {'protocol_version':1,'item':{'id':'synthetic-note','folder_id':'folder','source_id':'selected','html':'<h1>Product spec</h1><p><strong>Decision</strong></p><object><table><tr><td>Priority</td><td>High</td></tr></table></object>','truncated':False,'locked':False,'text':'Synthetic text café 🚀','modified':'2026-10-27T12:30:00Z'}}
 NativeReader._dispatch=dispatch
 from icloud_for_agents.server import main
 main()
