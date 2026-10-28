@@ -29,6 +29,12 @@ func ICloudRemindersReadUrgent(_ input:Data)->Data {
     return try! JSONSerialization.data(withJSONObject:["native_metadata":value])
 }
 func ICloudRemindersReadFlag(_ input:Data)->Data {output(input,false)}
+func ICloudRemindersReadAssignment(_ input:Data)->Data {
+    privateReads+=1
+    var value=try! JSONSerialization.jsonObject(with:input) as! [String:Any]
+    value["backend"]="reminderkit-assignment-v1";value["coverage"]=["assignment"];value["current_assignment_reported"]=false;value["assignment_record_count"]=0;value["assignment_metadata_complete"]=false;value["native_metadata_complete"]=false;value["observation_consistency"]="separate_provider_reads"
+    return try! JSONSerialization.data(withJSONObject:["native_metadata":value])
+}
 func ICloudRemindersReadEarly(_ input:Data)->Data {
     privateReads+=1
     var value=try! JSONSerialization.jsonObject(with:input) as! [String:Any]
