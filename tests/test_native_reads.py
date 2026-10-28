@@ -45,6 +45,17 @@ class NativeReadTests(unittest.TestCase):
                 backend.return_value={'protocol_version':1,'state':state,'list':None}
                 self.assertIsNone(NativeReader('reminders').read('default_list')['list'])
 
+    def test_default_notes_folder_requires_exact_selected_source(self):
+        config={'notes':{'source_ids':['selected']}}
+        result={'protocol_version':1,'folder':{'id':'folder','source_id':'selected','parent_id':'selected','title':'Notes','shared':False,'role':'default_folder'}}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=result) as backend:
+            self.assertEqual(NativeReader('notes').read('default_folder',source_id='selected'),result)
+            backend.return_value=dict(result,request_id='local-request',nonprompting_event_count=2)
+            self.assertEqual(NativeReader('notes').read('default_folder',source_id='selected'),result)
+            with self.assertRaises(SafetyError):NativeReader('notes').read('default_folder',source_id='foreign')
+            backend.return_value={'protocol_version':1,'folder':dict(result['folder'],source_id='foreign')}
+            with self.assertRaises(SafetyError):NativeReader('notes').read('default_folder',source_id='selected')
+
     def test_optional_native_store_status_is_owner_selected_and_read_only(self):
         config={'notes':{'source_ids':['selected'],'access_mode':'read-only','helper_path':'/synthetic/helper','metadata_backend':'notes-store-readonly','folder_write_backend':'notes-shared'}}
         calls=[]
@@ -310,7 +321,7 @@ class NativeReadTests(unittest.TestCase):
                 with self.env(ICLOUD_ENABLE_NOTES=str(int(notes)),ICLOUD_ENABLE_REMINDERS=str(int(reminders))):
                     importlib.reload(server)
                     tools = {t.name:t for t in asyncio.run(server.mcp.list_tools())}
-                    self.assertEqual(sum(n.startswith('notes_') for n in tools),42 if notes else 0)
+                    self.assertEqual(sum(n.startswith('notes_') for n in tools),43 if notes else 0)
                     self.assertEqual(sum(n.startswith('reminders_') for n in tools),32 if reminders else 0)
                     if notes:
                         with patch.dict(os.environ, {'ICLOUD_ENABLE_NOTES':'0'}), patch('subprocess.run',side_effect=AssertionError('No helper')):

@@ -24,6 +24,9 @@ def run():
             try:
                 rpc('initialize',{'protocolVersion':'2025-11-25','capabilities':{},'clientInfo':{'name':'synthetic-markdown','version':'1'}});process.stdin.write(b'{"jsonrpc":"2.0","method":"notifications/initialized"}\n');process.stdin.flush()
                 tools=rpc('tools/list',{})['result']['tools'];tool=next(t for t in tools if t['name']=='notes_get');assert tool['annotations']['readOnlyHint'] is True
+                default_tool=next(t for t in tools if t['name']=='notes_default_folder');assert default_tool['annotations']['readOnlyHint'] is True
+                default=data(rpc('tools/call',{'name':'notes_default_folder','arguments':{'source_id':'selected'}})['result']);assert default['folder']['id']=='folder'
+                assert rpc('tools/call',{'name':'notes_default_folder','arguments':{'source_id':'foreign'}})['result'].get('isError')
                 schema=tool['inputSchema']['properties']['representation'];assert set(schema['enum'])=={'native','markdown'} and schema['default']=='native'
                 locator=next(t for t in tools if t['name']=='notes_locate');assert locator['annotations']['readOnlyHint'] is True
                 located=data(rpc('tools/call',{'name':'notes_locate','arguments':{'id':'synthetic-note','source_id':'selected'}})['result']);assert located['folders'][0]['id']=='folder' and located['folders'][0]['role']=='unverified'

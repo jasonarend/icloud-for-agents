@@ -13,7 +13,7 @@ from .core import SafetyError, NativeOperationRefused, digest
 from .services import enabled
 
 
-READ_ACTIONS = {'notes': {'status', 'sources', 'folders', 'folder_get', 'folder_inventory', 'folder_role', 'model_folder_role', 'query', 'get', 'search', 'attachments', 'diagnose_note', 'contains'},
+READ_ACTIONS = {'notes': {'status', 'sources', 'folders', 'default_folder', 'folder_get', 'folder_inventory', 'folder_role', 'model_folder_role', 'query', 'get', 'search', 'attachments', 'diagnose_note', 'contains'},
                 'reminders': {'status', 'sources', 'lists', 'default_list', 'query', 'get','list_membership','recovery_lookup','recovery_tree','recovery_list'}}
 MAX_OUTPUT = 2_000_000
 
@@ -108,7 +108,9 @@ class NativeReader:
                 if self.name!='reminders' or action!='query' or not isinstance(tag,str) or not tag or len(tag.encode('utf-8'))>512 or any(ord(c)<32 for c in tag):raise ValueError()
             except (ValueError,UnicodeEncodeError):raise SafetyError('Tag filtering requires one exact bounded native tag name') from None
             if config.get('advanced_backend')!='reminderkit' or not config.get('helper_path'):raise SafetyError('Tag filtering requires the explicitly selected ReminderKit backend and signed helper')
-        if 'source_id' in fields and action not in {'recovery_lookup','recovery_tree','recovery_list','model_folder_role'}:raise SafetyError('Source selector is only supported for exact role or recovery lookup')
+        if 'source_id' in fields and action not in {'recovery_lookup','recovery_tree','recovery_list','model_folder_role','default_folder'}:raise SafetyError('Source selector is only supported for exact role or recovery lookup')
+        if action=='default_folder' and (self.name!='notes' or set(fields)!={'source_id'} or fields.get('source_id') not in sources):
+            raise SafetyError('Default Notes folder lookup requires one exact selected source')
         if action=='model_folder_role':
             if self.name!='notes' or set(fields)!={'folder_id','source_id'} or fields.get('source_id') not in sources:
                 raise SafetyError('Model role lookup requires an exact selected source and folder')
@@ -188,6 +190,16 @@ class NativeReader:
             from .native_note_store import folder_role
             return folder_role(fields['folder_id'],sources)
         result = self._dispatch(request, config)
+        if action=='default_folder':
+            folder=result.get('folder') if isinstance(result,dict) else None
+            if (native_config('notes')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode
+                    or not isinstance(result,dict) or set(result)-{'protocol_version','request_id','nonprompting_event_count','folder'}
+                    or not isinstance(folder,dict) or set(folder)!={'id','source_id','parent_id','title','shared','role'}
+                    or folder['source_id']!=fields['source_id'] or folder['parent_id']!=fields['source_id']
+                    or not isinstance(folder['id'],str) or not folder['id'] or not isinstance(folder['title'],str)
+                    or len(folder['title'])>1000 or type(folder['shared']) is not bool or folder['role']!='default_folder'):
+                raise SafetyError('Default Notes folder could not be verified in the selected source')
+            result={'protocol_version':1,'folder':folder}
         if action=='default_list':
             if (native_config('reminders')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode
                     or not isinstance(result,dict) or set(result)!={'protocol_version','state','list'}
@@ -753,6 +765,12 @@ def register_read_tools(mcp):
         def notes_sources() -> dict:
             """Discover Notes account IDs after the user grants OS Automation access."""
             return NativeReader('notes').read('sources')
+
+        @mcp.tool(annotations=annotations)
+        @guard
+        def notes_default_folder(source_id: str) -> dict:
+            """Read the default folder in one exact selected Notes account; does not change settings or content."""
+            return NativeReader('notes').read('default_folder',source_id=source_id)
 
         @mcp.tool(annotations=annotations)
         @guard

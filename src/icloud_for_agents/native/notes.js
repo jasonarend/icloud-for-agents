@@ -39,7 +39,7 @@ function readRequest() {
     const text = ObjC.unwrap($.NSString.alloc.initWithDataEncoding(data, $.NSUTF8StringEncoding));
     if (text.length > 65536) throw Error('invalid_request');
     const req = JSON.parse(text);
-    if (req.protocol_version !== 1 || !['sources','folders','folder_get','folder_inventory','query','get','search','attachments','diagnose_note','contains'].includes(req.action)) throw Error('unsupported_action');
+    if (req.protocol_version !== 1 || !['sources','folders','default_folder','folder_get','folder_inventory','query','get','search','attachments','diagnose_note','contains'].includes(req.action)) throw Error('unsupported_action');
     return req;
 }
 function run() { const req=readRequest(); return readNotes(Application('com.apple.Notes'), req); }
@@ -49,6 +49,13 @@ function readNotes(app, req) {
     if (!Array.isArray(req.source_ids) || req.source_ids.length === 0) throw Error('source_scope_required');
     const selected = accounts.filter(a => req.source_ids.includes(a.id()));
     if(req.source_ids.some(id=>!selected.some(a=>a.id()===id)))throw Error('not_found_in_scope');
+    if(req.action==='default_folder') {
+        const account=selected.find(a=>a.id()===req.source_id);
+        if(!account)throw Error('not_found_in_scope');
+        const folder=account.defaultFolder(),id=folder.id(),parent=folder.container().id(),title=folder.name(),shared=folder.shared();
+        if(typeof id!=='string' || !id || parent!==account.id() || typeof title!=='string' || typeof shared!=='boolean')throw Error('folder_metadata_unavailable');
+        return JSON.stringify({protocol_version:1,folder:{id:id,source_id:account.id(),parent_id:parent,title:title.slice(0,1000),shared:shared,role:'default_folder'}});
+    }
     const folders = [];let targetPath=[];
     const seen = new Set();
     function walk(parent, source, depth) {

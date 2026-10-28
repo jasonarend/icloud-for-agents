@@ -32,7 +32,7 @@ accountFolders.id=()=>['folder-1','folder-child'];
 accountFolders.byId=id=>{const f=[parent,child].find(f=>f.id()===id);if(!f)throw Error('not_found_in_scope');return f;};
 const fixtureApplication = name=>{
  if(name!=='Notes')throw Error('unexpected_app');
- return {folders:{byId:id=>{throw Error('unqualified_app_folder_lookup');}},accounts:()=>[{id:()=> 'selected',name:()=> 'Synthetic account',folders:accountFolders},unselected]};
+ return {folders:{byId:id=>{throw Error('unqualified_app_folder_lookup');}},accounts:()=>[{id:()=> 'selected',name:()=> 'Synthetic account',folders:accountFolders,defaultFolder:()=>parent},unselected]};
 };
 '''
 
@@ -64,6 +64,7 @@ print(result)
         assert embedded.returncode==0,embedded.stderr
         assert json.loads(embedded.stdout)['item']['text']=='Synthetic content'
         assert call('contains',folder_id='folder-1',id='note-1')['exists'] is True
+        default=call('default_folder',source_id='selected')['folder'];assert default['id']=='folder-1' and default['role']=='default_folder' and default['source_id']=='selected'
         assert call('contains',folder_id='folder-1',id='missing')['exists'] is False
         assert call('contains',folder_id='folder-child',id='note-1')['exists'] is False
         child_page=call('query',folder_id='folder-child',limit=1,offset=0)
