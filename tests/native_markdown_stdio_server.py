@@ -18,8 +18,8 @@ def dispatch(self,request,config):
         meta={'created':{'status':'available','value':'2026-01-01T00:00:00.000Z'},'modified':{'status':'available','value':None},'url':{'status':'unavailable','value':None},'shared':{'status':'available','value':False}}
         row={'id':'attachment','name':None,'content_identifier':'cid:synthetic','note_id':'synthetic-note'}
         if request.get('include_attachment_metadata'):row['native_metadata']=meta
-        result={'protocol_version':1,'attachments':[row],'done':True,'next_offset':1,'content_downloaded':False,'metadata_complete':False}
-        if request.get('include_attachment_metadata'):result.update(metadata_requested=True,source_id='selected',folder_id='folder',note_id='synthetic-note')
+        result={'protocol_version':1,'attachments':[row],'source_id':'selected','folder_id':'folder','note_id':'synthetic-note','done':True,'next_offset':1,'content_downloaded':False,'metadata_complete':False}
+        if request.get('include_attachment_metadata'):result.update(metadata_requested=True)
         return result
     if request['action']=='search':
         if request.get('match_scope')=='title':

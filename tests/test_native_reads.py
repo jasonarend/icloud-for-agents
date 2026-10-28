@@ -83,6 +83,19 @@ class NativeReadTests(unittest.TestCase):
             backend.return_value={'protocol_version':1,'attachments':[],'done':True,'locked':True,'content_available':False,'excluded_locked_note':True,'metadata_requested':True,'source_id':'selected','folder_id':'folder','note_id':'note'}
             self.assertTrue(NativeReader('notes').read('attachments',folder_id='folder',id='note',limit=10,offset=0,include_attachment_metadata=True)['locked'])
 
+    def test_basic_attachment_inventory_requires_exact_scoped_evidence(self):
+        config={'notes':{'source_ids':['selected']}}
+        row={'id':'attachment','name':None,'content_identifier':None,'note_id':'note'}
+        page={'protocol_version':1,'source_id':'selected','folder_id':'folder','note_id':'note','attachments':[row],
+              'done':True,'next_offset':1,'content_downloaded':False,'metadata_complete':False}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=page) as backend:
+            self.assertEqual(NativeReader('notes').read('attachments',folder_id='folder',id='note'),page)
+            for invalid in ({**page,'source_id':'foreign'}, {**page,'folder_id':'other'}, {**page,'note_id':'other'},
+                            {**page,'attachments':[{**row,'note_id':'other'}]}, {**page,'next_offset':2}, {**page,'attachments':[],'next_offset':0,'done':False},
+                            {k:v for k,v in page.items() if k!='source_id'}):
+                backend.return_value=invalid
+                with self.subTest(invalid=invalid),self.assertRaises(SafetyError):NativeReader('notes').read('attachments',folder_id='folder',id='note')
+
     def test_list_feature_reads_require_scoped_typed_provider_flags(self):
         config={'reminders':{'source_ids':['selected'],'advanced_backend':'reminderkit','helper_path':'/synthetic/helper'}}
         result={'protocol_version':1,'source_id':'selected','list_id':'list','grocery_categorization':True,'grocery_shopping_session':False,'is_group':False,'shared':False,'shared_to_me':False,'can_be_shared':True,'sharing_metadata_complete':False,'list_type_verified':False,'data_mutated':False,'backend':'reminderkit-list-features-v2'}

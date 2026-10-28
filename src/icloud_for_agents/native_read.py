@@ -89,7 +89,7 @@ class NativeReader:
             raise SafetyError('Select exact native source IDs before reading content')
         attachment_metadata=fields.pop('include_attachment_metadata',False)
         if type(attachment_metadata) is not bool or (attachment_metadata and (self.name!='notes' or action!='attachments')):raise SafetyError('Attachment metadata is supported only for Notes attachment reads')
-        if attachment_metadata and any(not isinstance(fields.get(key),str) or not 1<=len(fields[key])<=1000 for key in ('folder_id','id')):raise SafetyError('Attachment metadata requires an exact note and folder')
+        if self.name=='notes' and action=='attachments' and any(not isinstance(fields.get(key),str) or not 1<=len(fields[key])<=1000 for key in ('folder_id','id')):raise SafetyError('Attachment reads require an exact note and folder')
         native_selections={}
         for key in ('include_native_metadata','include_native_tags','include_native_hierarchy','include_native_children','include_native_urgent','include_native_section','include_native_early'):
             if key in fields and (self.name!='reminders' or action!='get'):raise SafetyError('Native metadata selection is supported only for Reminders get')
@@ -250,20 +250,23 @@ class NativeReader:
                     seen.add(identity)
                 except (ValueError,TypeError,AttributeError):raise SafetyError('Invalid or duplicate reminder section identity') from None
             result={key:result[key] for key in ('protocol_version','source_id','list_id','sections','ordering_verified','membership_verified','data_mutated')}
-        if attachment_metadata:
+        if self.name=='notes' and action=='attachments':
             rows=result.get('attachments') if isinstance(result,dict) else None
             if (native_config('notes')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode or not isinstance(rows,list) or len(rows)>limit
-                    or result.get('metadata_requested') is not True or result.get('source_id') not in sources or result.get('folder_id')!=fields.get('folder_id') or result.get('note_id')!=fields.get('id')
+                    or (attachment_metadata and result.get('metadata_requested') is not True) or result.get('source_id') not in sources or result.get('folder_id')!=fields.get('folder_id') or result.get('note_id')!=fields.get('id')
+                    or ('locked' in result and type(result['locked']) is not bool)
                     or type(result.get('done')) is not bool or (result.get('locked') is True and (rows or result.get('content_available') is not False))):
                 raise SafetyError('Exact scoped attachment metadata could not be verified')
             if result.get('locked') is not True:
-                if result.get('content_downloaded') is not False or result.get('metadata_complete') is not False or type(result.get('next_offset')) is not int or result['next_offset']!=offset+len(rows):raise SafetyError('Attachment pagination could not be verified')
+                if result.get('content_downloaded') is not False or result.get('metadata_complete') is not False or type(result.get('next_offset')) is not int or result['next_offset']!=offset+len(rows) or (not result['done'] and not rows):raise SafetyError('Attachment pagination could not be verified')
                 seen=set()
                 for row in rows:
-                    if (not isinstance(row,dict) or set(row)!={'id','name','content_identifier','note_id','native_metadata'} or not isinstance(row.get('id'),str) or not 1<=len(row['id'])<=1000 or row['id'] in seen
+                    if (not isinstance(row,dict) or set(row)!=({'id','name','content_identifier','note_id','native_metadata'} if attachment_metadata else {'id','name','content_identifier','note_id'}) or not isinstance(row.get('id'),str) or not 1<=len(row['id'])<=1000 or row['id'] in seen
                             or row.get('note_id')!=fields.get('id') or (row.get('name') is not None and (not isinstance(row['name'],str) or len(row['name'])>1000))
                             or (row.get('content_identifier') is not None and (not isinstance(row['content_identifier'],str) or len(row['content_identifier'])>4096))):raise SafetyError('Invalid attachment identity or metadata')
-                    seen.add(row['id']);meta=row['native_metadata']
+                    seen.add(row['id'])
+                    if not attachment_metadata:continue
+                    meta=row['native_metadata']
                     if not isinstance(meta,dict) or set(meta)!={'created','modified','url','shared'}:raise SafetyError('Incomplete attachment metadata')
                     for key,value in meta.items():
                         if (not isinstance(value,dict) or set(value)!={'status','value'} or value['status'] not in {'available','unavailable'} or (value['status']=='unavailable' and value['value'] is not None)

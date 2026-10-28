@@ -39,6 +39,7 @@ def run():
                 recent=data(rpc('tools/call',{'name':'notes_search','arguments':{'text':'','folder_id':'folder','match_scope':'title'}})['result']);assert recent['items'][0]['id']=='synthetic-note'
                 assert rpc('tools/call',{'name':'notes_search','arguments':{'text':'','folder_id':'folder'}})['result'].get('isError')
                 attachments=data(rpc('tools/call',{'name':'notes_attachments','arguments':{'folder_id':'folder','id':'synthetic-note','include_attachment_metadata':True}})['result']);assert attachments['metadata_requested'] is True and attachments['attachments'][0]['native_metadata']['url']=={'status':'unavailable','value':None} and attachments['content_downloaded'] is False
+                basic_attachments=data(rpc('tools/call',{'name':'notes_attachments','arguments':{'folder_id':'folder','id':'synthetic-note'}})['result']);assert basic_attachments['source_id']=='selected' and 'native_metadata' not in basic_attachments['attachments'][0]
                 args={'folder_id':'folder','id':'synthetic-note'};native=data(call(args));assert 'markdown' not in native['item']
                 assert call(dict(args,id='foreign-note')).get('isError')
                 locked_native=data(call(dict(args,id='synthetic-locked')))['item'];assert locked_native['locked'] is True and 'html' not in locked_native

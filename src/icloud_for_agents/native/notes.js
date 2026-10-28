@@ -183,7 +183,7 @@ function readNotes(app, req) {
         try { locked = n.passwordProtected(); } catch (_) { throw Error('lock_status_unavailable'); }
         if (locked) {
             if(req.action==='text_page')return JSON.stringify({protocol_version:1,id:req.id,source_id:folder.source,folder_id:req.folder_id,locked:true,content_available:false,data_mutated:false});
-            if(req.action==='attachments')return JSON.stringify(Object.assign({protocol_version:1,attachments:[],locked:true,content_available:false,done:true,excluded_locked_note:true},req.include_attachment_metadata===true?{metadata_requested:true,source_id:folder.source,folder_id:req.folder_id,note_id:req.id}:{}));
+            if(req.action==='attachments')return JSON.stringify(Object.assign({protocol_version:1,attachments:[],source_id:folder.source,folder_id:req.folder_id,note_id:req.id,locked:true,content_available:false,done:true,excluded_locked_note:true},req.include_attachment_metadata===true?{metadata_requested:true}:{}));
             return JSON.stringify({protocol_version:1,item:{id:req.id,source_id:folder.source,folder_id:req.folder_id,locked:true,content_available:false}});
         }
         if(req.action==='text_page') {
@@ -231,8 +231,8 @@ function readNotes(app, req) {
                 }
                 return row;
             });
-            return JSON.stringify(Object.assign({protocol_version:1,attachments:page,done:req.offset+page.length>=all.length,
-                next_offset:req.offset+page.length,content_downloaded:false,metadata_complete:false},req.include_attachment_metadata===true?{metadata_requested:true,source_id:folder.source,folder_id:req.folder_id,note_id:req.id}:{}));
+            return JSON.stringify(Object.assign({protocol_version:1,attachments:page,source_id:folder.source,folder_id:req.folder_id,note_id:req.id,done:req.offset+page.length>=all.length,
+                next_offset:req.offset+page.length,content_downloaded:false,metadata_complete:false},req.include_attachment_metadata===true?{metadata_requested:true}:{}));
         }
         const body = n.body();
         const plain = n.plaintext();
