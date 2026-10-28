@@ -214,11 +214,11 @@ class NativeReader:
                 except (ValueError,TypeError,AttributeError):raise SafetyError('Invalid or duplicate reminder section identity') from None
             result={key:result[key] for key in ('protocol_version','source_id','list_id','sections','ordering_verified','membership_verified','data_mutated')}
         if action=='list_features':
-            keys={'protocol_version','source_id','list_id','grocery_categorization','grocery_shopping_session','is_group','list_type_verified','data_mutated','backend'}
+            keys={'protocol_version','source_id','list_id','grocery_categorization','grocery_shopping_session','is_group','shared','shared_to_me','can_be_shared','sharing_metadata_complete','list_type_verified','data_mutated','backend'}
             if (native_config('reminders')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode or not isinstance(result,dict) or set(result)!=keys
-                    or result.get('source_id') not in sources or result.get('list_id')!=fields['list_id'] or result.get('backend')!='reminderkit-list-features-v1'
-                    or result.get('list_type_verified') is not False or result.get('data_mutated') is not False
-                    or any(type(result.get(k)) is not bool for k in ('grocery_categorization','grocery_shopping_session','is_group'))):
+                    or result.get('source_id') not in sources or result.get('list_id')!=fields['list_id'] or result.get('backend')!='reminderkit-list-features-v2'
+                    or result.get('list_type_verified') is not False or result.get('sharing_metadata_complete') is not False or result.get('data_mutated') is not False
+                    or any(type(result.get(k)) is not bool for k in ('grocery_categorization','grocery_shopping_session','is_group','shared','shared_to_me','can_be_shared'))):
                 raise SafetyError('Exact scoped native list settings could not be verified')
         if action=='default_folder':
             folder=result.get('folder') if isinstance(result,dict) else None
@@ -731,7 +731,7 @@ def register_read_tools(mcp):
         @mcp.tool(annotations=annotations)
         @guard
         def reminders_list_features(list_id: str) -> dict:
-            """Read fixed grocery-categorization and group flags for one selected list; this does not establish its full native type or edit it."""
+            """Read scoped native grocery, group and sharing flags; participants, permissions and complete list type remain unverified."""
             return NativeReader('reminders').read('list_features',list_id=list_id)
 
         @mcp.tool(annotations=annotations)

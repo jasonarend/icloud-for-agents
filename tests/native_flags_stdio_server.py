@@ -15,7 +15,7 @@ def dispatch(self,request,config):
     if request['action']=='default_list':
         return {'protocol_version':1,'state':'available','list':{'id':'list','title':'Synthetic list','source_id':'selected','writable':True,'color':None}}
     if request['action']=='list_features':
-        return {'protocol_version':1,'source_id':'selected','list_id':request['list_id'],'grocery_categorization':True,'grocery_shopping_session':False,'is_group':False,'list_type_verified':False,'data_mutated':False,'backend':'reminderkit-list-features-v1'}
+        return {'protocol_version':1,'source_id':'selected','list_id':request['list_id'],'grocery_categorization':True,'grocery_shopping_session':False,'is_group':False,'shared':True,'shared_to_me':False,'can_be_shared':True,'sharing_metadata_complete':False,'list_type_verified':False,'data_mutated':False,'backend':'reminderkit-list-features-v2'}
     if request['action']=='list_sections':
         return {'protocol_version':1,'source_id':'selected','list_id':request['list_id'],'sections':[{'id':'11111111-1111-4111-8111-111111111111','title':'Synthetic section'}],'ordering_verified':False,'membership_verified':False,'data_mutated':False}
     if request['action']=='recovery_list':
