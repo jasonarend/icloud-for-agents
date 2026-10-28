@@ -586,6 +586,11 @@ class NativeReadTests(unittest.TestCase):
             reader.pages[child]=page(child,[{'id':root,'title':'Cycle','is_group':True}])
             with self.assertRaises(SafetyError):inspect_group_hierarchy(reader,source,root)
             with self.assertRaises(SafetyError):inspect_group_hierarchy(reader,source,root,max_nodes=True)
+            reader=Reader()
+            def drift(action,**kwargs):
+                os.environ['ICLOUD_MAIL_ACCESS']='disabled'
+                return reader.pages[kwargs['group_id']]
+            with patch.object(reader,'read',side_effect=drift),self.assertRaises(SafetyError):inspect_group_hierarchy(reader,source,root)
 
     def test_reminder_group_lists_require_scoped_membership(self):
         config={'reminders':{'source_ids':['selected'],'advanced_backend':'reminderkit','helper_path':'/synthetic/helper'}}
