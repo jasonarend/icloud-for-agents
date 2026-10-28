@@ -243,7 +243,9 @@ class NativeReader:
                     or result.get('pagination_consistency')!='live_offset_may_shift'
                     or any(not isinstance(row,dict) or not isinstance(row.get('id'),str) or not row['id']
                            or not isinstance(row.get('list_id'),str) or not row['list_id'] or row.get('source_id') not in sources
-                           or (fields.get('list_id') is not None and row['list_id']!=fields['list_id']) for row in rows)):
+                           or (fields.get('list_id') is not None and row['list_id']!=fields['list_id'])
+                           or (fields.get('completed') is not None and row.get('completed') is not fields['completed'])
+                           or (priorities is not None and (type(row.get('priority')) is not int or row['priority'] not in priorities)) for row in rows)):
                 raise SafetyError('Configured helper did not verify the scoped Reminders page')
         if self.name=='notes' and action=='folders':
             rows=result.get('folders') if isinstance(result,dict) else None

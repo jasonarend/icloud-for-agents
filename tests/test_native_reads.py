@@ -554,6 +554,16 @@ class NativeReadTests(unittest.TestCase):
                 backend.return_value=value
                 with self.subTest(value=value),self.assertRaises(SafetyError):NativeReader('reminders').read('query',list_id='list',limit=1)
 
+    def test_reminder_pages_enforce_requested_completion_and_priority(self):
+        config={'reminders':{'source_ids':['selected']}}
+        row={'id':'task','source_id':'selected','list_id':'list','completed':False,'priority':1}
+        page={'items':[row],'done':True,'next_offset':1,'pagination_consistency':'live_offset_may_shift'}
+        with self.env(ICLOUD_NATIVE_CONFIG=json.dumps(config)),patch('platform.system',return_value='Darwin'),patch.object(NativeReader,'_dispatch',return_value=page) as backend:
+            self.assertEqual(NativeReader('reminders').read('query',completed=False,priorities=[1])['items'],[row])
+            for invalid in ({**row,'completed':True}, {**row,'completed':0}, {**row,'priority':5}, {**row,'priority':True}):
+                backend.return_value={**page,'items':[invalid]}
+                with self.subTest(invalid=invalid),self.assertRaises(SafetyError):NativeReader('reminders').read('query',completed=False,priorities=[1])
+
     def test_completion_range_requires_evidence_and_matching_scoped_items(self):
         from datetime import datetime,timezone
         start='2026-10-27T00:00:00Z';end='2026-10-28T00:00:00Z';ts=datetime(2026,10,27,tzinfo=timezone.utc).timestamp()
