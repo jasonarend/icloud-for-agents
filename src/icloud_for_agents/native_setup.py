@@ -45,7 +45,7 @@ def verify_signature(helper):
     if result.returncode:raise SafetyError('Native helper signature verification failed; rebuild through the documented workflow')
 
 
-def preview(root,service,helper=None,*,source_ids=None,enabled=True):
+def preview(root,service,helper=None,*,source_ids=None,enabled=True,metadata_backend=None):
     root=Path(root).absolute()
     if service not in {'notes','reminders'} or type(enabled) is not bool:raise SafetyError('Choose Notes or Reminders explicitly')
     raw=settings_bytes(root);settings=read_settings(root)
@@ -54,7 +54,7 @@ def preview(root,service,helper=None,*,source_ids=None,enabled=True):
     if enabled:
         if helper is None:raise SafetyError('Choose the exact signed helper for enabled setup')
         helper=Path(helper).absolute();fingerprint=bundle_fingerprint(helper);verify_signature(helper)
-    elif helper is not None or source_ids is not None:raise SafetyError('Disabling preserves helper and source configuration; omit those options')
+    elif helper is not None or source_ids is not None or metadata_backend is not None:raise SafetyError('Disabling preserves native configuration; omit helper, source and metadata options')
     selection={'notes':False,'reminders':False,**configured(settings)}
     previous=copy.deepcopy(settings.get('native_services',{}).get(service,{}));target=copy.deepcopy(previous)
     if enabled:
@@ -63,6 +63,7 @@ def preview(root,service,helper=None,*,source_ids=None,enabled=True):
     if source_ids is not None:
         if not isinstance(source_ids,list) or any(v=='*' for v in source_ids):raise SafetyError('Select exact discovered source IDs, never a wildcard')
         target['source_ids']=list(source_ids)
+    if metadata_backend is not None:target['metadata_backend']=metadata_backend
     if enabled and (not selection.get(service,False) or 'access_mode' not in target):target['access_mode']='read-only'
     native=copy.deepcopy(settings.get('native_services',{}));native[service]=target;validate_config(native)
     selection[service]=enabled
@@ -92,10 +93,10 @@ def setup_lock(root):
     finally:os.close(fd)
 
 
-def apply(root,service,helper,review_sha256,*,source_ids=None,enabled=True):
+def apply(root,service,helper,review_sha256,*,source_ids=None,enabled=True,metadata_backend=None):
     root=Path(root).absolute();private_directory(root/'local')
     with setup_lock(root):
-        proposal,updated,raw=preview(root,service,helper,source_ids=source_ids,enabled=enabled)
+        proposal,updated,raw=preview(root,service,helper,source_ids=source_ids,enabled=enabled,metadata_backend=metadata_backend)
         if proposal['sha256']!=review_sha256:raise SafetyError('Setup review is stale; inspect a new preview before applying')
         from .approvals import PlanStore
         from .native_changes import NativeChanges

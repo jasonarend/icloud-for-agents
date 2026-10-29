@@ -64,3 +64,16 @@ class NativeSetupTests(unittest.TestCase):
     def test_disable_needs_no_helper_and_preserves_its_configuration(self):
         self.settings.update(services={'mail':True,'calendar':False,'contacts':False,'notes':True},native_services={'notes':{'source_ids':['selected'],'access_mode':'write-enabled','helper_path':'/missing/helper'}});self.save();plan=preview(self.root,'notes',enabled=False)[0];result=apply(self.root,'notes',None,plan['sha256'],enabled=False)
         updated=read_settings(self.root);self.assertFalse(updated['services']['notes']);self.assertEqual(updated['native_services'],self.settings['native_services']);self.assertEqual(result['effective_access_after_restart'],'disabled');self.signature.assert_not_called()
+
+    def test_optional_reminders_store_selection_is_review_bound_reversible_and_does_not_enable_writes(self):
+        self.settings.update(services={'mail':False,'calendar':False,'contacts':False,'notes':False,'reminders':True},native_services={
+            'reminders':{'source_ids':['selected'],'access_mode':'read-only','helper_path':str(self.helper),'advanced_backend':'reminderkit'}});self.save()
+        original=self.path.read_bytes();plan=preview(self.root,'reminders',self.helper,metadata_backend='reminders-store-readonly')[0]
+        self.assertEqual(self.path.read_bytes(),original);self.assertEqual(plan['review']['after']['effective_access_after_restart'],'read-only')
+        with self.assertRaises(SafetyError):apply(self.root,'reminders',self.helper,plan['sha256'],metadata_backend='native')
+        apply(self.root,'reminders',self.helper,plan['sha256'],metadata_backend='reminders-store-readonly');updated=read_settings(self.root)
+        self.assertEqual(updated['native_services']['reminders']['metadata_backend'],'reminders-store-readonly');self.assertEqual(updated['native_services']['reminders']['source_ids'],['selected']);self.assertEqual(updated['approval_policy'],'local-receipt')
+        off=preview(self.root,'reminders',self.helper,metadata_backend='native')[0];apply(self.root,'reminders',self.helper,off['sha256'],metadata_backend='native')
+        self.assertEqual(read_settings(self.root)['native_services']['reminders']['metadata_backend'],'native')
+        with self.assertRaises(ValueError):preview(self.root,'reminders',self.helper,metadata_backend='notes-store-readonly')
+        with self.assertRaises(SafetyError):preview(self.root,'reminders',enabled=False,metadata_backend='native')

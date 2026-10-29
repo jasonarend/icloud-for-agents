@@ -41,6 +41,7 @@ def access_status(name):
         unsupported.pop('clear_early');unsupported.pop('move_reminder');unsupported.pop('delete_reminder');unsupported.pop('restore_reminder')
     return {'pending_native_requests':pending,'service': name, 'effective_access': effective, 'configured_access': mode,
             'runtime_access': global_mode, 'approval_policy': policy,
+            'metadata_backend':config.get('metadata_backend','scripting' if name=='notes' else 'native'),
             'source_ids': config.get('source_ids', []),
             'scope_selected': bool(config.get('source_ids')),
             'os_permission': 'not_checked', 'writes_implemented': True,
