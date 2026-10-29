@@ -44,6 +44,9 @@ def main():
     subprocess.run(['/usr/bin/swiftc',str(source),*[str(p) for p in objects],'-import-objc-header',str(native/'bridge.h'),'-framework','CoreData','-lsqlite3','-target',architecture+'-apple-macos14.0','-o',str(executable),
                     '-Xlinker','-sectcreate','-Xlinker','__TEXT','-Xlinker','__info_plist','-Xlinker',str(plist)],check=True)
     for path in objects:path.unlink()
+    processor=executable.parent/'icloud-agents-image-text'
+    subprocess.run(['/usr/bin/swiftc',str(native/'notes-ocr.swift'),'-target',architecture+'-apple-macos14.0','-o',str(processor)],check=True)
+    subprocess.run(['/usr/bin/codesign','--force','--sign','-','--identifier',info['CFBundleIdentifier']+'.image-text',str(processor)],check=True)
     subprocess.run(['/usr/bin/codesign', '--force', '--sign', '-', '--identifier', info['CFBundleIdentifier'], str(bundle)], check=True)
     print(executable)
 

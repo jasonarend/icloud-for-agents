@@ -49,7 +49,20 @@ def bundle_fingerprint(helper):
     helper=Path(helper);bundle=validate_bundle(helper);checksum=hashlib.sha256()
     for path in (helper,bundle/'Contents/Info.plist',bundle/'Contents/Resources/notes.js',bundle/'Contents/Resources/notes-write.js'):
         checksum.update(path.read_bytes())
+    processor=bundle/'Contents/MacOS/icloud-agents-image-text'
+    if processor.exists() or processor.is_symlink():checksum.update(image_processor(helper).read_bytes())
     return checksum.hexdigest()
+
+
+def image_processor(helper):
+    """Optional bundled byte-only processor; legacy bundles keep ordinary reads."""
+    helper=Path(helper);bundle=validate_bundle(helper);processor=bundle/'Contents/MacOS/icloud-agents-image-text'
+    if helper.parent!=processor.parent:raise SafetyError('Image OCR requires the standard helper bundle layout')
+    _owned_asset(processor.parent,directory=True)
+    try:_owned_asset(processor,limit=20_000_000)
+    except (OSError,SafetyError):raise SafetyError('Image OCR requires an updated helper with its owned bundled processor') from None
+    if not os.access(processor,os.X_OK) or processor.stat().st_nlink!=1:raise SafetyError('Image OCR processor must be executable and have one link')
+    return processor
 
 
 def exchange_base():

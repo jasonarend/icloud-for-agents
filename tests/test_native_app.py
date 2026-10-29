@@ -25,6 +25,23 @@ class NativeApplicationTests(unittest.TestCase):
         context.start();self.addCleanup(context.stop)
         base=patch('icloud_for_agents.native_app.exchange_base',return_value=self.root/'local-app-support')
         base.start();self.addCleanup(base.stop)
+    def test_optional_image_processor_owned_asset_and_fingerprint_preserves_legacy(self):
+        import hashlib
+        from icloud_for_agents.native_app import bundle_fingerprint,image_processor
+        prior=hashlib.sha256(b''.join(p.read_bytes()for p in (self.helper,self.bundle/'Contents/Info.plist',self.bundle/'Contents/Resources/notes.js',self.bundle/'Contents/Resources/notes-write.js'))).hexdigest()
+        self.assertEqual(bundle_fingerprint(self.helper),prior)
+        with self.assertRaises(SafetyError):image_processor(self.helper)
+        processor=self.helper.parent/'icloud-agents-image-text';processor.write_text('fixed synthetic processor');processor.chmod(0o700)
+        self.assertEqual(image_processor(self.helper),processor);first=bundle_fingerprint(self.helper);self.assertNotEqual(first,prior)
+        processor.write_text('updated synthetic processor');self.assertNotEqual(bundle_fingerprint(self.helper),first)
+        for mode in (0o600,0o722):
+            processor.chmod(mode)
+            with self.assertRaises(SafetyError):image_processor(self.helper)
+        processor.chmod(0o700);link=self.root/'hardlink';os.link(processor,link)
+        with self.assertRaises(SafetyError):image_processor(self.helper)
+        link.unlink();processor.unlink();processor.symlink_to(self.helper)
+        with self.assertRaises(SafetyError):bundle_fingerprint(self.helper)
+
     def request(self,**extra):
         return application_request(self.helper,{'protocol_version':1,'service':'notes','action':'status'},**extra)
     def test_private_files_fixed_command_no_environment_secrets_and_cleanup(self):
