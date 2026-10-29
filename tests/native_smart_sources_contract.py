@@ -72,7 +72,8 @@ def run():
     prefix=source[:source.index('static BOOL FlagReadInterface(void)')].replace('#import "reminders-model.h"','#import <Foundation/Foundation.h>')
     helpers=source[source.index('static id ObjectValue'):source.index('static id SelectedFailure')]
     scope=source[source.index('static BOOL LifecycleListPrivate'):source.index('NSData *ICloudRemindersRemoveRootLeaf')]
-    writer=source[source.index('NSData *ICloudRemindersSetSmartListSources'):]
+    start=source.index('NSData *ICloudRemindersSetSmartListSources')
+    writer=source[start:source.index('\n}\n',start)+3]
     for real,fake in [('REMStore','FakeStore'),('REMObjectID','FakeID'),('REMSmartListsDataView','FakeView'),('REMSaveRequest','FakeSave')]:
         writer=writer.replace('NSClassFromString(@"'+real+'")','NSClassFromString(@"'+fake+'")')
     with tempfile.TemporaryDirectory(prefix='smart-sources-contract-') as directory:

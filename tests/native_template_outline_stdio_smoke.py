@@ -2,6 +2,7 @@
 import json,os,select,subprocess,sys,tempfile,time
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(ROOT/'src'))
 from test_native_template_outline import SOURCE
 FILE_SOURCE=SOURCE
 

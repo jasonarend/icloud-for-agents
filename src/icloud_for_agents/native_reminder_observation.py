@@ -7,7 +7,7 @@ from .core import SafetyError, digest
 
 OBSERVABLE_CHANGES = {'create_smart_list','set_smart_list_sources','rename_smart_list','update_reminder', 'set_completed', 'set_recurrence', 'set_flagged',
                       'remove_tag', 'add_tag', 'replace_tag', 'set_urgent', 'add_early',
-                      'clear_early', 'move_reminder', 'create_subtask', 'delete_reminder', 'restore_reminder', 'reorder_reminder', 'create_group', 'rename_group', 'group_list', 'ungroup_list', 'reorder_group', 'reparent_reminder'}
+                      'clear_early', 'move_reminder', 'create_subtask', 'delete_reminder', 'restore_reminder', 'reorder_reminder', 'create_group', 'rename_group', 'group_list', 'ungroup_list', 'reorder_group', 'set_section', 'reparent_reminder'}
 
 
 def inspect_uncertain_reminder(engine, plan_id):
@@ -55,6 +55,14 @@ def inspect_uncertain_reminder(engine, plan_id):
         return {'plan_id':plan_id,'reminder_id':item['id'],'source_id':item['source_id'],'observed_snapshot_matches_before':observed==before,
                 'snapshot_coverage':COVERAGE,'observation_consistency':'separate_live_reads_may_change','original_uncertainty_retained':True,
                 'causal_dispatch_proven':False,'data_mutated':False,'do_not_retry':True,**inspect(engine.store,plan)}
+    if item.get('operation')=='set_section':
+        from .native_reminder_sections import snapshot,COVERAGE
+        observed=snapshot(engine.adapter,item)
+        if engine.context(True)!=context:raise SafetyError('Reminder access changed during section observation')
+        from .native_reminder_exchange import inspect
+        return {'plan_id':plan_id,'reminder_id':item['id'],'source_id':item['source_id'],'observed_snapshot_matches_before':observed==before,
+                'snapshot_coverage':COVERAGE,'observation_consistency':'separate_live_reads_may_change',
+                'original_uncertainty_retained':True,'causal_dispatch_proven':False,'data_mutated':False,'do_not_retry':True,**inspect(engine.store,plan)}
     if item.get('operation')=='reparent_reminder':
         from .native_reminder_parents import snapshot,COVERAGE
         observed=snapshot(engine.adapter,item)

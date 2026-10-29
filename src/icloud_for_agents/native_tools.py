@@ -302,6 +302,13 @@ def register_change_tools(mcp):
             before/after within one selected private list. Both IDs must be roots.
             Parent/child links and exposed content are preserved; descendants
             count against grants. This observes native manual sequence, not app sorting.
+            set_section uses exact source/id and fields.section_id (null removes
+            membership) for one incomplete nonrecurring root leaf in a same-source
+            private ordinary nongrocery list of at most 20 live items. It requires
+            the separately opted-in reminders-store-readonly metadata guard and
+            an exact existing same-list section. Scenario container_id is this
+            list ID; destinations explicitly allow section IDs or this list ID
+            for removal. List contents, native order and other memberships verify.
             reparent_reminder uses exact source/id and explicit parent_id,
             anchor_id and placement fields. A null parent promotes a leaf to root;
             a null anchor requires end, otherwise before/after an exact sibling.

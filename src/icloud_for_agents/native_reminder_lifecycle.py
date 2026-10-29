@@ -168,7 +168,7 @@ def reconcile(engine,identity):
     with engine.serialized():
         plan=engine.store.read(engine.store.path(identity,'.json'));result=engine.store.read(engine.store.path(identity,'.result'));payload=plan.get('payload',{});items=payload.get('changes',[]);started=engine.store.read(engine.store.path(identity,'.started'))
         if (plan.get('kind')!='reminders_change' or payload.get('account')!=engine.account or not isinstance(items,list) or len(items)!=1
-                or items[0].get('operation') not in {'create_smart_list','set_smart_list_sources','rename_smart_list','delete_reminder','restore_reminder','reorder_reminder','create_group','rename_group','group_list','ungroup_list','reorder_group','reparent_reminder'} or result.get('status')!='failed_or_uncertain'
+                or items[0].get('operation') not in {'create_smart_list','set_smart_list_sources','rename_smart_list','delete_reminder','restore_reminder','reorder_reminder','create_group','rename_group','group_list','ungroup_list','reorder_group','set_section','reparent_reminder'} or result.get('status')!='failed_or_uncertain'
                 or result.get('phase')!='mutation' or result.get('attempted')!=[] or result.get('completed')!=[]
                 or started.get('sha256')!=digest(plan) or started.get('account')!=engine.account
                 or payload.get('context',{}).get('source_ids')!=context['source_ids'] or payload.get('context',{}).get('backend')!=context['backend']):
@@ -184,6 +184,9 @@ def reconcile(engine,identity):
             observed=expected_observation(engine.adapter,item)
         elif item['operation']=='rename_smart_list':
             from .native_reminder_smart_rename import expected_observation
+            observed=expected_observation(engine.adapter,item)
+        elif item['operation']=='set_section':
+            from .native_reminder_sections import expected_observation
             observed=expected_observation(engine.adapter,item)
         elif item['operation']=='reparent_reminder':
             from .native_reminder_parents import expected_observation
@@ -223,6 +226,9 @@ def expected_record_matches(item,observed):
             return record_matches(item,observed)
         if item['operation']=='rename_smart_list':
             from .native_reminder_smart_rename import record_matches
+            return record_matches(item,observed)
+        if item['operation']=='set_section':
+            from .native_reminder_sections import record_matches
             return record_matches(item,observed)
         if item['operation']=='reparent_reminder':
             from .native_reminder_parents import record_matches

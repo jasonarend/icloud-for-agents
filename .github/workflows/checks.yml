@@ -73,6 +73,7 @@ jobs:
           .venv/bin/python tests/native_list_groups_stdio_smoke.py
           .venv/bin/python tests/native_group_order_stdio_smoke.py
           .venv/bin/python tests/native_reminder_parents_stdio_smoke.py
+          .venv/bin/python tests/native_reminder_sections_stdio_smoke.py
           .venv/bin/python tests/native_reminder_lifecycle_stdio_smoke.py
           .venv/bin/python tests/native_smart_rename_stdio_smoke.py
           .venv/bin/python tests/native_smart_rename_contract.py
@@ -115,6 +116,7 @@ jobs:
           .venv/bin/python tests/native_list_groups_contract.py
           .venv/bin/python tests/native_group_order_contract.py
           .venv/bin/python tests/native_reminder_parents_contract.py
+          .venv/bin/python tests/native_reminder_sections_contract.py
           .venv/bin/python tests/native_reminder_lifecycle_contract.py
           .venv/bin/python tests/native_reminder_dates_contract.py
           .venv/bin/python tests/native_service_isolation_contract.py

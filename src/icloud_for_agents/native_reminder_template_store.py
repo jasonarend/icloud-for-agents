@@ -53,8 +53,12 @@ def paths():
     return sorted(result)
 
 
-@contextmanager
 def readonly_store(path):
+    return _readonly_store(path,REQUIRED)
+
+
+@contextmanager
+def _readonly_store(path,required):
     for value in (path,Path(str(path)+'-wal'),Path(str(path)+'-shm')):
         try:owned(value)
         except FileNotFoundError:
@@ -69,17 +73,17 @@ def readonly_store(path):
         def authorize(action,first,second,database,trigger):
             allowed=action in {sqlite3.SQLITE_SELECT,sqlite3.SQLITE_TRANSACTION}
             if action==sqlite3.SQLITE_READ:
-                allowed=first in {'sqlite_master','sqlite_schema'} or (first in REQUIRED and second in REQUIRED[first])
-            if action==sqlite3.SQLITE_PRAGMA:allowed=first=='table_info' and second in REQUIRED
+                allowed=first in {'sqlite_master','sqlite_schema'} or (first in required and second in required[first])
+            if action==sqlite3.SQLITE_PRAGMA:allowed=first=='table_info' and second in required
             return sqlite3.SQLITE_OK if allowed else sqlite3.SQLITE_DENY
         connection.set_authorizer(authorize);remaining=[1000]
         def progress():remaining[0]-=1;return remaining[0]<=0
         connection.set_progress_handler(progress,1000);connection.execute('BEGIN');schema={}
-        for table,columns in REQUIRED.items():
+        for table,columns in required.items():
             if connection.execute('SELECT type FROM sqlite_master WHERE name=?',(table,)).fetchone()!=('table',):
-                raise SafetyError('Unknown Reminders template schema; no inferred tables or views')
+                raise SafetyError('Unknown Reminders store schema; no inferred tables or views')
             schema[table]=[row[1:3] for row in connection.execute('PRAGMA table_info('+table+')')]
-            if not columns<={row[0] for row in schema[table]}:raise SafetyError('Reminders template schema lacks verified identity or scope columns')
+            if not columns<={row[0] for row in schema[table]}:raise SafetyError('Reminders store schema lacks verified identity or scope columns')
         after=owned(path)
         if (before.st_dev,before.st_ino)!=(after.st_dev,after.st_ino):raise SafetyError('Reminders store changed during admission')
         yield connection,digest(schema)

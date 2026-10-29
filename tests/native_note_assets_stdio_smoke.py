@@ -2,6 +2,7 @@
 import json,os,select,subprocess,sys,tempfile,time
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(ROOT/'src'))
 from test_native_note_assets import SOURCE,FOLDER,NOTE,ASSET,RAW
 from test_native_reminder_files import SOURCE as FILE_SOURCE,ITEM as FILE_ITEM,ATTACHMENT as FILE_ATTACHMENT,RAW as FILE_RAW
 
