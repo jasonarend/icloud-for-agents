@@ -96,7 +96,7 @@ int main(int argc,const char**argv){@autoreleasepool{
 }}
 '''
 def run():
- source=(ROOT/'src/icloud_for_agents/native/reminders-model.m').read_text();prefix=source[:source.index('static BOOL FlagReadInterface(void)')].replace('#import "reminders-model.h"','#import <Foundation/Foundation.h>');support=source[source.index('static id ObjectValue'):source.index('static id SelectedFailure')];tracked=source[source.index('static BOOL TrackedGroupObject'):source.index('NSData *ICloudRemindersCreateRootGroup')];writer=source[source.index('// Create one private template;'):]
+ source=(ROOT/'src/icloud_for_agents/native/reminders-model.m').read_text();prefix=source[:source.index('static BOOL FlagReadInterface(void)')].replace('#import "reminders-model.h"','#import <Foundation/Foundation.h>');support=source[source.index('static id ObjectValue'):source.index('static id SelectedFailure')];tracked=source[source.index('static BOOL TrackedGroupObject'):source.index('NSData *ICloudRemindersCreateRootGroup')];writer=source[source.index('// Create one private template;'):source.index('// Change only a known categorization flag;')]
  for real,fake in(('REMSaveRequest','FSave'),('REMObjectID','FID'),('REMTemplateConfiguration','FConfig')):writer=writer.replace('NSClassFromString(@"'+real+'")','NSClassFromString(@"'+fake+'")')
  with tempfile.TemporaryDirectory(prefix='template-create-native-')as directory:
   path=Path(directory);(path/'contract.m').write_text(prefix+support+FIXTURE+tracked+writer+MAIN);result=subprocess.run(['/usr/bin/clang','-fobjc-arc','-fblocks','-framework','Foundation',str(path/'contract.m'),'-o',str(path/'contract')],capture_output=True,text=True,timeout=60);assert result.returncode==0,result.stderr

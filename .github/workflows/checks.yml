@@ -93,6 +93,8 @@ jobs:
           .venv/bin/python tests/native_template_create_stdio_smoke.py
           .venv/bin/python tests/native_template_create_contract.py
           .venv/bin/python tests/native_template_copy_stdio_smoke.py
+          .venv/bin/python tests/native_grocery_mode_stdio_smoke.py
+          .venv/bin/python tests/native_grocery_mode_contract.py
           .venv/bin/python tests/native_note_attachment_export_contract.py
           .venv/bin/python tests/native_script_contract.py
           .venv/bin/python tests/native_write_contract.py

@@ -298,6 +298,12 @@ def register_change_tools(mcp):
             It preserves group identity, mixed child view and other account entries.
             rename_group uses source_id, group_id and fields.title for one
             private root group; observed child lists and account order are preserved.
+            set_grocery_categorization uses exact source_id/list_id and
+            fields.enabled Boolean on an empty private nongroup list without
+            sections or shopping-session state. It changes only that native flag;
+            no task or category edits are requested. Current-source and
+            full-storage guards, normal once/scoped approval and quota apply.
+            Its scenario rule uses the exact list container and enabled field.
             create_template uses source_id, the exact source list_id and fields.title.
             One to nineteen incomplete root tasks with unique titles and empty notes
             in a private ordinary unsectioned list are copied into a new private

@@ -1,4 +1,4 @@
-"""Actual MCP write admission over isolated synthetic Smart List objects."""
+"""Actual MCP captured template text copies over isolated synthetic objects."""
 import atexit,json,os,sys
 from pathlib import Path
 blocked=[]

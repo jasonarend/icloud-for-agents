@@ -1,4 +1,4 @@
-"""Actual MCP custom Smart List rename with once/scenario permission parity."""
+"""Actual MCP captured template text copies with once and scenario parity."""
 import json,os,select,subprocess,sys,tempfile,time
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
