@@ -124,3 +124,59 @@ INSERT INTO ZICCLOUDSYNCINGOBJECT VALUES(1,1,1,NULL,NULL,NULL,0,NULL,NULL),(2,1,
   with closing(sqlite3.connect(self.path)) as c,c:
    for n in range(100):c.execute('INSERT INTO ZICCLOUDSYNCINGOBJECT(Z_PK,Z_ENT,Z_OPT,ZNOTE,ZMARKEDFORDELETION) VALUES(?,4,1,20,0)',(100+n,))
   with self.assertRaises(SafetyError):assets.inventory(FOLDER,NOTE)
+
+ def tag_fixture(self):
+  with closing(sqlite3.connect(self.path)) as c,c:
+   for column,kind in [('ZNOTE1','INTEGER'),('ZACCOUNT4','INTEGER'),('ZTYPEUTI1','TEXT'),('ZALTTEXT','TEXT'),('ZTOKENCONTENTIDENTIFIER','TEXT')]:c.execute('ALTER TABLE ZICCLOUDSYNCINGOBJECT ADD COLUMN '+column+' '+kind)
+   c.execute("INSERT INTO Z_PRIMARYKEY VALUES(5,'ICInlineAttachment')")
+   c.execute('INSERT INTO ZICCLOUDSYNCINGOBJECT(Z_PK,Z_ENT,Z_OPT,ZMARKEDFORDELETION,ZNOTE1,ZACCOUNT4,ZIDENTIFIER,ZTYPEUTI1,ZALTTEXT,ZTOKENCONTENTIDENTIFIER) VALUES(40,5,2,0,20,1,?,?,?,?)',(ASSET_STORAGE,'com.apple.notes.inlinetextattachment.hashtag','#Synthetic','SYNTHETIC'))
+
+ def tags(self):
+  from icloud_for_agents.native_note_tags import inventory
+  return inventory(FOLDER,NOTE,reader=self.reader)
+
+ def test_native_inline_tags_preserve_provider_case_without_plaintext_inference(self):
+  self.tag_fixture();before=self.path.read_bytes();self.reader.item['text']='Ordinary #not-a-native-tag text';value=self.tags()
+  self.assertEqual(value['tags'],[{'id':f'x-coredata://{UUID}/ICInlineAttachment/p40','revision':2,'display_text':'#Synthetic','native_token':'SYNTHETIC'}]);self.assertFalse(value['native_tag_inventory_complete']);self.assertFalse(value['data_mutated']);self.assertFalse(value['content_returned']);self.assertEqual(self.path.read_bytes(),before)
+  self.alter('UPDATE ZICCLOUDSYNCINGOBJECT SET ZMARKEDFORDELETION=1 WHERE Z_PK=40');self.assertEqual(self.tags()['tags'],[])
+
+ def test_native_tags_bind_account_entity_note_and_tag_type(self):
+  self.tag_fixture()
+  self.alter('UPDATE ZICCLOUDSYNCINGOBJECT SET ZACCOUNT4=2 WHERE Z_PK=40')
+  with self.assertRaises(SafetyError):self.tags()
+  self.alter('UPDATE ZICCLOUDSYNCINGOBJECT SET ZACCOUNT4=1 WHERE Z_PK=40')
+  for change in ('ZNOTE1=21','Z_ENT=4',"ZTYPEUTI1='other.inline.type'"):
+   self.alter('UPDATE ZICCLOUDSYNCINGOBJECT SET '+change+' WHERE Z_PK=40');self.assertEqual(self.tags()['tags'],[])
+   self.alter("UPDATE ZICCLOUDSYNCINGOBJECT SET ZNOTE1=20,Z_ENT=5,ZTYPEUTI1='com.apple.notes.inlinetextattachment.hashtag' WHERE Z_PK=40")
+
+ def test_native_tags_locked_disabled_and_missing_schema_refuse(self):
+  from icloud_for_agents import native_note_tags as tags
+  self.reader.item['locked']=True
+  with patch.object(tags,'_tags',side_effect=AssertionError('No native metadata')),self.assertRaises(SafetyError):self.tags()
+  self.reader.item['locked']=False
+  with self.assertRaises(SafetyError):self.tags()
+  self.tag_fixture()
+  with patch.dict(os.environ,{'ICLOUD_MAIL_ACCESS':'disabled'}),patch.object(tags,'_tags',side_effect=AssertionError('No native metadata')),self.assertRaises(SafetyError):self.tags()
+
+ def test_native_tags_malformed_display_token_identity_and_count_refuse(self):
+  self.tag_fixture()
+  for change in ("ZALTTEXT='plain'","ZALTTEXT='#'","ZTOKENCONTENTIDENTIFIER=NULL","ZIDENTIFIER='../../unsafe'","ZTOKENCONTENTIDENTIFIER='"+'x'*1001+"'"):
+   self.alter('UPDATE ZICCLOUDSYNCINGOBJECT SET '+change+' WHERE Z_PK=40')
+   with self.assertRaises(SafetyError):self.tags()
+   with closing(sqlite3.connect(self.path)) as c,c:c.execute('UPDATE ZICCLOUDSYNCINGOBJECT SET ZALTTEXT=?,ZTOKENCONTENTIDENTIFIER=?,ZIDENTIFIER=? WHERE Z_PK=40',('#Synthetic','SYNTHETIC',ASSET_STORAGE))
+  with closing(sqlite3.connect(self.path)) as c,c:
+   for n in range(100):c.execute('INSERT INTO ZICCLOUDSYNCINGOBJECT(Z_PK,Z_ENT,Z_OPT,ZMARKEDFORDELETION,ZNOTE1,ZTYPEUTI1) VALUES(?,5,1,0,20,?)',(100+n,'com.apple.notes.inlinetextattachment.hashtag'))
+  with self.assertRaises(SafetyError):self.tags()
+
+ def test_native_tag_observation_drift_and_revocation_refuse(self):
+  from icloud_for_agents import native_note_tags as tags
+  self.tag_fixture();read=tags._tags;calls=0
+  def changed(*args):
+   nonlocal calls
+   value=read(*args);calls+=1
+   if calls==1:self.alter('UPDATE ZICCLOUDSYNCINGOBJECT SET Z_OPT=Z_OPT+1 WHERE Z_PK=40')
+   return value
+  with patch.object(tags,'_tags',side_effect=changed),self.assertRaises(SafetyError):self.tags()
+  def revoked(*args):
+   value=read(*args);os.environ['ICLOUD_MAIL_ACCESS']='disabled';return value
+  with patch.object(tags,'_tags',side_effect=revoked),self.assertRaises(SafetyError):self.tags()

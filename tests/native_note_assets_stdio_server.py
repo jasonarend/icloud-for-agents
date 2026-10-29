@@ -7,6 +7,7 @@ def audit(event,args):
 sys.addaudithook(audit);atexit.register(lambda:Path(os.environ['BRIDGE_TEST_AUDIT']).write_text(json.dumps(blocked)))
 from icloud_for_agents import credentials,native_note_assets as assets
 from icloud_for_agents import native_note_queries as queries
+from icloud_for_agents import native_note_tags as tags
 from icloud_for_agents.core import SafetyError
 from test_native_note_assets import UUID,SOURCE,FOLDER,NOTE,ASSET_STORAGE,ACCOUNT_STORAGE,GENERATION,RAW,Reader
 credentials.credentials=lambda:(_ for _ in ()).throw(AssertionError('No credentials'))
@@ -24,5 +25,9 @@ def definition(folder,source_ids):
  if folder!=FOLDER or source_ids!=[SOURCE]:raise SafetyError('Synthetic exact Smart Folder scope mismatch')
  return {'source_id':SOURCE,'revision':1,'native_folder_type':0},{'synthetic_unknown_filter':True}
 queries._definition=definition
+def tag_state(folder,identity):
+ value,_=state(folder,identity)
+ return value,[{'id':f'x-coredata://{UUID}/ICInlineAttachment/p40','revision':2,'display_text':'#Synthetic','native_token':'SYNTHETIC'}]
+tags._tags=tag_state;tags.NativeReader=lambda name:Reader()
 from icloud_for_agents.server import main
 main()

@@ -37,6 +37,8 @@ def run(policy):
                 metadata=data(call('notes_native_metadata',args));assert metadata['pinned'] is False and metadata['content_read'] is False
                 definition=data(call('notes_smart_folder_definition',{'folder_id':FOLDER}));assert definition['definition']=={'synthetic_unknown_filter':True} and definition['semantics_verified'] is False and definition['instructions_trusted'] is False
                 assert call('notes_smart_folder_definition',{'folder_id':'foreign'}).get('isError')
+                tags=data(call('notes_native_tags',args));assert tags['tags'][0]['native_token']=='SYNTHETIC' and tags['native_tag_inventory_complete'] is False
+                assert call('notes_native_tags',dict(args,id='foreign')).get('isError')
                 inventory=data(call('notes_native_assets',args));assert len(inventory['assets'])==1 and inventory['assets'][0]['id']==ASSET and inventory['native_asset_inventory_complete'] is False
                 exported=data(call('notes_export_fallback_pdf',dict(args,asset_id=ASSET)));assert exported['size']==len(RAW) and exported['encoding']=='base64' and exported['original_file'] is False and exported['download_attempted'] is False
                 for bad in (dict(args,asset_id=ASSET,max_bytes=1),dict(args,asset_id=ASSET,max_bytes=1048577),dict(args,asset_id=ASSET,id='foreign'),dict(args,asset_id=ASSET,output_path='/tmp/not-allowed')):

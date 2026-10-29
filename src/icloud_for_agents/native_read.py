@@ -1405,6 +1405,13 @@ def register_read_tools(mcp):
 
         @mcp.tool(annotations=annotations)
         @guard
+        def notes_native_tags(folder_id:str,id:str)->dict:
+            """Observe <=100 native inline tag occurrences in one exact unlocked note with optional notes-store-readonly access. Plain hashtags are not assumed to be tags; no tag mutation or complete-inventory claim."""
+            from .native_note_tags import inventory
+            return inventory(folder_id,id)
+
+        @mcp.tool(annotations=annotations)
+        @guard
         def notes_export_fallback_pdf(folder_id:str,id:str,asset_id:str,max_bytes:int=1048576)->dict:
             """Read <=1MiB of one exact unlocked note's locally available Notes-generated PDF as base64 with SHA-256. Optional notes-store-readonly backend; no download, caller paths, original-file identity or complete-backup claim."""
             from .native_note_assets import export_pdf
