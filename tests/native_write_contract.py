@@ -15,7 +15,7 @@ const moving={id:()=> 'move-id',container:()=>({id:()=>moved?'destination':'fold
  body:()=> '<div>Rich move fixture</div><object><table><tr><td>Cell</td></tr></table></object>',
  attachments:()=>[{id:()=> 'asset',name:()=>namelessAttachment?null:'synthetic.pdf',contentIdentifier:()=> 'cid:asset'}],
  move:options=>{if(options.to.id()!=='destination')throw Error('wrong_destination');moved=true;if(moveFails)throw Error('failed_after_move');}};
-const children=()=>[];children.push=f=>{if(f.name()!=='New child')throw Error('wrong_child');};folder.folders=children;
+const children=()=>[];children.push=f=>{if(f.name()!=='New child')throw Error('wrong_child');};folder.folders=children;destination.folders=children;
 const roots=()=>[folder,destination,parent];
 roots.byId=id=>{const result=[folder,destination,parent].find(f=>f.id()===id);if(!result)throw Error('not_found_in_scope');return result;};
 roots.push=f=>{if(f.name()!=='New folder')throw Error('unexpected_folder');};
@@ -92,6 +92,13 @@ function run() {
         assert json.loads(response.stdout)['result']['id']=='new-note'
         unverified=json.loads(call(note,guard='unverified').stdout);assert unverified['category']=='unverified_folder_role' and unverified['mutation_dispatched'] is False
         nondefault=json.loads(call(dict(note,folder_id='destination')).stdout);assert nondefault['category']=='unverified_folder_role' and nondefault['mutation_dispatched'] is False
+        stored_role={'folder_id':'folder','source_id':'selected','title':'Existing','storage_kind':'regular','native_folder_type':0,'marked_for_deletion':False,'has_smart_query':False,'parent_pk':None}
+        proven=dict(note,before={'roles':[stored_role]});assert json.loads(call(proven,guard='verified_store_roles').stdout)['result']['id']=='new-note'
+        for key,value in [('source_id','foreign'),('native_folder_type',1),('marked_for_deletion',True),('has_smart_query',True),('title','Changed'),('parent_pk',9)]:
+            bad=dict(proven,before={'roles':[dict(stored_role,**{key:value})]});refused=json.loads(call(bad,guard='verified_store_roles').stdout);assert refused['mutation_dispatched'] is False
+        missing=dict(proven,before={'roles':[]});assert json.loads(call(missing,guard='verified_store_roles').stdout)['mutation_dispatched'] is False
+        nested={'operation':'create_folder','source_id':'selected','parent_folder_id':'destination','fields':{'title':'New child'},'before':{'roles':[dict(stored_role,folder_id='destination',title='Destination')]}}
+        accepted=json.loads(call(nested,guard='verified_store_roles').stdout);assert accepted['result']['parent_id']=='destination'
         ambiguous=call(note,ambiguous=True)
         assert json.loads(ambiguous.stdout)['category']=='created_identity_uncertain'
         assert json.loads(ambiguous.stdout)['mutation_dispatched'] is True

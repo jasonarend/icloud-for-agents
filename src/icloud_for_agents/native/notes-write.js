@@ -62,13 +62,27 @@ function applyNotes(app, req, beginMutation, nativePhase) {
     if(item.folder_id)collect(item.folder_id);
     if(item.parent_folder_id)collect(item.parent_folder_id);
     if(item.operation==='move_note')collect(fields.destination_folder_id);
+    if(item.folder_guard==='verified_store_roles') {
+        const roleError=item.operation==='move_note'?'unverified_folder_role_move':'unverified_folder_role';
+        const roles=item.before && item.before.roles;
+        if(!Array.isArray(roles) || roles.length<1 || roles.length>64)throw Error(roleError);
+        const roleIDs=new Set(roles.map(r=>r.folder_id));
+        if(roleIDs.size!==roles.length || roles.length!==folders.length || folders.some(f=>{
+            const role=roles.find(r=>r.folder_id===f.id());
+            if(!role || role.source_id!==item.source_id || role.storage_kind!=='regular' || role.native_folder_type!==0 || role.marked_for_deletion!==false || role.has_smart_query!==false || role.title!==f.name())return true;
+            const parent=f.container().id();
+            if(parent===item.source_id)return role.parent_pk!==null;
+            const match=/\/ICFolder\/p([1-9][0-9]*)$/.exec(parent),pk=match?Number(match[1]):null;
+            return !Number.isSafeInteger(pk) || role.parent_pk!==pk;
+        }))throw Error(roleError);
+    }
     // The native model is verified in the final Python snapshot. The ordinary
     // scripting path can safely identify only the account's creation default.
     const guardedFolder=item.operation==='create_folder'?item.parent_folder_id:item.folder_id;
     if(guardedFolder && ['create_note','create_folder','repair_note_body','append_note','prepend_note','replace_text','update_note'].includes(item.operation)) {
         if(item.folder_guard==='default_folder') {
             if(account.defaultFolder().id()!==guardedFolder)throw Error('unverified_folder_role');
-        } else if(item.folder_guard!=='verified_model')throw Error('unverified_folder_role');
+        } else if(!['verified_model','verified_store_roles'].includes(item.folder_guard))throw Error('unverified_folder_role');
     }
     function requirePrivateFolder(folder) {
         const visited=new Set();let current=folder;
@@ -119,16 +133,6 @@ function applyNotes(app, req, beginMutation, nativePhase) {
     }
     if(item.operation==='move_note') {
         const before=item.before && item.before.note;
-        const roles=item.before.roles;
-        const roleIDs=new Set(roles.map(r=>r.folder_id));
-        if(roleIDs.size!==roles.length || roles.length!==folders.length || folders.some(f=>{
-            const role=roles.find(r=>r.folder_id===f.id());
-            if(!role || role.source_id!==item.source_id || role.storage_kind!=='regular' || role.native_folder_type!==0 || role.marked_for_deletion!==false || role.has_smart_query!==false || role.title!==f.name())return true;
-            const parent=f.container().id();
-            if(parent===item.source_id)return role.parent_pk!==null;
-            const match=/\/ICFolder\/p([1-9][0-9]*)$/.exec(parent),pk=match?Number(match[1]):null;
-            return !Number.isSafeInteger(pk) || role.parent_pk!==pk;
-        }))throw Error('unverified_folder_role_move');
         const destinations=folders.filter(f=>f.id()===fields.destination_folder_id);
         if(!before || destinations.length!==1 || fields.destination_folder_id===item.folder_id || !folder.notes.id().includes(item.id))throw Error('not_found_in_scope');
         const destination=destinations[0], note=folder.notes.byId(item.id), modified=note.modificationDate();

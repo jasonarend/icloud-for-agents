@@ -202,9 +202,23 @@ class NotesCreateAdapter:
         return True
 
     def checked_content_folder_role(self,folder,source_id):
+        config=native_config('notes')
+        if config.get('folder_write_backend')!='notes-shared' and config.get('metadata_backend')=='notes-store-readonly':
+            from .native_note_store import folder_role,parse_identity
+            roles=[]
+            for node in [folder,*folder.get('private_ancestors',[])]:
+                role=folder_role(node['id'],[source_id])
+                parent=node.get('parent_id');parent_pk=None if parent==source_id else parse_identity(parent,'ICFolder')[1]
+                if (role.get('folder_id')!=node['id'] or role.get('source_id')!=source_id or role.get('title')!=node['title']
+                        or role.get('storage_kind')!='regular' or role.get('native_folder_type')!=0
+                        or role.get('marked_for_deletion') is not False or role.get('has_smart_query') is not False
+                        or role.get('parent_pk')!=parent_pk):
+                    raise SafetyError('Notes content writes require verified ordinary nondeleted nonsmart folders and ancestors')
+                roles.append(role)
+            return dict(folder,verified_store_roles=sorted(roles,key=lambda value:value['folder_id']))
         # Without the optional native model, only the account's explicitly
         # reported default creation folder has a known role. Names are not roles.
-        if native_config('notes').get('folder_write_backend')!='notes-shared':
+        if config.get('folder_write_backend')!='notes-shared':
             default=self.reader.read('default_folder',source_id=source_id).get('folder')
             if (not isinstance(default,dict) or default.get('id')!=folder['id']
                     or default.get('source_id')!=source_id or default.get('parent_id')!=source_id
@@ -362,6 +376,8 @@ class NotesCreateAdapter:
                     fidelity_verified=True,effects={'existing_content':effect,'native_objects':'Existing attachments, tables, checklists and unknown structures refused',
                     'sharing':'none','sync_status':'unconfirmed',
                     'folder_role':('Optional native model checks this folder and its ancestors before admission; separate provider reads are not atomic.' if native_config('notes').get('folder_write_backend')=='notes-shared' else 'Only the account default creation folder is supported; its identity is rechecked before dispatch.')})
+        if native_config('notes').get('folder_write_backend')!='notes-shared' and native_config('notes').get('metadata_backend')=='notes-store-readonly':
+            item['effects']['folder_role']='Explicit read-only metadata verifies this ordinary selected folder and its private ancestors; full current roles are rechecked before dispatch and saved physical placement is checked after writing.'
         return item
 
     def prepare(self,change):
@@ -389,6 +405,8 @@ class NotesCreateAdapter:
               'fidelity_verified':True,'effects':{'sharing':'none','existing_content':'unchanged',
               'rich_native_features':'not certified by text readback',
               'folder_role':('Optional native model checks selected parent folders before admission; separate provider reads are not atomic.' if native_config('notes').get('folder_write_backend')=='notes-shared' else 'Folder targets require the account default creation folder; its identity is rechecked before dispatch.')}}
+        if native_config('notes').get('folder_write_backend')!='notes-shared' and native_config('notes').get('metadata_backend')=='notes-store-readonly':
+            item['effects']['folder_role']='Explicit read-only metadata verifies ordinary, nondeleted, nonsmart selected folders and their private ancestors. Roles are refreshed before dispatch; provider reads are not atomic.'
         if operation=='create_note':item['folder_id']=change['folder_id']
         if operation=='create_folder' and 'parent_folder_id' in change:
             parent=change['parent_folder_id']
@@ -428,6 +446,18 @@ class NotesCreateAdapter:
         if outcome.get('source_id')!=item['source_id'] or not isinstance(outcome.get('id'),str):return False
         if item['operation']=='rename_folder':return self.verify_folder_rename(item,outcome)
         if item['operation']=='move_note':return self.verify_move(item,outcome)
+        before=item.get('before',{})
+        content_folder=before if item['operation']=='create_note' else before.get('parent') if item['operation']=='create_folder' else before.get('folder')
+        if isinstance(content_folder,dict) and 'verified_store_roles' in content_folder:
+            current=self.checked_content_folder_role(self.private_folder(content_folder['id'],item['source_id']),item['source_id'])
+            stable=lambda roles:[{key:value for key,value in role.items() if key!='revision'} for role in roles]
+            if stable(current.get('verified_store_roles',[]))!=stable(content_folder['verified_store_roles']):return False
+            if item['operation']=='create_folder':
+                self.checked_content_folder_role(self.private_folder(outcome['id'],item['source_id']),item['source_id'])
+            else:
+                from .native_note_store import note_location
+                location=note_location(outcome['id'],[item['source_id']])
+                if location.get('folder_id')!=item['folder_id'] or location.get('source_id')!=item['source_id']:return False
         if item['operation']=='create_folder':
             return any(f['id']==outcome['id'] and f['title']==item['fields']['title']
                        and f['source_id']==item['source_id'] and f.get('parent_id')==item.get('parent_folder_id',item['source_id']) for f in self.folders())

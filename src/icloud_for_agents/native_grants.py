@@ -112,6 +112,11 @@ class NativeGrants:
             if (self.name=='notes' and rule['operation'] in {'copy_observation','create_note','append_note','prepend_note','replace_text','update_note','create_folder'}
                     and rule['container_id']!=rule['source_id']):
                 source=self.engine.adapter.checked_content_folder_role(source,rule['source_id'])
+                if 'verified_store_roles' in source:
+                    # Our own content writes can advance folder revisions. Bind
+                    # every role, title and parent field; batches use fresh full
+                    # revisions in their separately checked before snapshots.
+                    source=dict(source,verified_store_roles=[{key:value for key,value in role.items() if key!='revision'} for role in source['verified_store_roles']])
             if rule['operation'] in {'rename_folder','rename_list'}:source={k:v for k,v in source.items() if k!='title'}
             if rule['operation']=='set_list_color':source={k:v for k,v in source.items() if k!='color'}
             if rule['operation']=='rename_folder':
@@ -150,6 +155,8 @@ class NativeGrants:
                  'sharing':'Notes private ancestors checked; EventKit does not expose reminder-list participant state.',
                  'quotas':'Every affected native object counts, including moved descendants and uncertain or refused items; no automatic refund.'}}
         if self.name=='notes':payload['effects']['folder_role']=('The optional native model checks selected content folders and their ancestors before admission; separate provider reads are not atomic.' if native_config('notes').get('folder_write_backend')=='notes-shared' else 'Notes content authority is limited to the account default creation folder; its identity is rechecked before dispatch.')
+        if self.name=='notes' and native_config('notes').get('folder_write_backend')!='notes-shared' and native_config('notes').get('metadata_backend')=='notes-store-readonly':
+            payload['effects']['folder_role']='Explicit read-only metadata verifies selected ordinary folders and private ancestors. Roles, account, titles and parents remain grant-bound; each batch rechecks full current revisions. No system Trash, smart, shared or deleted targets.'
         if self.name=='notes' and any(rule['operation']=='move_note' for rule in scope['rules']):
             payload['effects']['move_scope']='Moves require explicitly selected read-only metadata, ordinary unshared source/destination ancestors and exact destination IDs. Roles and ancestry are rechecked at admission; every note retains its own content and attachment snapshot. No Recently Deleted, cross-account or shared moves.'
         if self.name=='reminders' and any(rule['operation']=='move_reminder' for rule in scope['rules']):

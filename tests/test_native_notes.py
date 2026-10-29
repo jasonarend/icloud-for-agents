@@ -364,3 +364,48 @@ class NativeNotesTests(unittest.TestCase):
         self.assertTrue(equivalent_export(expected,actual,empty_paragraph_placeholder=True))
         self.assertFalse(equivalent_export(actual,expected,empty_paragraph_placeholder=True))
         self.assertFalse(equivalent_export('<div><b></b></div>','<div><br></div>',empty_paragraph_placeholder=True))
+
+    def test_opted_in_readonly_roles_support_nondefault_content_and_nested_parent_envelopes(self):
+        from icloud_for_agents.native_protocol import mutation_request
+        config={'notes':{'access_mode':'write-enabled','source_ids':['selected'],'metadata_backend':'notes-store-readonly'}};os.environ['ICLOUD_NATIVE_CONFIG']=json.dumps(config)
+        role={'protocol_version':1,'folder_id':'destination','source_id':'selected','title':'Destination','storage_kind':'regular','native_folder_type':0,'marked_for_deletion':False,'has_smart_query':False,'parent_pk':None,'revision':1,'backend':'notes-store-role-v1','schema_sha256':'0'*64}
+        def checked(identity,sources):
+            self.assertEqual(sources,['selected']);return dict(role,folder_id=identity)
+        with patch('icloud_for_agents.native_note_store.folder_role',side_effect=checked):
+            item=self.prepare(folder_id='destination');self.assertEqual(item['before']['verified_store_roles'][0]['folder_id'],'destination')
+            wire=mutation_request('notes',item)['change'];self.assertEqual(wire['folder_guard'],'verified_store_roles');self.assertEqual(wire['before']['roles'],item['before']['verified_store_roles'])
+            for field,value in [('native_folder_type',1),('marked_for_deletion',True),('has_smart_query',True),('source_id','other'),('title','Changed'),('parent_pk',3)]:
+                before=role[field];role[field]=value
+                with self.subTest(field=field),self.assertRaises(SafetyError):self.prepare(folder_id='destination')
+                role[field]=before
+        role.update(folder_id='folder',title='Synthetic')
+        with patch('icloud_for_agents.native_note_store.folder_role',side_effect=checked):
+            edited=self.edit();wire=mutation_request('notes',edited)['change'];self.assertIn('note',wire['before']);self.assertEqual(wire['before']['roles'],edited['before']['folder']['verified_store_roles'])
+            folder=self.adapter.prepare({'operation':'create_folder','source_id':'selected','parent_folder_id':'folder','fields':{'title':'New child'}});wire=mutation_request('notes',folder)['change'];self.assertEqual(wire['folder_guard'],'verified_store_roles');self.assertEqual(wire['before']['roles'],folder['before']['parent']['verified_store_roles'])
+
+    def test_readonly_content_role_verification_requires_saved_physical_folder_and_stable_roles(self):
+        os.environ['ICLOUD_NATIVE_CONFIG']=json.dumps({'notes':{'access_mode':'write-enabled','source_ids':['selected'],'metadata_backend':'notes-store-readonly'}})
+        role={'folder_id':'folder','source_id':'selected','title':'Synthetic','storage_kind':'regular','native_folder_type':0,'marked_for_deletion':False,'has_smart_query':False,'parent_pk':None,'revision':1}
+        with patch('icloud_for_agents.native_note_store.folder_role',side_effect=lambda *args:dict(role)),patch('icloud_for_agents.native_note_store.note_location',return_value={'folder_id':'folder','source_id':'selected'}) as location:
+            item=self.prepare();role['revision']=2;self.assertTrue(self.adapter.verify(item,{'id':'created','source_id':'selected'}));location.return_value={'folder_id':'wrong','source_id':'selected'};self.assertFalse(self.adapter.verify(item,{'id':'created','source_id':'selected'}))
+            role['marked_for_deletion']=True
+            with self.assertRaises(SafetyError):self.adapter.verify(item,{'id':'created','source_id':'selected'})
+
+    def test_readonly_role_grant_survives_own_revision_changes_but_not_role_changes(self):
+        import tempfile
+        from pathlib import Path
+        from icloud_for_agents.native_changes import NativeChanges
+        from icloud_for_agents.native_grants import NativeGrants
+        from icloud_for_agents.approvals import PlanStore
+        os.environ.update(ICLOUD_MAIL_ACCOUNT='synthetic@example.com',ICLOUD_APPROVAL_POLICY='trusted-client',ICLOUD_MAIL_ACCESS='read-only',ICLOUD_NATIVE_CONFIG=json.dumps({'notes':{'access_mode':'read-only','source_ids':['selected'],'metadata_backend':'notes-store-readonly'}}))
+        role={'folder_id':'folder','source_id':'selected','title':'Synthetic','storage_kind':'regular','native_folder_type':0,'marked_for_deletion':False,'has_smart_query':False,'parent_pk':None,'revision':1}
+        with tempfile.TemporaryDirectory() as directory,patch.object(NotesCreateAdapter,'backend_id',new_callable=PropertyMock,return_value='synthetic-role-content'),patch('icloud_for_agents.native_note_store.folder_role',side_effect=lambda *args:dict(role)),patch('icloud_for_agents.native_note_store.note_location',return_value={'folder_id':'folder','source_id':'selected'}):
+            engine=NativeChanges('notes','synthetic@example.com',self.adapter,PlanStore(Path(directory)/'runtime'));manager=NativeGrants(engine);scope={'scenario':'Synthetic nondefault content','rules':[{'operation':'create_note','source_id':'selected','container_id':'folder','fields':['title','body'],'destinations':[]}],'max_batch':1,'max_24h':2,'expires':None};proposal=manager.prepare(scope);manager.activate(proposal['plan_id'])
+            def apply(item):
+                role['revision']+=1;self.reader.note.update(title=item['fields']['title'],html=item['fields']['html'],text=item['fields']['expected_text']);return {'id':'created','source_id':'selected','folder_id':'folder'}
+            self.adapter.apply=apply
+            for _ in range(2):
+                batch=engine.prepare_with_grant(proposal['plan_id'],[{'operation':'create_note','source_id':'selected','folder_id':'folder','fields':{'title':'Spec','body':'Body'}}]);self.assertEqual(engine.execute(batch['plan_id'])['status'],'applied')
+            role['marked_for_deletion']=True
+            with self.assertRaises(SafetyError):manager.checked(proposal['plan_id'])
+            manager.revoke(proposal['plan_id'])
