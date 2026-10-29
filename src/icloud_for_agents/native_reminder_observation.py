@@ -5,7 +5,7 @@ and cannot settle or replay it. No title, notes or other contents are returned.
 """
 from .core import SafetyError, digest
 
-OBSERVABLE_CHANGES = {'rename_smart_list','update_reminder', 'set_completed', 'set_recurrence', 'set_flagged',
+OBSERVABLE_CHANGES = {'set_smart_list_sources','rename_smart_list','update_reminder', 'set_completed', 'set_recurrence', 'set_flagged',
                       'remove_tag', 'add_tag', 'replace_tag', 'set_urgent', 'add_early',
                       'clear_early', 'move_reminder', 'create_subtask', 'delete_reminder', 'restore_reminder', 'reorder_reminder', 'create_group', 'rename_group', 'group_list', 'ungroup_list', 'reorder_group', 'reparent_reminder'}
 
@@ -31,6 +31,14 @@ def inspect_uncertain_reminder(engine, plan_id):
     if not isinstance(item, dict):
         raise SafetyError('The original reminder snapshot is unavailable')
     before = item.get('before')
+    if item.get('operation')=='set_smart_list_sources':
+        from .native_reminder_smart_sources import snapshot,COVERAGE
+        observed=snapshot(engine.adapter,item)
+        if engine.context(True)!=context:raise SafetyError('Reminders access changed during Smart List source observation')
+        from .native_reminder_exchange import inspect
+        return {'plan_id':plan_id,'reminder_id':item['id'],'source_id':item['source_id'],'observed_snapshot_matches_before':observed==before,
+                'snapshot_coverage':COVERAGE,'observation_consistency':'separate_live_reads_may_change','original_uncertainty_retained':True,
+                'causal_dispatch_proven':False,'data_mutated':False,'do_not_retry':True,**inspect(engine.store,plan)}
     if item.get('operation')=='rename_smart_list':
         from .native_reminder_smart_rename import snapshot,COVERAGE
         observed=snapshot(engine.adapter,item)

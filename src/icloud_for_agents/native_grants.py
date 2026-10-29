@@ -16,7 +16,7 @@ from .native_read import native_config
 FIELDS={
  'notes':{'copy_observation':{'title','body','format'},'create_note':{'title','body','format'},'append_note':{'body','format'},'prepend_note':{'body','format'},'replace_text':{'find','replacement','expected_matches'},
           'update_note':{'title','body','format'},'move_note':{'destination_folder_id'},'restore_note':{'destination_folder_id'},'delete_note':{'recoverable'},'create_folder':{'title'},'rename_folder':{'title'}},
- 'reminders':{'rename_smart_list':{'title'},'delete_reminder':{'recoverable','include_descendants'},'restore_reminder':{'deletion_plan_id','deletion_index','list_id','include_descendants'},'copy_observation':{'title','notes','priority','due','start','url','alarms'},'create_subtask':{'title'},'create_section':{'title'},'rename_section':{'title'},'create_reminder':{'title','notes','priority','due','start','url','alarms','location_alarms','recurrence'},'update_reminder':{'title','notes','priority','due','start','url','alarms','location_alarms'},
+ 'reminders':{'set_smart_list_sources':{'list_ids'},'rename_smart_list':{'title'},'delete_reminder':{'recoverable','include_descendants'},'restore_reminder':{'deletion_plan_id','deletion_index','list_id','include_descendants'},'copy_observation':{'title','notes','priority','due','start','url','alarms'},'create_subtask':{'title'},'create_section':{'title'},'rename_section':{'title'},'create_reminder':{'title','notes','priority','due','start','url','alarms','location_alarms','recurrence'},'update_reminder':{'title','notes','priority','due','start','url','alarms','location_alarms'},
               'set_completed':{'completed'},'set_flagged':{'flagged'},'set_urgent':{'urgent'},'add_early':{'unit','count'},'clear_early':{'clear'},'remove_tag':{'tag_id'},'add_tag':{'tag_name'},'replace_tag':{'tag_id','tag_name'},'move_reminder':{'list_id'},'create_list':{'title'},'rename_list':{'title'},'set_list_color':{'color'},'reparent_reminder':{'parent_id','anchor_id','placement'},'reorder_group':{'anchor_id','placement'},'group_list':{'group_id'},'ungroup_list':{'anchor_id','placement'},'rename_group':{'title'},'create_group':{'title'},'reorder_reminder':{'anchor_id','placement'},'set_list_badge':{'badge'},'set_list_pinned':{'pinned'},'set_recurrence':{'recurrence','recurrence_scope'}}}
 
 
@@ -49,7 +49,7 @@ def validate_scope(name,scope,now):
             raise SafetyError('Native grant field scope must explicitly select supported fields')
         if 'location_alarms' in fields and 'alarms' not in fields:raise SafetyError('Location-alarm authority requires explicit complete alarm-set authority')
         if (not isinstance(dest,list) or len(dest)>20 or any(not exact(d) for d in dest)
-                or len(set(dest))!=len(dest) or bool(dest)!=(op in {'move_note','restore_note','move_reminder','restore_reminder','create_subtask','rename_section','reorder_reminder','group_list','ungroup_list','reorder_group','reparent_reminder'})):
+                or len(set(dest))!=len(dest) or bool(dest)!=(op in {'set_smart_list_sources','move_note','restore_note','move_reminder','restore_reminder','create_subtask','rename_section','reorder_reminder','group_list','ungroup_list','reorder_group','reparent_reminder'})):
             raise SafetyError('Moves require exact destinations, subtask creation exact parents and section renames exact section IDs; other rules cannot grant them')
         if op=='rename_section':
             import uuid
@@ -88,10 +88,15 @@ class NativeGrants:
             root=rule['operation'] in {'create_folder','create_list','create_group'}
             if not root and rule['container_id']==rule['source_id']:raise SafetyError('An item operation needs a real container ID')
             if rule['operation'] in {'create_list','create_group'} and rule['container_id']!=rule['source_id']:raise SafetyError('List creation targets its selected source root')
-            if self.name=='reminders' and rule['operation']=='rename_smart_list':
+            if self.name=='reminders' and rule['operation'] in {'rename_smart_list','set_smart_list_sources'}:
                 from .native_reminder_smart_lists import snapshot
                 value=snapshot(rule['source_id'],rule['container_id'],reader=self.engine.adapter.reader)
-                result.append({'source':{'id':value['id'],'source_id':value['source_id'],'role':'custom_smart_list'},'destinations':[]});continue
+                destinations=[]
+                if rule['operation']=='set_smart_list_sources':
+                    from .native_reminder_smart_sources import source_ids
+                    from .native_reminder_moves import list_scope
+                    source_ids(value);destinations=[list_scope(self.engine.adapter,rule['source_id'],target) for target in rule['destinations']]
+                result.append({'source':{'id':value['id'],'source_id':value['source_id'],'role':'custom_smart_list'},'destinations':destinations});continue
             if self.name=='reminders' and rule['operation']=='reparent_reminder':
                 from .native_reminder_moves import list_scope
                 source=list_scope(self.engine.adapter,rule['source_id'],rule['container_id']);destinations=[]
@@ -353,7 +358,7 @@ class NativeGrants:
         marker=item.get('standing_operation');scope_op=op if marker is None else marker
         if marker is not None and (marker!='copy_observation' or op!=('create_note' if self.name=='notes' else 'create_reminder')):
             raise SafetyError('Invalid observation copy grant operation')
-        container=(item['id'] if op in {'rename_group','reorder_group','rename_smart_list'} else item.get('before',{}).get('original',{}).get('item',{}).get('list_id') if op=='restore_reminder' else item.get('parent_folder_id',item['source_id']) if op=='create_folder' else item['source_id'] if op in {'create_list','create_group'}
+        container=(item['id'] if op in {'rename_group','reorder_group','rename_smart_list','set_smart_list_sources'} else item.get('before',{}).get('original',{}).get('item',{}).get('list_id') if op=='restore_reminder' else item.get('parent_folder_id',item['source_id']) if op=='create_folder' else item['source_id'] if op in {'create_list','create_group'}
                    else item.get('folder_id') if self.name=='notes' else item.get('list_id') if op in {'create_reminder','create_section','rename_section','rename_list','set_list_color','set_list_badge','set_list_pinned','group_list','ungroup_list','reparent_reminder'}
                    else item.get('before',{}).get('item',{}).get('list_id'))
         fields=item.get('requested_fields')
@@ -370,6 +375,7 @@ class NativeGrants:
                 if requires_location and 'location_alarms' not in rule['fields']:continue
                 dest=item['fields'].get('destination_folder_id' if self.name=='notes' else 'list_id')
                 if op in {'move_note','restore_note','move_reminder','restore_reminder'} and dest not in rule['destinations']:continue
+                if op=='set_smart_list_sources' and not set(item['fields']['list_ids'])<=set(rule['destinations']):continue
                 if op=='reparent_reminder' and (item['fields']['parent_id'] if item['fields']['parent_id'] is not None else item['list_id']) not in rule['destinations']:continue
                 if op=='reorder_group' and item['fields']['anchor_id'] not in rule['destinations']:continue
                 if op in {'group_list','ungroup_list'} and item['fields']['group_id' if op=='group_list' else 'anchor_id'] not in rule['destinations']:continue

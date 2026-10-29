@@ -22,6 +22,7 @@ FOUNDATION_EXPORT NSData *ICloudRemindersListTemplates(NSData *request);
 FOUNDATION_EXPORT NSData *ICloudRemindersListSmartLists(NSData *request);
 FOUNDATION_EXPORT NSData *ICloudRemindersSmartListDefinition(NSData *request);
 FOUNDATION_EXPORT NSData *ICloudRemindersRenameSmartList(NSData *request,BOOL (^enterMutation)(void));
+FOUNDATION_EXPORT NSData *ICloudRemindersSetSmartListSources(NSData *request,BOOL (^enterMutation)(void));
 FOUNDATION_EXPORT NSData *ICloudRemindersReadListParent(NSData *request);
 FOUNDATION_EXPORT NSData *ICloudRemindersGroupLists(NSData *request);
 FOUNDATION_EXPORT NSData *ICloudRemindersTemplateSections(NSData *request);

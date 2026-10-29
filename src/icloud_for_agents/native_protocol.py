@@ -43,13 +43,13 @@ def mutation_request(service,item):
                 if isinstance(roles,list) and roles:
                     change['folder_guard']='verified_trash_destination' if operation=='delete_note' else 'verified_recovery_roles' if operation=='restore_note' else 'verified_store_roles';change['before']['roles']=roles
         if content_roles is not None:change.setdefault('before',{})['roles']=content_roles
-    elif service=='reminders' and operation in {'rename_smart_list','reparent_reminder','reorder_group','group_list','ungroup_list','rename_group','create_group','reorder_reminder','delete_reminder','restore_reminder','create_list','create_reminder','create_section','rename_section','update_reminder','set_completed','move_reminder','rename_list','set_list_color','set_list_badge','set_list_pinned','set_recurrence','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','add_early','clear_early','create_subtask'}:
+    elif service=='reminders' and operation in {'set_smart_list_sources','rename_smart_list','reparent_reminder','reorder_group','group_list','ungroup_list','rename_group','create_group','reorder_reminder','delete_reminder','restore_reminder','create_list','create_reminder','create_section','rename_section','update_reminder','set_completed','move_reminder','rename_list','set_list_color','set_list_badge','set_list_pinned','set_recurrence','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','add_early','clear_early','create_subtask'}:
         change={key:item[key] for key in ('operation','source_id','list_id','id','child_id','section_id','fields') if key in item}
         if operation in {'update_reminder','set_completed','move_reminder','set_recurrence','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','add_early','clear_early','create_subtask'}:
             change['before']={'item':item['before']['item']}
             if 'native_metadata' in item['before']:change['before']['native_metadata']=item['before']['native_metadata']
             if 'urgent' in item['before']:change['before']['urgent']=item['before']['urgent']
-        if operation=='rename_smart_list':change['before']=item['before']
+        if operation in {'rename_smart_list','set_smart_list_sources'}:change['before']=item['before']
         if operation in {'rename_list','set_list_color','set_list_badge','set_list_pinned','create_section','rename_section'}:change['before']=item['before']
         if operation=='reparent_reminder':
             change['before']={key:item['before'][key] for key in ('source_scope','source_graph','items')}

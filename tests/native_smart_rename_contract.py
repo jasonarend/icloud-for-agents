@@ -112,17 +112,18 @@ def run():
     gate = swift[swift.index('@objc(ICloudAgentsMutationGate)'):swift.index('func respond(')]
     gate = gate.replace('ProcessInfo.processInfo.systemUptime', 'syntheticUptime')
     begin = swift.index('if action == "apply" {\n')
-    end = swift.index('    if let item=req["change"] as? [String:Any],item["operation"] as? String=="rename_smart_list"', begin)
+    end = swift.index('    if let item=req["change"]', begin)
     dispatch = swift[begin:end] + '\n}\n'
     program = ('import Foundation\nvar syntheticUptime:TimeInterval=100\nvar privateReminderGateArmed=false\n'
-               'let action="apply"\nlet req:[String:Any]=["change":["operation":"rename_smart_list"]]\n'
+               'let action="apply"\nlet req:[String:Any]=["change":["operation":CommandLine.arguments[1]]]\n'
                + gate + dispatch + '\nprecondition(privateReminderGateArmed)\nsyntheticUptime=126\n'
                'precondition(!NativeMutationGate.beginMutation())\nprecondition(!NativeMutationGate.cancel())\n')
     with tempfile.TemporaryDirectory(prefix='smart-rename-deadline-') as directory:
         path = Path(directory);script = path / 'main.swift';binary = path / 'contract';script.write_text(program)
         result = subprocess.run(['/usr/bin/swiftc', str(script), '-o', str(binary)], capture_output=True, text=True, timeout=60)
         assert result.returncode == 0, result.stderr
-        subprocess.run([str(binary)], capture_output=True, text=True, check=True, timeout=5)
+        for operation in ('rename_smart_list', 'set_smart_list_sources'):
+            subprocess.run([str(binary), operation], capture_output=True, text=True, check=True, timeout=5)
     return {'status': 'passed', 'apple_store_opened': False, 'closed_gate_and_single_save_verified': True,
             'scope_filter_key_drift_and_unrelated_change_refused': True, 'save_error_retains_uncertainty': True,
             'synchronous_dispatch_arms_deadline_and_refuses_late_entry': True}
