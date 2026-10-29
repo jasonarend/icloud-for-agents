@@ -97,6 +97,8 @@ jobs:
           .venv/bin/python tests/native_grocery_mode_contract.py
           .venv/bin/python tests/native_grocery_categories_stdio_smoke.py
           .venv/bin/python tests/native_grocery_categories_contract.py
+          .venv/bin/python tests/native_grocery_assignment_stdio_smoke.py
+          .venv/bin/python tests/native_grocery_assignment_contract.py
           .venv/bin/python tests/native_note_attachment_export_contract.py
           .venv/bin/python tests/native_script_contract.py
           .venv/bin/python tests/native_write_contract.py

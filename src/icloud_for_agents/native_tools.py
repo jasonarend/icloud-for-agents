@@ -304,6 +304,15 @@ def register_change_tools(mcp):
             no task or category edits are requested. Current-source and
             full-storage guards, normal once/scoped approval and quota apply.
             Its scenario rule uses the exact list container and enabled field.
+            set_grocery_category uses exact source_id/id and fields.category_id,
+            an existing same-list category ID or explicit null for removal. The
+            selected ReminderKit and opted-in read-only store guards are required.
+            Every task in the bounded private grocery list must be an incomplete
+            nonrecurring root leaf. Content, native manual order, category inventory
+            and the full local membership map verify independently. Its scenario
+            rule uses this exact list container, category_id field and exact allowed
+            category IDs; the list ID authorizes explicit null removal. Quota is one
+            object, and failures never replay or fabricate missing terminal evidence.
             create_grocery_category uses exact source_id/list_id and fields.title
             to create one custom category in a private grocery list without shopping
             state, with at most twenty incomplete nonrecurring root tasks. Existing

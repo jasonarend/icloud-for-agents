@@ -262,6 +262,10 @@ class PlanStore:
             if legacy:return False
             from .native_reminder_smart_rename import COVERAGE
             coverage=COVERAGE
+        if item['operation']=='set_grocery_category':
+            from .native_grocery_assignment import COVERAGE,RECOVERY_EFFECT
+            if legacy or payload.get('effects',{}).get('grocery_assignment_coverage')!=RECOVERY_EFFECT:return False
+            coverage=COVERAGE
         if item['operation']=='set_section':
             from .native_reminder_sections import COVERAGE,RECOVERY_EFFECT
             if legacy or payload.get('effects',{}).get('section_coverage')!=RECOVERY_EFFECT:return False
@@ -535,7 +539,7 @@ class PlanStore:
         from .native_reminder_exchange import inspect
         from .native_reminder_lifecycle import expected_record_matches
         record=self.read(path);plan=self.read(self.path(identity,'.json'));result=self.read(self.path(identity,'.result'));payload=plan.get('payload',{});items=payload.get('changes',[]);started=self.read(self.path(identity,'.started'))
-        if (plan.get('kind')!='reminders_change' or not isinstance(items,list) or len(items)!=1 or items[0].get('operation') not in {'create_grocery_category','set_grocery_categorization','create_template','create_smart_list','set_smart_list_sources','rename_template','rename_smart_list','delete_reminder','restore_reminder','reorder_reminder','create_group','rename_group','group_list','ungroup_list','reorder_group','set_section','reparent_reminder'}
+        if (plan.get('kind')!='reminders_change' or not isinstance(items,list) or len(items)!=1 or items[0].get('operation') not in {'create_grocery_category','set_grocery_categorization','create_template','create_smart_list','set_smart_list_sources','rename_template','rename_smart_list','delete_reminder','restore_reminder','reorder_reminder','create_group','rename_group','group_list','ungroup_list','reorder_group','set_grocery_category','set_section','reparent_reminder'}
                 or result.get('status')!='failed_or_uncertain' or result.get('phase')!='mutation' or result.get('attempted')!=[] or result.get('completed')!=[]
                 or started.get('sha256')!=digest(plan) or started.get('account')!=payload.get('account')):return False
         terminal=inspect(self,plan);request=self.read(self.path(identity,'.native-reminder-request-0'));response=self.read(self.path(identity,'.native-reminder-response-0'));item=items[0];observed=record.get('observed',{})
@@ -543,7 +547,7 @@ class PlanStore:
                 and record.get('status')=='native_lifecycle_expected_state_observed' and record.get('plan_sha256')==digest(plan) and record.get('result_sha256')==digest(result)
                 and record.get('item_sha256')==digest(item) and record.get('request_record_sha256')==digest(request) and record.get('response_record_sha256')==digest(response)
                 and record.get('observed_sha256')==digest(observed) and observed.get('id')==item.get('id') and observed.get('source_id')==item.get('source_id')
-                and observed.get('state')==({'create_grocery_category':'custom_grocery_category_created','set_grocery_categorization':'grocery_categorization_changed','create_template':'saved_template_created','create_smart_list':'custom_smart_list_created','set_smart_list_sources':'custom_smart_list_sources_changed','rename_template':'saved_template_renamed','rename_smart_list':'custom_smart_list_renamed','delete_reminder':'in_recovery','restore_reminder':'restored','reorder_reminder':'reordered','create_group':'group_created','rename_group':'group_renamed','group_list':'list_grouped','ungroup_list':'list_ungrouped','reorder_group':'group_reordered','set_section':'reminder_section_changed','reparent_reminder':'reminder_reparented'}[item['operation']])
+                and observed.get('state')==({'create_grocery_category':'custom_grocery_category_created','set_grocery_categorization':'grocery_categorization_changed','create_template':'saved_template_created','create_smart_list':'custom_smart_list_created','set_smart_list_sources':'custom_smart_list_sources_changed','rename_template':'saved_template_renamed','rename_smart_list':'custom_smart_list_renamed','delete_reminder':'in_recovery','restore_reminder':'restored','reorder_reminder':'reordered','create_group':'group_created','rename_group':'group_renamed','group_list':'list_grouped','ungroup_list':'list_ungrouped','reorder_group':'group_reordered','set_grocery_category':'reminder_grocery_category_changed','set_section':'reminder_section_changed','reparent_reminder':'reminder_reparented'}[item['operation']])
                 and record.get('original_failure_preserved') is True and record.get('causal_dispatch_proven') is False and record.get('do_not_retry') is True and expected_record_matches(item,observed))
 
     def _reconciliation_completed(self, original_id):

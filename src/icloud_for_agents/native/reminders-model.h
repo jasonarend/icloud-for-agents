@@ -61,3 +61,5 @@ NSData *ICloudRemindersCreateTemplate(NSData *data,BOOL (^enterMutation)(void));
 NSData *ICloudRemindersSetGroceryCategorization(NSData *data,BOOL (^enterMutation)(void));
 
 NSData *ICloudRemindersCreateGroceryCategory(NSData *data,BOOL (^enterMutation)(void));
+
+NSData *ICloudRemindersSetGroceryCategory(NSData *data,BOOL (^enterMutation)(void));
