@@ -91,7 +91,7 @@ def run():
     source=(ROOT/'src/icloud_for_agents/native/reminders.swift').read_text()
     move_gate=source[source.index('        if operation == "move_reminder" { fail("unsupported_hierarchy_move") }'):].splitlines()[0]
     assert source.index(move_gate)<source.index('            } else if operation == "move_reminder" {')
-    functions=source[source.index('func selectedNativeMetadata('):source.index('if action == "get" {')]
+    functions=source[source.index('func selectedNativeMetadata('):source.index('\nif action == "get"')]
     start=source.index('            if let selectedNative=before["native_metadata"]')
     gate=source[start:source.index('            if operation == "create_subtask"',start)]
     with tempfile.TemporaryDirectory(prefix='native-preservation-') as directory:

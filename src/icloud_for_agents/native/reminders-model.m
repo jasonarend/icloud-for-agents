@@ -498,6 +498,47 @@ NSData *ICloudRemindersReadAttachments(NSData *data){
     }@catch(NSException *exception){return EncodeFlag(FlagFailure(@"private_read_exception"));}
 }
 
+// Resolve one exact selected attachment to a fixed local account file leaf only.
+// No file read, URL fetch, download request or path supplied by the MCP caller.
+NSData *ICloudRemindersAttachmentFile(NSData *data){
+    @try {
+        id req=[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
+        if(![req isKindOfClass:NSDictionary.class] || [req count]!=4)return EncodeFlag(FlagFailure(@"invalid_public_identity"));
+        NSString *attachmentID=req[@"attachment_id"];NSUUID *uuid=[attachmentID isKindOfClass:NSString.class]?[[NSUUID alloc]initWithUUIDString:attachmentID]:nil;
+        if(!uuid || !UUIDEqual(uuid.UUIDString,attachmentID))return EncodeFlag(FlagFailure(@"invalid_public_identity"));
+        NSDictionary *identity=@{@"id":req[@"id"]?:NSNull.null,@"source_id":req[@"source_id"]?:NSNull.null,@"list_id":req[@"list_id"]?:NSNull.null};
+        NSData *identityData=EncodeFlag(identity);NSDictionary *failure=nil;id reminder=SelectedReminder(identityData,&failure);if(!reminder)return EncodeFlag(failure);
+        NSDictionary *inventory=[NSJSONSerialization JSONObjectWithData:ICloudRemindersReadAttachments(identityData) options:0 error:NULL];
+        if(inventory[@"error"])return EncodeFlag(inventory);
+        NSArray *rows=inventory[@"native_metadata"][@"attachments"];if(![rows isKindOfClass:NSArray.class])return EncodeFlag(FlagFailure(@"unsupported_attachment_metadata"));
+        NSArray *matches=[rows filteredArrayUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(id row,NSDictionary *bindings){return UUIDEqual(row[@"id"],attachmentID);}]];
+        if(matches.count!=1 || ![@[@"image",@"file"] containsObject:matches[0][@"kind"]])return EncodeFlag(FlagFailure(@"unsupported_attachment_file"));
+        id collection=ObjectValue(ObjectValue(reminder,@"attachmentContext"),@"attachments");if(![collection isKindOfClass:NSArray.class] || [collection count]>100)return EncodeFlag(FlagFailure(@"unsupported_attachment_file"));
+        id selected=nil;
+        for(id value in collection){
+            id oid=ObjectValue(value,@"remObjectID"),entity=ObjectValue(oid,@"entityName");
+            if(![@[@"REMCDImageAttachment",@"REMCDFileAttachment"] containsObject:entity] || !UUIDEqual(ObjectUUID(value,entity),attachmentID))continue;
+            if(selected)return EncodeFlag(FlagFailure(@"unsupported_attachment_file"));selected=value;
+        }
+        id account=ObjectValue(selected,@"accountID"),parent=ObjectValue(selected,@"reminderID");
+        if(!selected || ![ObjectValue(account,@"entityName") isEqual:@"REMCDAccount"] || ![ObjectValue(parent,@"entityName") isEqual:@"REMCDReminder"]
+           || ![ObjectValue(account,@"uuid") isKindOfClass:NSUUID.class] || ![ObjectValue(parent,@"uuid") isKindOfClass:NSUUID.class]
+           || !UUIDEqual([ObjectValue(account,@"uuid") UUIDString],identity[@"source_id"]) || !UUIDEqual([ObjectValue(parent,@"uuid") UUIDString],identity[@"id"])
+           || ![ObjectValue(selected,@"uti") isEqual:matches[0][@"uti"]] || !MethodMatches([selected class],@"fileSize",@"Q@:",NO))return EncodeFlag(FlagFailure(@"unsupported_attachment_file"));
+        id url=ObjectValue(selected,@"fileURL");
+        if(![url isKindOfClass:NSURL.class] || ![url isFileURL] || [url query] || [url fragment])return EncodeFlag(FlagFailure(@"unsupported_attachment_file"));
+        NSString *leaf=[url lastPathComponent];
+        NSRegularExpression *pattern=[NSRegularExpression regularExpressionWithPattern:@"\\A[0-9a-f]{128}\\.[a-z0-9]{1,16}\\z" options:0 error:NULL];
+        if(!leaf || ![pattern firstMatchInString:leaf options:0 range:NSMakeRange(0,leaf.length)])return EncodeFlag(FlagFailure(@"unsupported_attachment_file"));
+        NSString *root=[NSHomeDirectory() stringByAppendingPathComponent:@"Library/Group Containers/group.com.apple.reminders/Container_v1/Files"];
+        NSUUID *sourceUUID=[[NSUUID alloc]initWithUUIDString:identity[@"source_id"]];
+        root=[[root stringByAppendingPathComponent:[@"Account-" stringByAppendingString:sourceUUID.UUIDString]] stringByAppendingPathComponent:@"Attachments"];
+        if(![[url path] isEqual:[root stringByAppendingPathComponent:leaf]])return EncodeFlag(FlagFailure(@"unsupported_attachment_file"));
+        unsigned long long size=((unsigned long long(*)(id,SEL))objc_msgSend)(selected,NSSelectorFromString(@"fileSize"));
+        return EncodeFlag(@{@"protocol_version":@1,@"id":identity[@"id"],@"source_id":identity[@"source_id"],@"list_id":identity[@"list_id"],@"attachment_id":attachmentID,@"kind":matches[0][@"kind"],@"uti":matches[0][@"uti"],@"file_leaf":leaf,@"file_size":@(size),@"data_mutated":@NO,@"download_requested":@NO});
+    }@catch(NSException *exception){return EncodeFlag(FlagFailure(@"private_read_exception"));}
+}
+
 // Read the current user's native urgent state; never infer it from priority or flag.
 NSData *ICloudRemindersReadUrgent(NSData *data){
     @try{

@@ -14,7 +14,7 @@ from .services import enabled
 
 
 READ_ACTIONS = {'notes': {'status', 'sources', 'folders', 'default_folder', 'folder_get', 'folder_inventory', 'folder_role', 'recovery_folder', 'model_folder_role', 'query', 'get', 'text_page', 'search', 'attachments','attachment_export', 'diagnose_note', 'contains'},
-                'reminders': {'status', 'sources', 'lists', 'default_list', 'list_sections', 'list_features', 'list_parent', 'list_hierarchy', 'list_order', 'group_inventory', 'group_lists', 'templates', 'template_sections', 'smart_lists', 'query', 'get','list_membership','recovery_lookup','recovery_tree','recovery_list'}}
+                'reminders': {'status', 'sources', 'lists', 'default_list', 'list_sections', 'list_features', 'list_parent', 'list_hierarchy', 'list_order', 'group_inventory', 'group_lists', 'templates', 'template_sections', 'smart_lists', 'query', 'get','attachment_file','list_membership','recovery_lookup','recovery_tree','recovery_list'}}
 MAX_OUTPUT = 2_000_000
 
 
@@ -93,6 +93,12 @@ class NativeReader:
             validate_request(fields)
             if not config.get('helper_path'):raise SafetyError('Attachment export requires the configured native helper')
             fields.setdefault('max_bytes',1048576)
+        if action=='attachment_file':
+            if (self.name!='reminders' or set(fields)!={'id','attachment_id'}
+                    or config.get('advanced_backend')!='reminderkit' or not config.get('helper_path')):
+                raise SafetyError('Attachment files require exact Reminder/attachment IDs and the selected ReminderKit helper')
+            from .native_reminder_files import validate_id
+            validate_id(fields['id']);validate_id(fields['attachment_id'])
         attachment_metadata=fields.pop('include_attachment_metadata',False)
         if type(attachment_metadata) is not bool or (attachment_metadata and (self.name!='notes' or action!='attachments')):raise SafetyError('Attachment metadata is supported only for Notes attachment reads')
         if self.name=='notes' and action=='attachments' and any(not isinstance(fields.get(key),str) or not 1<=len(fields[key])<=1000 for key in ('folder_id','id')):raise SafetyError('Attachment reads require an exact note and folder')
@@ -184,7 +190,7 @@ class NativeReader:
         match_scope=fields.pop('match_scope','all')
         if not isinstance(match_scope,str) or match_scope not in {'all','title','plaintext'} or (match_scope!='all' and (self.name!='notes' or action!='search')):
             raise SafetyError('Notes search scope must be all, title or plaintext')
-        if {'attachment_id','max_bytes'}.intersection(fields) and (self.name!='notes' or action!='attachment_export'):raise SafetyError('Attachment export fields require the exact export action')
+        if {'attachment_id','max_bytes'}.intersection(fields) and (self.name,action) not in {('notes','attachment_export'),('reminders','attachment_file')}:raise SafetyError('Attachment export fields require the exact export action')
         if set(fields) - {'attachment_id','max_bytes','id', 'folder_id', 'list_id', 'group_id', 'limit', 'offset', 'completed', 'locked', 'shared', 'has_attachments', 'text', 'due_date', 'timezone', 'include_overdue', 'due_from', 'due_through', 'priorities', 'flagged', 'tag', 'urgent', 'has_current_assignment', 'has_native_attachments', 'source_id', 'modified_from', 'modified_before', 'created_from', 'created_before', 'expected_modified', 'completed_from', 'completed_before'}:
             raise SafetyError('Unknown native read fields')
         locked_filter=fields.get('locked')
@@ -271,6 +277,10 @@ class NativeReader:
             if native_config('notes')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode:raise SafetyError('Notes access changed during metadata read')
             return result
         result = self._dispatch(request, config)
+        if action=='attachment_file':
+            from .native_reminder_files import validate_descriptor
+            if native_config('reminders')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode:raise SafetyError('Reminders access changed during file observation')
+            return validate_descriptor(result,fields,sources)
         if self.name=='reminders' and action=='lists':
             rows=result.get('lists') if isinstance(result,dict) else None
             if (native_config('reminders')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode
@@ -1246,6 +1256,13 @@ def register_read_tools(mcp):
                 alerts=result['item']['native_metadata']['early_alerts']
                 result['item']['early_reminders']=[{'unit':units.get(a['native_unit']), 'offset':a['native_count'], 'native_unit':a['native_unit']} for a in alerts]
             return result
+
+        @mcp.tool(annotations=annotations)
+        @guard
+        def reminders_export_attachment(id:str,attachment_id:str,max_bytes:int=1048576)->dict:
+            """Read <=1MiB of one exact Reminder's locally available native image/file attachment as base64 with SHA-256. Requires selected ReminderKit/helper; no download or caller paths. Reminders may convert files; original bytes and complete backup are not claimed."""
+            from .native_reminder_files import export
+            return export(id,attachment_id,max_bytes)
 
         @mcp.tool(annotations=annotations)
         @guard

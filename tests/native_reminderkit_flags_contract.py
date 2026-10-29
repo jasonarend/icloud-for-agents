@@ -89,6 +89,8 @@ FIXTURE=r'''
 @property FixtureID *accountID;
 @property FixtureID *reminderID;
 @property NSString *uti;
+@property NSURL *fileURL;
+@property unsigned long long fileSize;
 @end
 @implementation FixtureAttachment
 @end
@@ -300,6 +302,19 @@ int main(){@autoreleasepool{
  NSCAssert([attachmentRead()[@"native_metadata"][@"attachments"] count]==0,@"empty attachment observation");
  FixtureAttachment *file=[FixtureAttachment new];file.remObjectID=Identity(@"REMCDFileAttachment",other);file.accountID=fixture.account.remObjectID;file.reminderID=fixture.remObjectID;file.uti=@"public.data";attachmentContext.attachments=@[file];
  NSCAssert([attachmentRead()[@"native_metadata"][@"attachments"][0][@"kind"] isEqual:@"file"],@"scoped attachment metadata");
+ NSString *leaf=[[@"a" stringByPaddingToLength:128 withString:@"a" startingAtIndex:0] stringByAppendingString:@".png"];
+ NSString *fileRoot=[NSHomeDirectory() stringByAppendingPathComponent:[NSString stringWithFormat:@"Library/Group Containers/group.com.apple.reminders/Container_v1/Files/Account-%@/Attachments",source]];
+ NSURL *expectedURL=[NSURL fileURLWithPath:[fileRoot stringByAppendingPathComponent:leaf]];file.fileURL=expectedURL;file.fileSize=42;
+ NSData *fileRequest=EncodeFlag(@{@"id":task,@"source_id":source,@"list_id":list,@"attachment_id":other});
+ NSDictionary *(^fileRead)(void)=^NSDictionary *{return [NSJSONSerialization JSONObjectWithData:ICloudRemindersAttachmentFile(fileRequest) options:0 error:NULL];};
+ NSCAssert([fileRead()[@"file_leaf"] isEqual:leaf] && [fileRead()[@"file_size"] integerValue]==42 && ![fileRead()[@"download_requested"] boolValue],@"exact scoped file leaf only; no file bytes read");
+ file.fileURL=[NSURL URLWithString:@"https://example.invalid/file.png"];NSCAssert(fileRead()[@"error"],@"remote file refused");
+ file.fileURL=[NSURL fileURLWithPath:[@"/tmp" stringByAppendingPathComponent:leaf]];NSCAssert(fileRead()[@"error"],@"foreign local path refused");
+ file.fileURL=[NSURL fileURLWithPath:[fileRoot stringByAppendingPathComponent:@"invalid.png"]];NSCAssert(fileRead()[@"error"],@"unsupported storage leaf refused");file.fileURL=expectedURL;
+ file.reminderID=Identity(@"REMCDReminder",source);NSCAssert(fileRead()[@"error"],@"foreign file reminder relation refused");file.reminderID=fixture.remObjectID;
+ file.accountID=Identity(@"REMCDAccount",other);NSCAssert(fileRead()[@"error"],@"foreign file account refused");file.accountID=fixture.account.remObjectID;
+ file.remObjectID=Identity(@"REMCDURLAttachment",other);NSCAssert(fileRead()[@"error"],@"URL attachment has no file export");file.remObjectID=Identity(@"REMCDFileAttachment",other);
+ attachmentContext.attachments=@[file,file];NSCAssert(fileRead()[@"error"],@"ambiguous file attachment refused");attachmentContext.attachments=@[file];
  file.accountID=Identity(@"REMCDAccount",other);NSCAssert(attachmentRead()[@"error"],@"foreign attachment refused");file.accountID=fixture.account.remObjectID;
  attachmentContext.attachments=@[file,file];NSCAssert(attachmentRead()[@"error"],@"duplicate attachment refused");attachmentContext.attachments=nil;NSCAssert(attachmentRead()[@"error"],@"unknown attachments refused");
  FixtureAssignments *assignments=[FixtureAssignments new];assignments.assignments=[NSSet set];fixture.assignmentContext=assignments;

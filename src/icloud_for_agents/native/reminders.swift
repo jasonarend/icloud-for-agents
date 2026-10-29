@@ -391,7 +391,7 @@ if action == "request_access" {
     RunLoop.current.run(until: Date(timeIntervalSinceNow: 60))
     fail("permission_timeout")
 }
-let actions = ["status", "sources", "lists", "default_list", "list_sections", "list_features", "list_parent", "list_hierarchy", "list_order", "group_inventory", "group_lists", "templates", "template_sections", "smart_lists", "query", "get", "list_membership", "recovery_lookup", "recovery_tree", "recovery_list", "apply"]
+let actions = ["status", "sources", "lists", "default_list", "list_sections", "list_features", "list_parent", "list_hierarchy", "list_order", "group_inventory", "group_lists", "templates", "template_sections", "smart_lists", "query", "get", "attachment_file", "list_membership", "recovery_lookup", "recovery_tree", "recovery_list", "apply"]
 guard actions.contains(action) else { fail("unsupported_action") }
 if action == "status" {
     respond(["protocol_version": 1, "service": "reminders", "access": permission,
@@ -1170,7 +1170,7 @@ func nativeSnapshotMatches(_ reminder:EKReminder,_ expected:[String:Any])->Bool 
     guard let observed=selectedNativeMetadata(reminder,["include_native_metadata":true,"include_native_tags":true,"include_native_hierarchy":true,"include_native_children":true,"include_native_section":true,"include_native_early":true]) else {return false}
     return NSDictionary(dictionary:observed).isEqual(to:expected)
 }
-if action == "get" {
+if action == "get" || action == "attachment_file" {
     guard let id = req["id"] as? String else { fail("invalid_request") }
     guard !lists.isEmpty else { fail("not_found_in_scope") }
     let predicate = store.predicateForReminders(in: lists)
@@ -1178,6 +1178,12 @@ if action == "get" {
         guard let reminders = reminders else { fail("read_failed") }
         guard reminders.count <= 100000 else { fail("query_limit") }
         guard let reminder = reminders.first(where: { $0.calendarItemIdentifier == id }) else { fail("not_found_in_scope") }
+        if action == "attachment_file" {
+            guard let attachment=req["attachment_id"] as? String,
+                  let payload=try? JSONSerialization.data(withJSONObject:["id":id,"source_id":reminder.calendar.source.sourceIdentifier,"list_id":reminder.calendar.calendarIdentifier,"attachment_id":attachment]),
+                  let value=(try? JSONSerialization.jsonObject(with:ICloudRemindersAttachmentFile(payload))) as? [String:Any] else {fail("invalid_request")}
+            respond(value)
+        }
         var result=object(reminder)
         if let native=selectedNativeMetadata(reminder,req){result["native_metadata"]=native}
         respond(["protocol_version": 1, "item": result])

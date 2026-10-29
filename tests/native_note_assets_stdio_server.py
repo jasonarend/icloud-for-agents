@@ -8,6 +8,8 @@ sys.addaudithook(audit);atexit.register(lambda:Path(os.environ['BRIDGE_TEST_AUDI
 from icloud_for_agents import credentials,native_note_assets as assets
 from icloud_for_agents import native_note_queries as queries
 from icloud_for_agents import native_note_tags as tags
+from icloud_for_agents import native_reminder_files as files
+from test_native_reminder_files import Reader as FileReader,RAW as FILE_RAW,SOURCE as FILE_SOURCE,LEAF as FILE_LEAF
 from icloud_for_agents.core import SafetyError
 from test_native_note_assets import UUID,SOURCE,FOLDER,NOTE,ASSET_STORAGE,ACCOUNT_STORAGE,GENERATION,RAW,Reader
 credentials.credentials=lambda:(_ for _ in ()).throw(AssertionError('No credentials'))
@@ -29,5 +31,9 @@ def tag_state(folder,identity):
  value,_=state(folder,identity)
  return value,[{'id':f'x-coredata://{UUID}/ICInlineAttachment/p40','revision':2,'display_text':'#Synthetic','native_token':'SYNTHETIC'}]
 tags._tags=tag_state;tags.NativeReader=lambda name:Reader()
+def reminder_bytes(source,leaf,size,maximum):
+ if (source,leaf,size)!=(FILE_SOURCE,FILE_LEAF,len(FILE_RAW)) or size>maximum:raise SafetyError('Synthetic exact file identity or bound mismatch')
+ return FILE_RAW
+files.NativeReader=lambda name:FileReader();files._bytes=reminder_bytes
 from icloud_for_agents.server import main
 main()
