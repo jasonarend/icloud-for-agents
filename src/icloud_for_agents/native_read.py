@@ -1458,6 +1458,13 @@ def register_read_tools(mcp):
 
         @mcp.tool(annotations=annotations)
         @guard
+        def notes_native_checklist(folder_id:str,id:str,limit:int=20,offset:int=0)->dict:
+            """Read saved local native checklist IDs, checked state, indentation and paragraph text in one exact unlocked note with optional notes-store-readonly access. Unsaved UI edits may lag; app text checks cannot verify current UI checkbox state. Reads the bounded native body blob after app/scope checks; no writer or native model. Unknown formats refuse; follow next_offset and compare snapshot_sha256 across live pages. Rich objects, soft-line semantics, synchronization and restorable backup are not represented."""
+            from .native_note_checklist import inventory
+            return inventory(folder_id,id,limit=limit,offset=offset)
+
+        @mcp.tool(annotations=annotations)
+        @guard
         def notes_export_fallback_pdf(folder_id:str,id:str,asset_id:str,max_bytes:int=1048576)->dict:
             """Read <=1MiB of one exact unlocked note's locally available Notes-generated PDF as base64 with SHA-256. Optional notes-store-readonly backend; no download, caller paths, original-file identity or complete-backup claim."""
             from .native_note_assets import export_pdf

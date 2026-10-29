@@ -70,6 +70,7 @@ jobs:
           .venv/bin/python tests/native_reminder_groups_stdio_smoke.py
           .venv/bin/python tests/native_note_attachment_export_stdio_smoke.py
           .venv/bin/python tests/native_note_assets_stdio_smoke.py
+          .venv/bin/python tests/native_note_checklist_stdio_smoke.py
           .venv/bin/python tests/native_group_members_stdio_smoke.py
           .venv/bin/python tests/native_list_groups_stdio_smoke.py
           .venv/bin/python tests/native_group_order_stdio_smoke.py
