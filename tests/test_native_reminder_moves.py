@@ -81,3 +81,16 @@ class ReminderMoveTests(unittest.TestCase):
                 self.reader.items[CHILD]['notes']='Changed child';self.assertFalse(inspect_uncertain_reminder(engine,identity)['observed_snapshot_matches_before']);self.reader.items[CHILD]['notes']='Keep this body'
                 self.apply(item);self.assertFalse(inspect_uncertain_reminder(engine,identity)['observed_snapshot_matches_before'])
             self.assertFalse(store.operation_settled(identity));self.assertTrue(observed['original_uncertainty_retained'])
+
+    def test_reviewed_unknown_move_acceptance_binds_all_descendants_and_graphs(self):
+        from icloud_for_agents.native_execution import capture
+        from icloud_for_agents.native_reminder_exchange import begin,finish
+        from icloud_for_agents.native_reminder_recovery import ReminderObservationRecovery
+        with tempfile.TemporaryDirectory() as directory:
+            store=PlanStore(Path(directory)/'runtime');engine=NativeChanges('reminders','synthetic@example.com',self.adapter,store);item=self.adapter.prepare(self.change())
+            proposal=store.prepare('reminders_change',{'account':engine.account,'context':engine.context(True),'changes':[item]});identity=proposal['plan_id'];store.consume(identity,engine.account)
+            with capture(store,'reminders',proposal['review'],0):finish(begin(mutation_request('reminders',item)),{'protocol_version':1,'error':'private_metadata_unavailable'})
+            store.finish(identity,{'status':'failed_or_uncertain','phase':'mutation','attempted':[],'completed':[],'do_not_retry':True});manager=ReminderObservationRecovery(engine.account,store,self.adapter);review=manager.prepare(identity,accept_unknown_dispatch=True)
+            self.reader.items[CHILD]['notes']='Changed child'
+            with self.assertRaises(SafetyError):manager.execute(review['plan_id'])
+            self.reader.items[CHILD]['notes']='Keep this body';self.assertEqual(manager.execute(review['plan_id'])['status'],'completed');engine.assert_settled()

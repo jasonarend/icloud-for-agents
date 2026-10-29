@@ -330,11 +330,11 @@ def register_change_tools(mcp):
 
         @mcp.tool(annotations=WRITE)
         @guard
-        def reminders_prepare_observation_recovery(plan_id:str,legacy_missing_terminal:bool=False)->dict:
-            """Review accepting an unchanged Reminder after a terminal error, or explicitly prepare legacy acceptance when both exchange records are absent. Legacy acceptance requires the owner's separate exact acknowledgement at execution; general write permission does not supply it."""
+        def reminders_prepare_observation_recovery(plan_id:str,legacy_missing_terminal:bool=False,accept_unknown_dispatch:bool=False)->dict:
+            """Review accepting current scoped observations after a terminal error. accept_unknown_dispatch explicitly accepts a retained terminal error with unknown dispatch, including a preassigned subtask candidate not observed live or in recovery. It never proves global absence or no delayed effects. Separately prepare legacy acceptance when both exchange records are absent. Legacy acceptance requires the owner's separate exact acknowledgement at execution; general write permission does not supply it."""
             from .native_reminder_recovery import ReminderObservationRecovery
             check_plan_scope('reminders',plan_id)
-            return ReminderObservationRecovery(owner()).prepare(plan_id,legacy_missing_terminal)
+            return ReminderObservationRecovery(owner()).prepare(plan_id,legacy_missing_terminal,accept_unknown_dispatch)
 
         @mcp.tool(annotations=WRITE)
         @guard

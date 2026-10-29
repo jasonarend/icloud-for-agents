@@ -7,7 +7,7 @@ from .core import SafetyError, digest
 
 OBSERVABLE_CHANGES = {'update_reminder', 'set_completed', 'set_recurrence', 'set_flagged',
                       'remove_tag', 'add_tag', 'replace_tag', 'set_urgent', 'add_early',
-                      'clear_early', 'move_reminder'}
+                      'clear_early', 'move_reminder', 'create_subtask'}
 
 
 def inspect_uncertain_reminder(engine, plan_id):
@@ -39,6 +39,12 @@ def inspect_uncertain_reminder(engine, plan_id):
             or not isinstance(before.get('list'), dict) or before['list'].get('id') != before['item'].get('list_id')
             or before['list'].get('source_id') != source):
         raise SafetyError('The original exact reminder snapshot is unavailable')
+    if item['operation']=='create_subtask':
+        import uuid
+        child=item.get('child_id')
+        try:
+            if not isinstance(child,str) or str(uuid.UUID(child)).upper()!=child or child==identity:raise ValueError()
+        except ValueError:raise SafetyError('Exact preassigned child identity required') from None
     # This selects the adapter's read-only exact-reminder snapshot path; it does
     # not dispatch or reinterpret the original operation as an update.
     observed = engine.adapter.snapshot(dict(item, operation='update_reminder'))
@@ -54,13 +60,28 @@ def inspect_uncertain_reminder(engine, plan_id):
         from .native_reminder_moves import observe_unchanged
         matches=observe_unchanged(engine.adapter,item,observed)
         coverage='all_reviewed_subtree_snapshots_and_both_bounded_list_graphs'
+    candidate=None
+    if item['operation']=='create_subtask':
+        from .core import NativeObjectNotFound
+        child=item['child_id']
+        try:
+            engine.adapter.reader.read('get',id=child)
+        except NativeObjectNotFound:
+            recovery=engine.adapter.reader.read('recovery_lookup',source_id=source,id=child)
+            if recovery.get('found_in_view') is not False:raise SafetyError('The preassigned child is present or recovery visibility is unavailable')
+        else:raise SafetyError('The preassigned child is present; inspect its exact state instead')
+        candidate={'id':child,'found_in_selected_live_scope':False,'found_in_recovery_view':False,
+                   'coverage':'selected_EventKit_scope_and_provider_recovery_view','absence_globally_proven':False}
+        coverage='parent_snapshot_and_preassigned_child_scope_observations'
     if engine.context(True) != context:
         raise SafetyError('Reminder access changed during observation')
     from .native_reminder_exchange import inspect
     terminal=inspect(engine.store,plan)
-    return {'plan_id': plan_id, 'reminder_id': identity, 'source_id': source,
+    result={'plan_id': plan_id, 'reminder_id': identity, 'source_id': source,
             'observed_snapshot_matches_before': matches,
             'snapshot_coverage': coverage,
             'observation_consistency': 'separate_live_reads_may_change',
             'original_uncertainty_retained': True, 'causal_dispatch_proven': False,
             'data_mutated': False, 'do_not_retry': True, **terminal}
+    if candidate is not None:result['preassigned_child_observation']=candidate
+    return result

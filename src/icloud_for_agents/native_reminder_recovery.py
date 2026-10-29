@@ -10,6 +10,8 @@ from .native_changes import NativeChanges
 from .native_reminder_observation import inspect_uncertain_reminder
 from .native_reminders import RemindersCreateAdapter
 
+UNKNOWN_DISPATCH_EFFECT = 'The retained request-bound terminal error omits dispatch status. Accept current scoped observations without proving non-dispatch, global absence or absence of delayed effects; never replay the original request.'
+
 LEGACY_ACK = 'I confirm the original helper has stopped, accept possible delayed or unobserved effects, and approve fresh separately authorized work without replay.'
 
 def missing_legacy_exchange(store,identity):
@@ -33,7 +35,7 @@ class ReminderObservationRecovery:
             raise SafetyError('Recovery requires one owned uncertain Reminder mutation with no completed item')
         return plan,result,items[0]
 
-    def observation(self,identity,legacy=False):
+    def observation(self,identity,legacy=False,unknown=False):
         value=inspect_uncertain_reminder(self.engine,identity)
         if legacy:
             if (not missing_legacy_exchange(self.store,identity) or value.get('observed_snapshot_matches_before') is not True
@@ -41,20 +43,21 @@ class ReminderObservationRecovery:
                 raise SafetyError('Legacy acceptance requires absent exchange evidence and an unchanged exact snapshot')
             return value
         if (value.get('observed_snapshot_matches_before') is not True or value.get('terminal_response')!='recorded'
-                or value.get('helper_reported_mutation_dispatched') is not True):
+                or value.get('helper_reported_mutation_dispatched') is not (None if unknown else True)):
             raise SafetyError('A matching snapshot and request-bound terminal dispatch report are required')
         response=self.store.read(self.store.path(identity,'.native-reminder-response-0'))
         if response.get('response_kind')!='error':raise SafetyError('Recovery is limited to a recorded terminal helper error')
         return value
 
-    def prepare(self,original_id,legacy_missing_terminal=False):
-        if type(legacy_missing_terminal) is not bool:raise SafetyError('Use an explicit legacy evidence selection')
+    def prepare(self,original_id,legacy_missing_terminal=False,accept_unknown_dispatch=False):
+        if type(legacy_missing_terminal) is not bool or type(accept_unknown_dispatch) is not bool or (legacy_missing_terminal and accept_unknown_dispatch):raise SafetyError('Select one explicit retained-terminal or legacy recovery mode')
         legacy=legacy_missing_terminal
         self.engine.context(True)
         with self.engine.serialized():
             plan,result,item=self.original(original_id)
             if self.store._native_reminder_recovery_completed(original_id):raise SafetyError('An observation has already been accepted for this Reminder')
-            observed=self.observation(original_id,True) if legacy else self.observation(original_id)
+            if item.get('operation')=='create_subtask' and not accept_unknown_dispatch:raise SafetyError('Subtask candidate acceptance requires explicit unknown-dispatch review')
+            observed=self.observation(original_id,True) if legacy else self.observation(original_id,unknown=True) if accept_unknown_dispatch else self.observation(original_id)
             request=None if legacy else self.store.read(self.store.path(original_id,'.native-reminder-request-0'))
             response=None if legacy else self.store.read(self.store.path(original_id,'.native-reminder-response-0'))
             payload={'account':self.account,'context':self.engine.context(True),'original_id':original_id,
@@ -65,6 +68,9 @@ class ReminderObservationRecovery:
                     'decision':'Accept only the current observed reminder snapshot after review and allow fresh, separately authorized work.',
                     'uncertainty':'The original dispatch and provider effects remain unproven. Unexposed metadata, other objects and delayed effects are not ruled out.',
                     'future_actions':'Fresh plans still require current scope, fidelity and approval checks.'}}
+            if accept_unknown_dispatch:
+                payload['accept_unknown_dispatch']=True
+                payload['effects']['retained_terminal_unknown_dispatch']=UNKNOWN_DISPATCH_EFFECT
             if legacy:
                 payload['legacy_acknowledgement']=LEGACY_ACK
                 payload['effects']['missing_terminal_evidence']='No original request or terminal response was retained. No dispatch, stop or absence of effects is proven by this recovery.'
@@ -76,7 +82,7 @@ class ReminderObservationRecovery:
         payload=plan.get('payload',{});original_id=payload.get('original_id')
         if not original_id or not self.store._native_reminder_recovery_for(original_id,plan):raise SafetyError('Invalid Reminder observation binding or an observation was already accepted')
         if payload.get('context')!=self.engine.context(True):raise SafetyError('Reminder observation access, backend or approval policy changed')
-        observed=self.observation(original_id,True) if 'legacy_acknowledgement' in payload else self.observation(original_id)
+        observed=self.observation(original_id,True) if 'legacy_acknowledgement' in payload else self.observation(original_id,unknown=True) if payload.get('accept_unknown_dispatch') is True else self.observation(original_id)
         if observed!=payload.get('observed'):raise SafetyError('Observed Reminder state or terminal evidence changed since review')
         return plan
 
@@ -97,7 +103,7 @@ class ReminderObservationRecovery:
                 raise SafetyError('The owner must explicitly confirm the stopped helper and unresolved effects before legacy acceptance')
             self.engine.assert_settled(plan);self.store.consume(identity,self.account)
             try:
-                observed=(self.observation(plan['payload']['original_id'],True) if 'legacy_acknowledgement' in plan['payload'] else self.observation(plan['payload']['original_id']))
+                observed=(self.observation(plan['payload']['original_id'],True) if 'legacy_acknowledgement' in plan['payload'] else self.observation(plan['payload']['original_id'],unknown=True) if plan['payload'].get('accept_unknown_dispatch') is True else self.observation(plan['payload']['original_id']))
                 if self.engine.context(True)!=plan['payload']['context'] or observed!=plan['payload']['observed']:
                     raise SafetyError('Observed Reminder state changed')
             except Exception:

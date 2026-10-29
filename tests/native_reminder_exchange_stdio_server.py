@@ -18,7 +18,9 @@ class Adapter:
     def apply(self,item):return NativeReader('reminders')._dispatch(mutation_request('reminders',item),{'helper_path':str(helper)})['result']
     def verify(self,item,result):raise AssertionError('Synthetic helper intentionally reports uncertainty')
 def synthetic_run(command,**kwargs):
-    kwargs['stdout'].write(json.dumps({'protocol_version':1,'error':'mutation_failed_or_uncertain','mutation_dispatched':True}).encode())
+    response={'protocol_version':1,'error':'mutation_failed_or_uncertain'}
+    if os.environ.get('BRIDGE_TEST_TERMINAL_UNKNOWN')!='1':response['mutation_dispatched']=True
+    kwargs['stdout'].write(json.dumps(response).encode())
     return SimpleNamespace(returncode=0)
 native_tools.RemindersCreateAdapter=lambda:Adapter()
 import icloud_for_agents.native_reminder_recovery as recovery

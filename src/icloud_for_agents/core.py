@@ -19,6 +19,10 @@ class SafetyError(ValueError):
     pass
 
 
+class NativeObjectNotFound(SafetyError):
+    """A completed exact native read did not find the ID in selected scope."""
+
+
 class NativeOperationRefused(SafetyError):
     """The fixed native helper confirmed no mutation primitive was dispatched."""
     def __init__(self,message,*,evidence=None):

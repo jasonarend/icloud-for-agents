@@ -94,3 +94,14 @@ class ReminderExchangeTests(unittest.TestCase):
             evidence=inspect(self.store,self.store.read(self.store.path(identity,'.json')))
             self.assertEqual(evidence,{'terminal_response':expected,'helper_reported_mutation_dispatched':None})
             self.assertFalse(self.store.operation_settled(identity))
+
+    def test_only_completed_exact_get_not_found_is_a_typed_missing_observation(self):
+        from icloud_for_agents.core import NativeObjectNotFound
+        reader=NativeReader('reminders');config={'helper_path':str(self.helper)}
+        for code in ('permission_required','query_limit','private_metadata_unavailable'):
+            with self.subTest(error=code),patch('subprocess.run',side_effect=self.launch({'protocol_version':1,'error':code})):
+                try:reader._dispatch({'protocol_version':1,'action':'get','id':'synthetic','source_ids':['selected']},config)
+                except SafetyError as exc:self.assertNotIsInstance(exc,NativeObjectNotFound)
+                else:self.fail('Failed read was accepted')
+        with patch('subprocess.run',side_effect=self.launch({'protocol_version':1,'error':'not_found_in_scope'})),self.assertRaises(NativeObjectNotFound):
+            reader._dispatch({'protocol_version':1,'action':'get','id':'synthetic','source_ids':['selected']},config)

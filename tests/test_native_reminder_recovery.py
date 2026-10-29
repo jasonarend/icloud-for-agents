@@ -147,3 +147,68 @@ class ReminderRecoveryTests(ReminderExchangeTests):
             result=self.recovery.execute(proposal['plan_id'])
         self.assertEqual(result['recovery_state'],'not_accepted')
         self.assertFalse(self.store.operation_settled(original))
+
+    def unknown_terminal(self,subtask=False):
+        if subtask:
+            from types import SimpleNamespace
+            from icloud_for_agents.core import NativeObjectNotFound
+            self.adapter.operations={'update_reminder','create_subtask'};prepare=self.adapter.prepare
+            def prepared(change):
+                item=prepare(change);item['child_id']='11111111-1111-4111-8111-111111111111';return item
+            self.adapter.prepare=prepared
+            def read(action,**fields):
+                if action=='get':raise NativeObjectNotFound('Not in synthetic selected scope')
+                if action=='recovery_lookup':return {'found_in_view':False}
+                raise AssertionError(action)
+            self.adapter.reader=SimpleNamespace(read=read)
+            proposal=self.engine.prepare_once([{'operation':'create_subtask','source_id':'selected','id':'task','fields':{'title':'Synthetic child'}}])
+        else:proposal=self.plan()
+        with patch('subprocess.run',side_effect=self.launch({'protocol_version':1,'error':'private_metadata_unavailable'})):
+            self.assertEqual(self.engine.execute(proposal['plan_id'])['status'],'failed_or_uncertain')
+        return proposal['plan_id']
+
+    def test_recorded_unknown_dispatch_requires_explicit_review_and_retains_original(self):
+        original=self.unknown_terminal();before=self.store.path(original,'.result').read_bytes()
+        with self.assertRaises(SafetyError):self.recovery.prepare(original)
+        proposal=self.recovery.prepare(original,accept_unknown_dispatch=True)
+        self.assertTrue(proposal['review']['payload']['accept_unknown_dispatch'])
+        self.assertIn('absence of delayed effects',proposal['review']['payload']['effects']['retained_terminal_unknown_dispatch'])
+        self.assertEqual(self.recovery.execute(proposal['plan_id'])['status'],'completed');self.engine.assert_settled()
+        self.assertEqual(before,self.store.path(original,'.result').read_bytes())
+        self.assertIsNone(self.store.read(self.store.path(original,'.native-reminder-response-0'))['mutation_dispatched'])
+        with self.assertRaises(SafetyError):self.engine.execute(original)
+
+    def test_unknown_dispatch_strict_policy_still_requires_bound_owner_receipt(self):
+        original=self.unknown_terminal();os.environ['ICLOUD_APPROVAL_POLICY']='local-receipt';proposal=self.recovery.prepare(original,accept_unknown_dispatch=True)
+        with self.assertRaises(FileNotFoundError):self.recovery.execute(proposal['plan_id'])
+        self.store.write_once(self.store.path(proposal['plan_id'],'.approved'),{'plan_id':proposal['plan_id'],'sha256':proposal['sha256']})
+        self.assertEqual(self.recovery.execute(proposal['plan_id'])['status'],'completed');self.assertTrue(self.store.operation_settled(original))
+
+    def test_unknown_dispatch_never_borrows_missing_terminal_or_legacy_acknowledgement(self):
+        original=self.unknown_terminal()
+        for args in ({'accept_unknown_dispatch':1},{'accept_unknown_dispatch':True,'legacy_missing_terminal':True}):
+            with self.assertRaises(SafetyError):self.recovery.prepare(original,**args)
+        self.store.path(original,'.native-reminder-response-0').unlink()
+        with self.assertRaises(SafetyError):self.recovery.prepare(original,accept_unknown_dispatch=True)
+        self.assertFalse(self.store.operation_settled(original))
+
+    def test_subtask_unknown_acceptance_checks_candidate_and_keeps_scope_limitations(self):
+        original=self.unknown_terminal(subtask=True);proposal=self.recovery.prepare(original,accept_unknown_dispatch=True)
+        observed=proposal['review']['payload']['observed'];self.assertFalse(observed['preassigned_child_observation']['absence_globally_proven'])
+        self.assertEqual(self.recovery.execute(proposal['plan_id'])['status'],'completed');self.engine.assert_settled()
+
+    def test_subtask_observed_candidate_or_read_failure_prevents_acceptance(self):
+        original=self.unknown_terminal(subtask=True)
+        self.adapter.reader.read=lambda *args,**kwargs:{'item':{'id':'synthetic'}}
+        with self.assertRaises(SafetyError):self.recovery.prepare(original,accept_unknown_dispatch=True)
+        def denied(*args,**kwargs):raise SafetyError('Synthetic permission failure')
+        self.adapter.reader.read=denied
+        with self.assertRaises(SafetyError):self.recovery.prepare(original,accept_unknown_dispatch=True)
+        self.assertFalse(self.store.operation_settled(original))
+
+    def test_unknown_review_cannot_omit_terminal_risk_or_forge_candidate_observation(self):
+        original=self.unknown_terminal(subtask=True);proposal=self.recovery.prepare(original,accept_unknown_dispatch=True);plan=proposal['review']
+        for field in ('accept_unknown_dispatch','request_record_sha256','response_record_sha256'):
+            forged=copy.deepcopy(plan);del forged['payload'][field];self.assertFalse(self.store._native_reminder_recovery_for(original,forged))
+        forged=copy.deepcopy(plan);del forged['payload']['effects']['retained_terminal_unknown_dispatch'];self.assertFalse(self.store._native_reminder_recovery_for(original,forged))
+        forged=copy.deepcopy(plan);forged['payload']['observed']['preassigned_child_observation']['absence_globally_proven']=True;self.assertFalse(self.store._native_reminder_recovery_for(original,forged))

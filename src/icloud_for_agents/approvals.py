@@ -209,6 +209,9 @@ class PlanStore:
                 or payload.get('operation')!='accept_observed_unchanged_reminder'):return False
         terminal=inspect(self,original)
         legacy='legacy_acknowledgement' in payload
+        unknown=payload.get('accept_unknown_dispatch') is True
+        if 'accept_unknown_dispatch' in payload and not unknown:return False
+        if legacy and unknown:return False
         if legacy:
             from .native_reminder_recovery import LEGACY_ACK, missing_legacy_exchange
             if (payload['legacy_acknowledgement']!=LEGACY_ACK or not missing_legacy_exchange(self,original_id)
@@ -217,16 +220,24 @@ class PlanStore:
                     or payload.get('effects',{}).get('missing_terminal_evidence')!='No original request or terminal response was retained. No dispatch, stop or absence of effects is proven by this recovery.'
                     or payload.get('effects',{}).get('helper_stop_evidence')!='Owner attestation only; independently verify the original helper has stopped before accepting.'):return False
         else:
-            if terminal!={'terminal_response':'recorded','helper_reported_mutation_dispatched':True}:return False
+            if terminal!={'terminal_response':'recorded','helper_reported_mutation_dispatched':None if unknown else True}:return False
+            if unknown:
+                from .native_reminder_recovery import UNKNOWN_DISPATCH_EFFECT
+                if payload.get('effects',{}).get('retained_terminal_unknown_dispatch')!=UNKNOWN_DISPATCH_EFFECT:return False
             request=self.read(self.path(original_id,'.native-reminder-request-0'));response=self.read(self.path(original_id,'.native-reminder-response-0'))
             if (response.get('response_kind')!='error' or payload.get('request_record_sha256')!=digest(request)
                     or payload.get('response_record_sha256')!=digest(response)):return False
         item=items[0]
+        coverage='only_fields_exposed_by_the_current_adapter'
+        if item['operation']=='move_reminder' and 'source_graph' in item.get('before',{}):coverage='all_reviewed_subtree_snapshots_and_both_bounded_list_graphs'
+        if item['operation']=='create_subtask':
+            if not unknown or legacy or observed.get('preassigned_child_observation')!={'id':item.get('child_id'),'found_in_selected_live_scope':False,'found_in_recovery_view':False,'coverage':'selected_EventKit_scope_and_provider_recovery_view','absence_globally_proven':False}:return False
+            coverage='parent_snapshot_and_preassigned_child_scope_observations'
         if (observed.get('plan_id')!=original_id or observed.get('reminder_id')!=item.get('id') or observed.get('source_id')!=item.get('source_id')
                 or observed.get('observed_snapshot_matches_before') is not True or observed.get('terminal_response')!=terminal['terminal_response']
                 or observed.get('helper_reported_mutation_dispatched') is not terminal['helper_reported_mutation_dispatched'] or observed.get('data_mutated') is not False
                 or observed.get('original_uncertainty_retained') is not True or observed.get('causal_dispatch_proven') is not False
-                or observed.get('snapshot_coverage')!='only_fields_exposed_by_the_current_adapter'
+                or observed.get('snapshot_coverage')!=coverage
                 or observed.get('observation_consistency')!='separate_live_reads_may_change'
                 or observed.get('do_not_retry') is not True):return False
         identity=recovery['plan_id'];abandoned=self.path(identity,'.native-reminder-recovery-abandoned')

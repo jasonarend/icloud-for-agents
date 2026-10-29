@@ -776,6 +776,9 @@ class NativeReader:
             if action=='apply' and response.get('mutation_dispatched') is False:
                 raise _confirmed_refusal(self.name,request,response)
             code = response['error']
+            if self.name=='reminders' and action=='get' and code=='not_found_in_scope':
+                from .core import NativeObjectNotFound
+                raise NativeObjectNotFound('Exact reminder was not found in the selected source scope')
             allowed = {'permission_required', 'not_found_in_scope', 'source_scope_required',
                        'invalid_page', 'response_limit', 'read_failed', 'read_timeout', 'query_limit','private_metadata_unavailable','snapshot_changed'}
             if self.name == 'notes' and code == 'permission_required':
