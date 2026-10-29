@@ -14,8 +14,20 @@ FIXTURE=r'''
 @property FakeID *remObjectID;
 @end
 @implementation FakeAccount @end
+@interface FakeConfiguration:NSObject
+@property BOOL shouldSaveCompleted;@property FakeID *sourceListID;
+@end
+@implementation FakeConfiguration @end
+@interface FakeSharing:NSObject
+@property BOOL shouldIncludeHashtags;@property BOOL shouldIncludeAlarmTriggersBasedOnDateOrTimeInterval;@property BOOL shouldIncludeAlarmTriggersBasedOnLocationOrVehicle;
+@end
+@implementation FakeSharing @end
+@interface FakeLink:NSObject
+@property NSURL *url;@property BOOL canBeUpdated;@property id creationDate;@property id lastModifiedDate;@property id expirationDate;@property FakeSharing *configuration;
+@end
+@implementation FakeLink @end
 @interface FakeStorage:NSObject
-@property long long minimumSupportedVersion;@property FakeID *accountID; @property NSString *name; @property FakeID *remObjectID; @property NSData *filterData;
+@property FakeID *parentAccountID;@property FakeConfiguration *configuration;@property FakeLink *publicLink;@property long long minimumSupportedVersion;@property FakeID *accountID; @property NSString *name; @property FakeID *remObjectID; @property NSData *filterData;
 @end
 @implementation FakeStorage @end
 @interface FakeTemplate:NSObject
@@ -84,10 +96,25 @@ int main(int argc,const char **argv){@autoreleasepool{
  if([mode isEqual:@"definition_missing"])a.storage.filterData=nil;
  if([mode isEqual:@"definition_oversized"])a.storage.filterData=[NSMutableData dataWithLength:65537];
  if([mode isEqual:@"definition_nonutf8"]){unsigned char invalid[]={255};a.storage.filterData=[NSData dataWithBytes:invalid length:1];}}
+ if([mode hasPrefix:@"metadata_"]){
+ a.storage.remObjectID=a.remObjectID;a.storage.parentAccountID=account.remObjectID;a.storage.minimumSupportedVersion=20220430;a.storage.configuration=[FakeConfiguration new];a.storage.configuration.sourceListID=ident(@"REMCDList",@"66666666-6666-4666-8666-666666666666");
+ if([mode isEqual:@"metadata_foreign"])a.storage.parentAccountID=ident(@"REMCDAccount",other);
+ if([mode isEqual:@"metadata_wrong_storage"])a.storage.remObjectID=b.remObjectID;
+ if([mode isEqual:@"metadata_bad_version"])a.storage.minimumSupportedVersion=-1;
+ if([mode isEqual:@"metadata_bad_configuration"])a.storage.configuration.sourceListID=ident(@"REMCDTemplate",other);
+ if([mode isEqual:@"metadata_no_configuration"])a.storage.configuration=nil;
+ if([mode containsString:@"link"]){FakeLink *l=[FakeLink new];l.url=[NSURL URLWithString:@"https://www.icloud.com/reminders/synthetic-only"];l.configuration=[FakeSharing new];l.creationDate=[NSDate dateWithTimeIntervalSince1970:1];a.storage.publicLink=l;
+ if([mode isEqual:@"metadata_link_bad_scheme"]||[mode isEqual:@"metadata_link_hidden"])l.url=[NSURL URLWithString:@"file:///never/open"];
+ if([mode isEqual:@"metadata_link_credentials"])l.url=[NSURL URLWithString:@"https://user:pass@example.invalid/test"];
+ if([mode isEqual:@"metadata_link_bad_date"])l.creationDate=@"unknown";
+ if([mode isEqual:@"metadata_link_missing_configuration"])l.configuration=nil;
+ }
+ }
  templates=@[b,a];if([mode isEqual:@"foreign"])a.storage.accountID=ident(@"REMCDAccount",other);if([mode isEqual:@"duplicate"])templates=@[a,a];if([mode isEqual:@"missing"])accounts=@[];
  NSDictionary *req=@{@"source_id":source,@"limit":@1,@"offset":@([mode isEqual:@"beyond"]?9:0)};
  if([mode hasPrefix:@"section_"]||[mode hasPrefix:@"definition_"])req=@{@"source_id":source,@"id":@"33333333-3333-4333-8333-333333333333"};
- NSData *data=[NSJSONSerialization dataWithJSONObject:req options:0 error:NULL];NSData *result=[mode hasPrefix:@"definition_"]?ICloudRemindersSmartListDefinition(data):[mode hasPrefix:@"section_"]?ICloudRemindersTemplateSections(data):[mode hasPrefix:@"smart_"]?ICloudRemindersListSmartLists(data):ICloudRemindersListTemplates(data);fwrite(result.bytes,1,result.length,stdout);return 0;
+ if([mode hasPrefix:@"metadata_"]){NSMutableDictionary *r=[@{@"source_id":source,@"id":@"33333333-3333-4333-8333-333333333333",@"include_public_link":@((BOOL)(![mode isEqual:@"metadata_link_hidden"]))}mutableCopy];if([mode isEqual:@"metadata_bad_flag"])r[@"include_public_link"]=@1;if([mode isEqual:@"metadata_extra"])r[@"path"]=@"never";req=r;}
+ NSData *data=[NSJSONSerialization dataWithJSONObject:req options:0 error:NULL];NSData *result=[mode hasPrefix:@"metadata_"]?ICloudRemindersTemplateMetadata(data):[mode hasPrefix:@"definition_"]?ICloudRemindersSmartListDefinition(data):[mode hasPrefix:@"section_"]?ICloudRemindersTemplateSections(data):[mode hasPrefix:@"smart_"]?ICloudRemindersListSmartLists(data):ICloudRemindersListTemplates(data);fwrite(result.bytes,1,result.length,stdout);return 0;
 }}
 '''
 def run():
@@ -99,6 +126,11 @@ def run():
         p=Path(d);(p/'reminders-model.h').write_text((ROOT/'src/icloud_for_agents/native/reminders-model.h').read_text());(p/'test.m').write_text(source+'\n'+FIXTURE)
         result=subprocess.run(['/usr/bin/clang','-fobjc-arc','-framework','Foundation',str(p/'test.m'),'-o',str(p/'contract')],capture_output=True,text=True,timeout=60);assert result.returncode==0,result.stderr
         def call(mode):return json.loads(subprocess.run([str(p/'contract'),mode],capture_output=True,text=True,check=True,timeout=5).stdout)
+        metadata=call('metadata_ok');assert metadata['configuration']['save_completed']is False and metadata['public_link']is None and metadata['data_mutated']is False
+        assert call('metadata_no_configuration')['configuration']is None
+        hidden=call('metadata_link_hidden');assert hidden['public_link_present']is True and hidden['public_link']is None
+        shared=call('metadata_link_ok');assert shared['public_link']['url']=='https://www.icloud.com/reminders/synthetic-only'and shared['public_link']['creationDate']==1
+        for mode in ('metadata_foreign','metadata_wrong_storage','metadata_bad_version','metadata_bad_configuration','metadata_link_bad_scheme','metadata_link_credentials','metadata_link_bad_date','metadata_link_missing_configuration','metadata_bad_flag','metadata_extra'):assert call(mode).get('error'),mode
         page=call('valid');assert len(page['templates'])==1 and page['templates'][0]['title']=='Synthetic' and page['done'] is False and page['next_offset']==1 and page['data_mutated'] is False
         beyond=call('beyond');assert beyond['templates']==[] and beyond['done'] is True and beyond['next_offset']==9
         for mode in ('foreign','duplicate','missing'):assert call(mode).get('error'),mode

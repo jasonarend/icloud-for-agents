@@ -176,6 +176,48 @@ NSData *ICloudRemindersRenameSmartList(NSData *data,BOOL (^enterMutation)(void))
     }@catch(NSException *exception){return EncodeFlag(@{@"protocol_version":@1,@"error":dispatched?@"mutation_failed_or_uncertain":@"private_metadata_unavailable",@"mutation_dispatched":@(dispatched)});}
 }
 
+// Exact template metadata and explicitly requested passive public-link observation.
+NSData *ICloudRemindersTemplateMetadata(NSData *data){
+    @try {
+        id req=[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
+        if(![req isKindOfClass:NSDictionary.class] || ![[NSSet setWithArray:[req allKeys]]isEqual:[NSSet setWithArray:@[@"source_id",@"id",@"include_public_link"]]] || CFGetTypeID((__bridge CFTypeRef)req[@"include_public_link"])!=CFBooleanGetTypeID())return EncodeFlag(FlagFailure(@"invalid_public_identity"));
+        NSString *source=req[@"source_id"],*identifier=req[@"id"];
+        if(![source isKindOfClass:NSString.class] || ![identifier isKindOfClass:NSString.class] || ![[NSUUID alloc]initWithUUIDString:source] || ![[NSUUID alloc]initWithUUIDString:identifier] || !FlagReadInterface())return EncodeFlag(FlagFailure(@"invalid_public_identity"));
+        Class viewClass=NSClassFromString(@"REMTemplatesDataView");
+        if(!MethodMatches(viewClass,@"initWithStore:",@"@@:@",NO) || !MethodMatches(viewClass,@"fetchTemplateWithObjectID:error:",@"@@:@^@",NO))return EncodeFlag(FlagFailure(@"unsupported_template_metadata"));
+        id store=[NSClassFromString(@"REMStore") new],view=((id(*)(id,SEL,id))objc_msgSend)([viewClass alloc],NSSelectorFromString(@"initWithStore:"),store),oid=((id(*)(id,SEL,id))objc_msgSend)((id)NSClassFromString(@"REMObjectID"),NSSelectorFromString(@"objectIDWithURL:"),[NSURL URLWithString:[@"x-apple-reminderkit://REMCDTemplate/" stringByAppendingString:identifier]]);
+        if(!store || !view || !oid)return EncodeFlag(FlagFailure(@"unsupported_template_metadata"));
+        NSError *error=nil;id object=((id(*)(id,SEL,id,NSError**))objc_msgSend)(view,NSSelectorFromString(@"fetchTemplateWithObjectID:error:"),oid,&error),storage=ObjectValue(object,@"storage"),title=ObjectValue(storage,@"name"),parent=ObjectValue(storage,@"parentAccountID"),parentUUID=ObjectValue(parent,@"uuid");
+        if(error || !UUIDEqual(ObjectUUID(object,@"REMCDTemplate"),identifier) || !UUIDEqual(ObjectUUID(storage,@"REMCDTemplate"),identifier) || !StorageMatchesAccount(storage,source) || ![ObjectValue(parent,@"entityName")isEqual:@"REMCDAccount"] || ![parentUUID isKindOfClass:NSUUID.class] || !UUIDEqual([parentUUID UUIDString],source) || ![title isKindOfClass:NSString.class] || [title length]>1000 || [title lengthOfBytesUsingEncoding:NSUTF8StringEncoding]>4000)return EncodeFlag(FlagFailure(@"native_identity_mismatch"));
+        if(!MethodMatches([storage class],@"minimumSupportedVersion",@"q@:",NO) || !MethodMatches([storage class],@"configuration",@"@@:",NO) || !MethodMatches([storage class],@"publicLink",@"@@:",NO))return EncodeFlag(FlagFailure(@"unsupported_template_metadata"));
+        long long version=((long long(*)(id,SEL))objc_msgSend)(storage,NSSelectorFromString(@"minimumSupportedVersion"));if(version<0 || version>2147483647)return EncodeFlag(FlagFailure(@"unsupported_template_metadata"));
+        id config=ObjectValue(storage,@"configuration"),configuration=NSNull.null;
+        if(config){
+            if(!MethodMatches([config class],@"shouldSaveCompleted",@"B@:",NO) || !MethodMatches([config class],@"sourceListID",@"@@:",NO))return EncodeFlag(FlagFailure(@"unsupported_template_metadata"));
+            id list=ObjectValue(config,@"sourceListID"),uuid=ObjectValue(list,@"uuid");
+            if(![ObjectValue(list,@"entityName")isEqual:@"REMCDList"] || ![uuid isKindOfClass:NSUUID.class])return EncodeFlag(FlagFailure(@"native_identity_mismatch"));
+            configuration=@{@"source_list_id":[uuid UUIDString],@"save_completed":@(((BOOL(*)(id,SEL))objc_msgSend)(config,NSSelectorFromString(@"shouldSaveCompleted")))};
+        }
+        id link=ObjectValue(storage,@"publicLink"),linkResult=NSNull.null;BOOL included=[req[@"include_public_link"]boolValue];
+        if(link && included){
+            if(!MethodMatches([link class],@"canBeUpdated",@"B@:",NO))return EncodeFlag(FlagFailure(@"unsupported_template_metadata"));
+            NSURL *url=ObjectValue(link,@"url");if(![url isKindOfClass:NSURL.class] || ![url.scheme.lowercaseString isEqual:@"https"] || !url.host.length || url.user || url.password || url.absoluteString.length>4096)return EncodeFlag(FlagFailure(@"unsupported_template_metadata"));
+            NSMutableDictionary *value=[@{@"url":url.absoluteString,@"can_be_updated":@(((BOOL(*)(id,SEL))objc_msgSend)(link,NSSelectorFromString(@"canBeUpdated")))}mutableCopy];
+            for(NSString *field in @[@"creationDate",@"lastModifiedDate",@"expirationDate"]){
+                if(!MethodMatches([link class],field,@"@@:",NO))return EncodeFlag(FlagFailure(@"unsupported_template_metadata"));
+                id date=ObjectValue(link,field);if(date && ![date isKindOfClass:NSDate.class])return EncodeFlag(FlagFailure(@"unsupported_template_metadata"));
+                double seconds=date?[date timeIntervalSince1970]:0;if(date && (!isfinite(seconds) || seconds<0 || seconds>253402300799.0))return EncodeFlag(FlagFailure(@"unsupported_template_metadata"));
+                value[field]=date?@(seconds):NSNull.null;
+            }
+            id sharing=ObjectValue(link,@"configuration");if(!sharing)return EncodeFlag(FlagFailure(@"unsupported_template_metadata"));
+            NSMutableDictionary *flags=[NSMutableDictionary dictionary];
+            for(NSString *field in @[@"shouldIncludeHashtags",@"shouldIncludeAlarmTriggersBasedOnDateOrTimeInterval",@"shouldIncludeAlarmTriggersBasedOnLocationOrVehicle"]){if(!MethodMatches([sharing class],field,@"B@:",NO))return EncodeFlag(FlagFailure(@"unsupported_template_metadata"));flags[field]=@(((BOOL(*)(id,SEL))objc_msgSend)(sharing,NSSelectorFromString(field)));}
+            value[@"configuration"]=flags;linkResult=value;
+        }
+        return EncodeFlag(@{@"protocol_version":@1,@"source_id":source,@"id":identifier,@"title":title,@"minimum_supported_version":@(version),@"configuration":configuration,@"public_link_present":@((BOOL)(link!=nil)),@"public_link_included":@(included),@"public_link":linkResult,@"data_mutated":@NO,@"backend":@"reminderkit-template-metadata-v1"});
+    }@catch(NSException *exception){return EncodeFlag(FlagFailure(@"private_read_exception"));}
+}
+
 // Observe sections of one exact, selected-account template without materializing it as a live list.
 NSData *ICloudRemindersTemplateSections(NSData *data){
     @try {

@@ -401,7 +401,7 @@ if action == "request_access" {
     RunLoop.current.run(until: Date(timeIntervalSinceNow: 60))
     fail("permission_timeout")
 }
-let actions = ["status", "sources", "lists", "default_list", "list_sections", "list_features", "list_parent", "list_hierarchy", "list_order", "group_inventory", "group_lists", "templates", "template_sections", "smart_lists", "smart_list_definition", "query", "get", "attachment_file", "list_membership", "recovery_lookup", "recovery_tree", "recovery_list", "apply"]
+let actions = ["status", "sources", "lists", "default_list", "list_sections", "list_features", "list_parent", "list_hierarchy", "list_order", "group_inventory", "group_lists", "templates", "template_sections", "template_metadata", "smart_lists", "smart_list_definition", "query", "get", "attachment_file", "list_membership", "recovery_lookup", "recovery_tree", "recovery_list", "apply"]
 guard actions.contains(action) else { fail("unsupported_action") }
 if action == "status" {
     respond(["protocol_version": 1, "service": "reminders", "access": permission,
@@ -425,6 +425,13 @@ if action == "group_lists" {
     var identity:[String:Any]=["source_id":source,"group_id":id,"limit":limit,"offset":offset]
     if let smart=req["include_smart_lists"] {guard let value=smart as? NSNumber,CFGetTypeID(value)==CFBooleanGetTypeID(),value.boolValue else {fail("invalid_request")};identity["include_smart_lists"]=true}
     guard let payload=try? JSONSerialization.data(withJSONObject:identity),let result=(try? JSONSerialization.jsonObject(with:ICloudRemindersGroupLists(payload))) as? [String:Any] else {fail("invalid_request")};respond(result)
+}
+if action == "template_metadata" {
+    guard let source=req["source_id"] as? String,sourceIDs.contains(source),let id=req["id"] as? String,
+          let flag=req["include_public_link"] as? NSNumber,CFGetTypeID(flag)==CFBooleanGetTypeID(),
+          let payload=try? JSONSerialization.data(withJSONObject:["source_id":source,"id":id,"include_public_link":flag]),
+          let result=(try? JSONSerialization.jsonObject(with:ICloudRemindersTemplateMetadata(payload))) as? [String:Any] else {fail("invalid_request")}
+    respond(result)
 }
 if action == "template_sections" {
     guard let source=req["source_id"] as? String,sourceIDs.contains(source),let id=req["id"] as? String,

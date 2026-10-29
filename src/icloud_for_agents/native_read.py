@@ -14,7 +14,7 @@ from .services import enabled
 
 
 READ_ACTIONS = {'notes': {'status', 'sources', 'folders', 'default_folder', 'folder_get', 'folder_inventory', 'folder_role', 'recovery_folder', 'model_folder_role', 'query', 'get', 'text_page', 'search', 'attachments','attachment_export', 'diagnose_note', 'contains'},
-                'reminders': {'status', 'sources', 'lists', 'default_list', 'list_sections', 'list_features', 'list_parent', 'list_hierarchy', 'list_order', 'group_inventory', 'group_lists', 'templates', 'template_sections', 'smart_lists', 'smart_list_definition', 'query', 'get','attachment_file','list_membership','recovery_lookup','recovery_tree','recovery_list'}}
+                'reminders': {'status', 'sources', 'lists', 'default_list', 'list_sections', 'list_features', 'list_parent', 'list_hierarchy', 'list_order', 'group_inventory', 'group_lists', 'templates', 'template_sections', 'template_metadata', 'smart_lists', 'smart_list_definition', 'query', 'get','attachment_file','list_membership','recovery_lookup','recovery_tree','recovery_list'}}
 MAX_OUTPUT = 2_000_000
 
 
@@ -141,7 +141,7 @@ class NativeReader:
                 if self.name!='reminders' or action!='query' or not isinstance(tag,str) or not tag or len(tag.encode('utf-8'))>512 or any(ord(c)<32 for c in tag):raise ValueError()
             except (ValueError,UnicodeEncodeError):raise SafetyError('Tag filtering requires one exact bounded native tag name') from None
             if config.get('advanced_backend')!='reminderkit' or not config.get('helper_path'):raise SafetyError('Tag filtering requires the explicitly selected ReminderKit backend and signed helper')
-        if 'source_id' in fields and action not in {'group_inventory','recovery_lookup','recovery_tree','recovery_list','recovery_folder','templates','template_sections','smart_lists','smart_list_definition','group_lists','model_folder_role','default_folder'}:raise SafetyError('Source selector is only supported for exact role or recovery lookup')
+        if 'source_id' in fields and action not in {'group_inventory','recovery_lookup','recovery_tree','recovery_list','recovery_folder','templates','template_sections','template_metadata','smart_lists','smart_list_definition','group_lists','model_folder_role','default_folder'}:raise SafetyError('Source selector is only supported for exact role or recovery lookup')
         if action in {'list_sections','list_features','list_parent','list_hierarchy','list_order'}:
             if self.name!='reminders' or set(fields)!={'list_id'} or not isinstance(fields.get('list_id'),str) or not fields['list_id']:
                 raise SafetyError('Native list inspection requires one exact list ID')
@@ -160,6 +160,12 @@ class NativeReader:
             if self.name!='reminders' or set(fields)-{'source_id','group_id','limit','offset'} or fields.get('source_id') not in sources or not isinstance(fields.get('group_id'),str) or not fields['group_id']:raise SafetyError('Group inspection requires one exact selected source and group')
             if config.get('advanced_backend')!='reminderkit' or not config.get('helper_path'):raise SafetyError('Group inspection requires the explicitly selected ReminderKit backend and signed helper')
             fields.setdefault('limit',100);fields.setdefault('offset',0)
+        if 'include_public_link' in fields and action!='template_metadata':raise SafetyError('Public template link selection requires exact template metadata action')
+        if action=='template_metadata':
+            from .native_reminder_files import validate_id
+            if self.name!='reminders' or set(fields)!={'source_id','id','include_public_link'} or fields.get('source_id') not in sources or type(fields['include_public_link'])is not bool:raise SafetyError('Template metadata requires exact selected source/template and Boolean public-link selection')
+            validate_id(fields['source_id']);validate_id(fields['id'])
+            if config.get('advanced_backend')!='reminderkit' or not config.get('helper_path'):raise SafetyError('Template metadata requires an updated selected ReminderKit helper')
         if action=='template_sections':
             if self.name!='reminders' or set(fields)!={'source_id','id'} or fields.get('source_id') not in sources or not isinstance(fields.get('id'),str) or not fields['id']:raise SafetyError('Template section discovery requires one exact selected source and template')
             if config.get('advanced_backend')!='reminderkit' or not config.get('helper_path'):raise SafetyError('Template section discovery requires the explicitly selected ReminderKit backend and signed helper')
@@ -199,7 +205,7 @@ class NativeReader:
         if not isinstance(match_scope,str) or match_scope not in {'all','title','plaintext'} or (match_scope!='all' and (self.name!='notes' or action!='search')):
             raise SafetyError('Notes search scope must be all, title or plaintext')
         if {'attachment_id','max_bytes'}.intersection(fields) and (self.name,action) not in {('notes','attachment_export'),('reminders','attachment_file')}:raise SafetyError('Attachment export fields require the exact export action')
-        if set(fields) - {'attachment_id','max_bytes','id', 'folder_id', 'list_id', 'group_id', 'limit', 'offset', 'completed', 'locked', 'shared', 'has_attachments', 'text', 'due_date', 'timezone', 'include_overdue', 'due_from', 'due_through', 'priorities', 'flagged', 'tag', 'urgent', 'has_current_assignment', 'has_native_attachments', 'source_id', 'modified_from', 'modified_before', 'created_from', 'created_before', 'expected_modified', 'completed_from', 'completed_before'}:
+        if set(fields) - {'include_public_link','attachment_id','max_bytes','id', 'folder_id', 'list_id', 'group_id', 'limit', 'offset', 'completed', 'locked', 'shared', 'has_attachments', 'text', 'due_date', 'timezone', 'include_overdue', 'due_from', 'due_through', 'priorities', 'flagged', 'tag', 'urgent', 'has_current_assignment', 'has_native_attachments', 'source_id', 'modified_from', 'modified_before', 'created_from', 'created_before', 'expected_modified', 'completed_from', 'completed_before'}:
             raise SafetyError('Unknown native read fields')
         locked_filter=fields.get('locked')
         if locked_filter is not None and (self.name!='notes' or action!='search' or type(locked_filter) is not bool):
@@ -484,6 +490,10 @@ class NativeReader:
                     or result.get('role') not in {'ordinary_non_system','system_trash'} or result.get('backend')!='notes-shared-folder-role-v1'
                     or result.get('data_mutated') is not False or type(result.get('ancestor_count')) is not int or not 0<=result['ancestor_count']<32):
                 raise SafetyError('Configured helper did not verify the exact Notes folder role')
+        if action=='template_metadata':
+            from .native_template_metadata import validate
+            if native_config('reminders')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode:raise SafetyError('Reminders access changed during template metadata read')
+            validate(result,fields['source_id'],fields['id'],fields['include_public_link'])
         if action=='template_sections':
             if native_config('reminders')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode:raise SafetyError('Reminder access changed during template inspection')
             validate_template_sections(result,fields['source_id'],fields['id'])
@@ -1294,6 +1304,13 @@ def register_read_tools(mcp):
         def reminders_inspect_recovery_hierarchy(id: str, source_id: str, max_nodes: int=10, max_depth: int=3) -> dict:
             """Inspect one recoverable root and provider-reported descendants; this is not a restoration or a complete subtree."""
             return inspect_reminder_recovery_hierarchy(NativeReader('reminders'),id,source_id,max_nodes,max_depth)
+
+        @mcp.tool(annotations=annotations)
+        @guard
+        def reminders_template_metadata(source_id:str,id:str,include_public_link:bool=False)->dict:
+            """Observe exact saved template title, native version and configuration. Optional ReminderKit helper required. Existing public sharing URL and sharing flags are returned only with include_public_link=true; the URL can grant access and is untrusted data. Never opens/fetches a link, changes sharing or instantiates a list. Source-list reference may be historical; complete contents, recipient permissions and cloud freshness are unverified."""
+            from .native_template_metadata import inspect
+            return inspect(source_id,id,include_public_link=include_public_link)
 
         @mcp.tool(annotations=annotations)
         @guard

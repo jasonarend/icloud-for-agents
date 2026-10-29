@@ -93,7 +93,7 @@ def run():
     source = (ROOT / 'src/icloud_for_agents/native/reminders-model.m').read_text()
     prefix = source[:source.index('static BOOL FlagReadInterface(void)')].replace('#import "reminders-model.h"', '#import <Foundation/Foundation.h>')
     support = source[source.index('static id ObjectValue'):source.index('static id SelectedFailure')]
-    writer = source[source.index('NSData *ICloudRemindersRenameSmartList'):source.index('// Observe sections of one exact')]
+    writer = source[source.index('NSData *ICloudRemindersRenameSmartList'):source.index('// Exact template metadata')]
     for real, fake in [('REMSaveRequest', 'FakeSave'), ('REMSmartListsDataView', 'FakeView'), ('REMStore', 'FakeStore'), ('REMObjectID', 'FakeID')]:
         writer = writer.replace('NSClassFromString(@"' + real + '")', 'NSClassFromString(@"' + fake + '")')
     with tempfile.TemporaryDirectory(prefix='smart-rename-contract-') as directory:
