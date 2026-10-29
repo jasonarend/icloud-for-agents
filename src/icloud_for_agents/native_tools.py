@@ -304,6 +304,13 @@ def register_change_tools(mcp):
             no task or category edits are requested. Current-source and
             full-storage guards, normal once/scoped approval and quota apply.
             Its scenario rule uses the exact list container and enabled field.
+            create_grocery_category uses exact source_id/list_id and fields.title
+            to create one custom category in a private grocery list without shopping
+            state, with at most twenty incomplete nonrecurring root tasks. Existing
+            task content, manual order and categories are bound and rechecked.
+            No task is assigned or classified. The server preassigns the category ID.
+            Scenario rules name this exact list container, title only, no destinations;
+            quota is one object. Exact section display order remains unverified.
             create_template uses source_id, the exact source list_id and fields.title.
             One to nineteen incomplete root tasks with unique titles and empty notes
             in a private ordinary unsectioned list are copied into a new private
