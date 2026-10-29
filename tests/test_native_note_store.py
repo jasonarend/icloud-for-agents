@@ -62,6 +62,34 @@ INSERT INTO ZICNOTEDATA VALUES(X'00010203');''')
         with self.assertRaises(SafetyError):store.note_location(identity,[])
         with self.assertRaises(SafetyError):store.note_location(identity.replace(UUID,'00000000-0000-0000-0000-000000000002'),[SOURCE])
 
+    def test_empty_folder_observation_checks_native_notes_children_and_unknown_states(self):
+        self.alter('ALTER TABLE ZICCLOUDSYNCINGOBJECT ADD COLUMN ZFOLDER INTEGER')
+        self.alter("INSERT INTO Z_PRIMARYKEY VALUES(3,'ICNote')")
+        before=hashlib.sha256(self.path.read_bytes()).hexdigest()
+        result=store.empty_folder_membership(FOLDER,[SOURCE]);self.assertEqual(result['live_notes'],0);self.assertEqual(result['live_child_folders'],0)
+        self.assertFalse(result['database_writes']);self.assertFalse(result['content_read']);self.assertEqual(hashlib.sha256(self.path.read_bytes()).hexdigest(),before)
+        for entity,column in ((3,'ZFOLDER'),(2,'ZPARENT')):
+            for deleted in ('0','NULL','2'):
+                self.alter('INSERT INTO ZICCLOUDSYNCINGOBJECT(Z_PK,Z_ENT,Z_OPT,ZMARKEDFORDELETION,'+column+') VALUES(20,'+str(entity)+',1,'+deleted+',10)')
+                with self.assertRaises(SafetyError):store.empty_folder_membership(FOLDER,[SOURCE])
+                self.alter('DELETE FROM ZICCLOUDSYNCINGOBJECT WHERE Z_PK=20')
+        self.alter('INSERT INTO ZICCLOUDSYNCINGOBJECT(Z_PK,Z_ENT,Z_OPT,ZMARKEDFORDELETION,ZFOLDER) VALUES(20,3,1,1,10)')
+        self.assertEqual(store.empty_folder_membership(FOLDER,[SOURCE])['live_notes'],0)
+        with self.assertRaises(SafetyError):store.empty_folder_membership(FOLDER.replace('p10','p11'),[SOURCE])
+        with self.assertRaises(SafetyError):store.empty_folder_membership(FOLDER,[])
+
+    def test_empty_membership_refuses_missing_entity_schema_and_role_drift(self):
+        with self.assertRaises(SafetyError):store.empty_folder_membership(FOLDER,[SOURCE])
+        self.alter('ALTER TABLE ZICCLOUDSYNCINGOBJECT ADD COLUMN ZFOLDER INTEGER')
+        with self.assertRaises(SafetyError):store.empty_folder_membership(FOLDER,[SOURCE])
+        self.alter("INSERT INTO Z_PRIMARYKEY VALUES(3,'ICNote')")
+        original=store.folder_role;calls=[0]
+        def drift(*args):
+            value=original(*args);calls[0]+=1
+            if calls[0]>1:value['revision']+=1
+            return value
+        with patch.object(store,'folder_role',side_effect=drift),self.assertRaises(SafetyError):store.empty_folder_membership(FOLDER,[SOURCE])
+
     def test_write_attach_extension_pragma_and_note_content_queries_are_denied(self):
         with store.readonly_store() as (connection,_):
             for query in ("UPDATE ZICCLOUDSYNCINGOBJECT SET ZTITLE2='changed'",'CREATE TEMP TABLE example(a)',"ATTACH ':memory:' AS other",'PRAGMA user_version=123',"SELECT load_extension('not-a-library')",'SELECT ZDATA FROM ZICNOTEDATA'):

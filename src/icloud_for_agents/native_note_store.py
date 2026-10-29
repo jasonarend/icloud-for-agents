@@ -101,6 +101,32 @@ def backend_suffix():
     return 'notes-store-role-v1:'+hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 
 
+def empty_folder_membership(folder_id,source_ids):
+    """Prove only an exact folder has no live or unknown-state direct children.
+
+    Used for retained experimental failure observations, never write admission.
+    Deleted children are not counted; no bodies, titles or attachment data read.
+    """
+    before=folder_role(folder_id,source_ids);store,folder=parse_identity(folder_id,'ICFolder')
+    with readonly_store() as (connection,_):
+        columns={row[1] for row in connection.execute('PRAGMA table_info(ZICCLOUDSYNCINGOBJECT)')}
+        if 'ZFOLDER' not in columns:raise SafetyError('Notes schema lacks the physical note-folder relation')
+        entities=connection.execute("SELECT Z_NAME,Z_ENT FROM Z_PRIMARYKEY WHERE Z_NAME IN ('ICNote','ICFolder')").fetchall()
+        if len(entities)!=2 or {v[0] for v in entities}!={'ICNote','ICFolder'} or any(type(v[1]) is not int for v in entities):raise SafetyError('Native child entities cannot be verified')
+        mapping=dict(entities)
+        uuids=connection.execute('SELECT Z_UUID FROM Z_METADATA LIMIT 2').fetchall()
+        account=parse_identity(before['source_id'],'ICAccount')[1]
+        if (len(uuids)!=1 or not isinstance(uuids[0][0],str) or uuids[0][0].lower()!=store
+                or connection.execute('SELECT Z_ENT,ZACCOUNT8,Z_OPT FROM ZICCLOUDSYNCINGOBJECT WHERE Z_PK=?',(folder,)).fetchone()!=(mapping['ICFolder'],account,before['revision'])):
+            raise SafetyError('Exact selected folder changed before empty-membership observation')
+        for entity,column in (('ICNote','ZFOLDER'),('ICFolder','ZPARENT')):
+            # Both identifiers are fixed here; only exact native IDs are parameters.
+            rows=connection.execute('SELECT Z_PK FROM ZICCLOUDSYNCINGOBJECT WHERE Z_ENT=? AND '+column+'=? AND (ZMARKEDFORDELETION IS NULL OR ZMARKEDFORDELETION<>1) LIMIT 1',(mapping[entity],folder)).fetchall()
+            if rows:raise SafetyError('Folder contains a live or unknown-state native child; no empty-folder observation')
+    if folder_role(folder_id,source_ids)!=before:raise SafetyError('Folder role changed during empty-membership observation')
+    return {'folder_id':folder_id,'source_id':before['source_id'],'live_notes':0,'live_child_folders':0,'content_read':False,'database_writes':False}
+
+
 def recovery_folder(source_id):
     """Discover the unique physical system Trash, including when scripting hides it."""
     store,account=parse_identity(source_id,'ICAccount')

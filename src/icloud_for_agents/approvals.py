@@ -391,7 +391,7 @@ class PlanStore:
         from .native_move_recovery import CONTENT_KEYS
         from .native_protocol import mutation_request
         original=self.read(self.path(original_id,'.json'));result=self.read(self.path(original_id,'.result'));items=original.get('payload',{}).get('changes',[]);payload=recovery.get('payload',{});observed=payload.get('observed',{})
-        if (original.get('kind')!='notes_change' or len(items)!=1 or items[0].get('operation') not in {'move_note','restore_note','delete_note'}
+        if (original.get('kind')!='notes_change' or len(items)!=1 or items[0].get('operation') not in {'move_note','restore_note','delete_note','move_folder'}
                 or result.get('status')!='failed_or_uncertain' or result.get('phase') not in {'mutation','verification'}
                 or recovery.get('kind')!='notes_move_recovery' or payload.get('original_id')!=original_id
                 or payload.get('account')!=original['payload'].get('account') or payload.get('original_sha256')!=digest(original)
@@ -399,7 +399,10 @@ class PlanStore:
                 or payload.get('operation')!='accept_observed_known_move_state'
                 or payload.get('context',{}).get('source_ids')!=original['payload'].get('context',{}).get('source_ids')):return False
         item=items[0];destination=item['fields']['destination_folder_id'];location=observed.get('observed_folder_id')
-        if (observed.get('note_id')!=item.get('id') or observed.get('source_id')!=item['source_id']
+        if item['operation']=='move_folder':
+            from .native_folder_observation import observation_matches
+            if (not observation_matches(item,observed) or payload.get('terminal_exchange',{}).get('request_sha256')!=digest(mutation_request('notes',item))):return False
+        elif (observed.get('note_id')!=item.get('id') or observed.get('source_id')!=item['source_id']
                 or observed.get('source_folder_id')!=item['folder_id'] or observed.get('destination_folder_id')!=destination
                 or location not in {item['folder_id'],destination} or observed.get('location')!=('source' if location==item['folder_id'] else 'destination')
                 or observed.get('content_sha256')!=digest({k:item['before']['note'].get(k) for k in CONTENT_KEYS})

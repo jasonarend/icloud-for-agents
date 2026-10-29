@@ -144,7 +144,7 @@ def register_change_tools(mcp):
         @mcp.tool(annotations=WRITE)
         @guard
         def notes_prepare_move_recovery(plan_id:str)->dict:
-            """Review the exact known object's unchanged observable state after one uncertain move. No native mutation or replay."""
+            """Review a known note move, or retained experimental empty-folder move metadata, after failure. No mutation, restoration or replay."""
             check_plan_scope('notes',plan_id)
             return NotesMoveRecovery(owner()).prepare(plan_id)
         @mcp.tool(annotations=WRITE)

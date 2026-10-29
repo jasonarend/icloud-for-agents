@@ -22,12 +22,18 @@ class NotesMoveRecovery:
         if (plan.get('kind')!='notes_change' or plan['payload'].get('account')!=self.account
                 or plan['payload'].get('context',{}).get('source_ids')!=context['source_ids']
                 or result.get('status')!='failed_or_uncertain' or result.get('phase') not in {'mutation','verification'}
-                or len(items)!=1 or items[0].get('operation') not in {'move_note','restore_note','delete_note'} or items[0].get('id')!=items[0].get('before',{}).get('note',{}).get('id')
-                or items[0].get('source_id')!=items[0].get('before',{}).get('note',{}).get('source_id')
-                or items[0].get('folder_id')!=items[0].get('before',{}).get('note',{}).get('folder_id')
+                or len(items)!=1 or items[0].get('operation') not in {'move_note','restore_note','delete_note','move_folder'}
                 or result.get('completed')!=[] or not isinstance(result.get('attempted'),list) or len(result['attempted'])>1
                 or self.store.read(self.store.path(identity,'.started')).get('sha256')!=digest(plan)):
             raise SafetyError('Observation recovery covers only one owned uncertain move of an exact pre-existing note ID')
+        item=items[0]
+        if item['operation']=='move_folder':
+            from .native_folder_observation import validate_item
+            validate_item(item)
+        elif (item.get('id')!=item.get('before',{}).get('note',{}).get('id')
+                or item.get('source_id')!=item.get('before',{}).get('note',{}).get('source_id')
+                or item.get('folder_id')!=item.get('before',{}).get('note',{}).get('folder_id')):
+            raise SafetyError('Known note identity, source and original folder must match')
         attempts=result['attempted'];expected=set()
         if attempts:
             attempt=attempts[0];expected={self.store.path(identity,'.attempt-0')}
@@ -36,6 +42,9 @@ class NotesMoveRecovery:
         if set(self.store.root.glob(identity+'.attempt-*'))!=expected:raise SafetyError('Unexpected move dispatch evidence; no observation association')
         return plan,result,items[0]
     def snapshot(self,item):
+        if item['operation']=='move_folder':
+            from .native_folder_observation import snapshot
+            return snapshot(self.adapter,item)
         source=item['folder_id'];destination=item['fields']['destination_folder_id'];identity=item['id']
         if item['operation'] in {'restore_note','delete_note'}:
             if item['operation']=='restore_note':from .native_notes_restore import observe
@@ -72,7 +81,7 @@ class NotesMoveRecovery:
                 'original_item_sha256':digest(item),'original_context':original['payload']['context'],
                 'operation':'accept_observed_known_move_state','observed':snapshot,'terminal_exchange':exchange,
                 'effects':{'native_data_changed':False,'original_result_unchanged':True,'old_plan_replay':'forbidden',
-                    'decision':'Accept this known native object and its current source/destination location under the selected approval policy.',
+                    'decision':'Accept only these observed native folder roles and empty membership, including a possible marked-deleted state. The experimental move remains failed and no folder restoration is claimed.' if item['operation']=='move_folder' else 'Accept this known native object and its current source/destination location under the selected approval policy.',
                     'uncertainty':'This does not prove whether or when the original move was dispatched. Native completion timing and causal provenance remain unproven.',
                     'future_actions':'Fresh plans retain current location, content and permission checks; no mutation is retried by recovery.'}})
     def checked(self,identity,*,pending=False):
