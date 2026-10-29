@@ -723,7 +723,7 @@ if action == "apply" {
             }
             if operation == "create_subtask" {
                 guard !reminder.isCompleted,Set(fields.keys)==["title"],let title=fields["title"] as? String,!title.isEmpty,let childID=item["child_id"] as? String,
-                      let native=before["native_metadata"] as? [String:Any],let children=native["child_ids"] as? [String],
+                      let native=before["native_metadata"] as? [String:Any],native["is_subtask"] as? Bool==false,let children=native["child_ids"] as? [String],
                       let payload=try? JSONSerialization.data(withJSONObject:["id":identifier,"source_id":sourceID,"list_id":reminder.calendar.calendarIdentifier,"child_id":childID,"title":title,"expected_children":children]),
                       let response=(try? JSONSerialization.jsonObject(with:ICloudRemindersCreateSubtask(payload,{NativeMutationGate.beginMutation()}))) as? [String:Any] else {fail("invalid_mutation")}
                 if response["error"] != nil {fail((response["mutation_dispatched"] as? Bool)==true ? "mutation_failed_or_uncertain" : "unsupported_edit_target")}

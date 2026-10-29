@@ -754,6 +754,7 @@ NSData *ICloudRemindersCreateSubtask(NSData *data,BOOL (^enterMutation)(void)){
         if(UUIDEqual(childID,identity[@"id"]))return EncodeFlag(FlagFailure(@"invalid_public_identity"));
         NSData *identityData=[NSJSONSerialization dataWithJSONObject:identity options:0 error:NULL];NSDictionary *failure=nil;id store=nil;
         id parent=SelectedReminderWithStore(identityData,&failure,&store);if(!parent || !store)return EncodeFlag(failure ?: FlagFailure(@"private_store_unavailable"));
+        if(!MethodMatches([parent class],@"isSubtask",@"B@:",NO) || ((BOOL(*)(id,SEL))objc_msgSend)(parent,NSSelectorFromString(@"isSubtask")))return EncodeFlag(FlagFailure(@"unsupported_nested_subtask_write"));
         NSDictionary *observed=[NSJSONSerialization JSONObjectWithData:ICloudRemindersReadChildren(identityData) options:0 error:NULL];
         if(![observed[@"native_metadata"][@"child_ids"] isEqual:expectedChildren] || [expectedChildren containsObject:childID])return EncodeFlag(FlagFailure(@"snapshot_changed"));
         Class cls=NSClassFromString(@"REMSaveRequest"),objectClass=NSClassFromString(@"REMObjectID");
@@ -765,8 +766,39 @@ NSData *ICloudRemindersCreateSubtask(NSData *data,BOOL (^enterMutation)(void)){
         if(existing || (lookupError && !([lookupError.domain isEqual:@"com.apple.reminderkit"] && lookupError.code==-3000)))return EncodeFlag(FlagFailure(@"snapshot_changed"));
         id save=((id(*)(id,SEL,id))objc_msgSend)([cls alloc],NSSelectorFromString(@"initWithStore:"),store);
         id change=((id(*)(id,SEL,id))objc_msgSend)(save,NSSelectorFromString(@"updateReminder:"),parent),context=ObjectValue(change,@"subtaskContext");
-        if(!context)return EncodeFlag(FlagFailure(@"unsupported_subtask_write"));
-        id child=((id(*)(id,SEL,id,id,id))objc_msgSend)(save,NSSelectorFromString(@"addReminderWithTitle:toReminderSubtaskContextChangeItem:reminderObjectID:"),title,context,objectID);
+        id child=nil;
+        if(context){
+            child=((id(*)(id,SEL,id,id,id))objc_msgSend)(save,NSSelectorFromString(@"addReminderWithTitle:toReminderSubtaskContextChangeItem:reminderObjectID:"),title,context,objectID);
+        }else{
+            // A leaf may have no writable subtask context. Stage a new object in
+            // its existing list, then attach it to this exact parent in the same
+            // request. No intermediate root is saved or separately authorized.
+            if(!MethodMatches(cls,@"updateList:",@"@@:@",NO) || !MethodMatches(cls,@"addReminderWithTitle:toListChangeItem:reminderObjectID:",@"@@:@@@",NO))return EncodeFlag(FlagFailure(@"unsupported_subtask_write"));
+            id listChange=((id(*)(id,SEL,id))objc_msgSend)(save,NSSelectorFromString(@"updateList:"),ObjectValue(parent,@"list"));
+            if(!MethodMatches([listChange class],@"insertReminderChangeItem:adjacentToReminderChangeItem:isAfter:withParentReminderChangeItem:",@"v@:@@B@",NO))return EncodeFlag(FlagFailure(@"unsupported_subtask_write"));
+            child=((id(*)(id,SEL,id,id,id))objc_msgSend)(save,NSSelectorFromString(@"addReminderWithTitle:toListChangeItem:reminderObjectID:"),title,listChange,objectID);
+            if(!child)return EncodeFlag(FlagFailure(@"unsupported_subtask_write"));
+            ((void(*)(id,SEL,id,id,BOOL,id))objc_msgSend)(listChange,NSSelectorFromString(@"insertReminderChangeItem:adjacentToReminderChangeItem:isAfter:withParentReminderChangeItem:"),child,nil,YES,change);
+            id storage=ObjectValue(child,@"storage"),storedID=ObjectValue(storage,@"objectID"),listID=ObjectValue(storage,@"listID"),parentID=ObjectValue(storage,@"parentReminderID");
+            id cu=ObjectValue(storedID,@"uuid"),lu=ObjectValue(listID,@"uuid"),pu=ObjectValue(parentID,@"uuid");
+            if(![ObjectValue(storedID,@"entityName") isEqual:@"REMCDReminder"] || ![cu isKindOfClass:NSUUID.class] || !UUIDEqual([cu UUIDString],childID)
+                    || ![ObjectValue(listID,@"entityName") isEqual:@"REMCDList"] || ![lu isKindOfClass:NSUUID.class] || !UUIDEqual([lu UUIDString],identity[@"list_id"])
+                    || ![ObjectValue(parentID,@"entityName") isEqual:@"REMCDReminder"] || ![pu isKindOfClass:NSUUID.class] || !UUIDEqual([pu UUIDString],identity[@"id"])
+                    || !StorageMatchesAccount(storage,identity[@"source_id"]) || ![ObjectValue(storage,@"titleAsString") isEqual:title])return EncodeFlag(FlagFailure(@"unsupported_subtask_effect"));
+            NSSet *allowed=[NSSet setWithArray:@[@"accountID",@"allDay",@"completed",@"daCalendarItemUniqueIdentifier",@"flagged",@"hashtagIDsToUndelete",@"icsDisplayOrder",@"isUrgentStateEnabledForCurrentUser",@"listID",@"minimumSupportedVersion",@"objectID",@"parentReminderID",@"priority",@"siriFoundInAppsUserConfirmation",@"subtaskIDsToUndelete",@"titleDocument",@"titleDocumentData"]];
+            id keys=ObjectValue(child,@"changedKeys"),parentKeys=ObjectValue(change,@"changedKeys"),listKeys=ObjectValue(listChange,@"changedKeys");
+            if(![keys isKindOfClass:NSSet.class] || ![keys isSubsetOfSet:allowed]
+                    || ![[NSSet setWithArray:@[@"accountID",@"listID",@"objectID",@"parentReminderID",@"titleDocumentData"]] isSubsetOfSet:keys]
+                    || ![parentKeys isKindOfClass:NSSet.class] || [parentKeys count]!=0
+                    || ![listKeys isKindOfClass:NSSet.class] || ![listKeys isSubsetOfSet:[NSSet setWithArray:@[@"reminderIDsMergeableOrdering",@"reminderIDsOrderingHints"]]])return EncodeFlag(FlagFailure(@"unsupported_subtask_effect"));
+            id tracked=ObjectValue(save,@"trackedReminderChangeItems"),lists=ObjectValue(save,@"trackedListChangeItems");NSMutableSet *seen=[NSMutableSet set];
+            if(![tracked isKindOfClass:NSDictionary.class] || [tracked count]!=2 || ![lists isKindOfClass:NSDictionary.class] || [lists count]!=1)return EncodeFlag(FlagFailure(@"unsupported_subtask_effect"));
+            for(id key in tracked){id uuid=ObjectValue(key,@"uuid");NSString *identifier=[uuid isKindOfClass:NSUUID.class]?[uuid UUIDString]:nil;
+                id expected=UUIDEqual(identifier,childID)?child:UUIDEqual(identifier,identity[@"id"])?change:nil;
+                if(![ObjectValue(key,@"entityName") isEqual:@"REMCDReminder"] || !expected || [seen containsObject:identifier] || ObjectValue(tracked[key],@"valueWithoutPerformingCopy")!=expected)return EncodeFlag(FlagFailure(@"unsupported_subtask_effect"));[seen addObject:identifier];
+            }
+            for(id key in lists){id uuid=ObjectValue(key,@"uuid");if(![ObjectValue(key,@"entityName") isEqual:@"REMCDList"] || ![uuid isKindOfClass:NSUUID.class] || !UUIDEqual([uuid UUIDString],identity[@"list_id"]) || ObjectValue(lists[key],@"valueWithoutPerformingCopy")!=listChange)return EncodeFlag(FlagFailure(@"unsupported_subtask_effect"));}
+        }
         if(!child)return EncodeFlag(FlagFailure(@"unsupported_subtask_write"));
         if(!enterMutation())return EncodeFlag(FlagFailure(@"native_dispatch_cancelled"));
         dispatched=YES;NSError *error=nil;BOOL saved=((BOOL(*)(id,SEL,NSError **))objc_msgSend)(save,NSSelectorFromString(@"saveSynchronouslyWithError:"),&error);

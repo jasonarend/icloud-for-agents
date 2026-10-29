@@ -260,6 +260,8 @@ class NativeRemindersTests(unittest.TestCase):
         with self.assertRaises(SafetyError):self.adapter.prepare(change)
         metadata['child_ids']=[];self.reader.item['completed']=True
         with self.assertRaises(SafetyError):self.adapter.prepare(change)
+        self.reader.item['completed']=False;metadata.update(is_subtask=True,parent_id='synthetic-parent')
+        with self.assertRaisesRegex(SafetyError,'existing subtask'):self.adapter.prepare(change)
 
     def test_urgent_write_requires_separate_exact_state_and_preserves_metadata(self):
         change={'operation':'set_urgent','source_id':'selected','id':'created','fields':{'urgent':True}}

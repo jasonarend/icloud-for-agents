@@ -212,3 +212,17 @@ class ReminderRecoveryTests(ReminderExchangeTests):
             forged=copy.deepcopy(plan);del forged['payload'][field];self.assertFalse(self.store._native_reminder_recovery_for(original,forged))
         forged=copy.deepcopy(plan);del forged['payload']['effects']['retained_terminal_unknown_dispatch'];self.assertFalse(self.store._native_reminder_recovery_for(original,forged))
         forged=copy.deepcopy(plan);forged['payload']['observed']['preassigned_child_observation']['absence_globally_proven']=True;self.assertFalse(self.store._native_reminder_recovery_for(original,forged))
+
+    def test_subtask_dispatched_error_can_accept_only_current_unobserved_candidate(self):
+        original=self.unknown_terminal(subtask=True)
+        # Independent synthetic old helper evidence with reported dispatch=true.
+        self.store.path(original,'.native-reminder-response-0').unlink()
+        from icloud_for_agents.native_execution import capture
+        from icloud_for_agents.native_reminder_exchange import begin,finish
+        from icloud_for_agents.native_protocol import mutation_request
+        plan=self.store.read(self.store.path(original,'.json'))
+        self.store.path(original,'.native-reminder-request-0').unlink()
+        with capture(self.store,'reminders',plan,0):finish(begin(mutation_request('reminders',plan['payload']['changes'][0])),{'protocol_version':1,'error':'mutation_failed_or_uncertain','mutation_dispatched':True})
+        proposal=self.recovery.prepare(original);self.assertNotIn('accept_unknown_dispatch',proposal['review']['payload'])
+        self.assertFalse(proposal['review']['payload']['observed']['preassigned_child_observation']['absence_globally_proven'])
+        self.assertEqual(self.recovery.execute(proposal['plan_id'])['status'],'completed');self.engine.assert_settled()

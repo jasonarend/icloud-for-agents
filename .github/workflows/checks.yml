@@ -81,6 +81,7 @@ jobs:
           .venv/bin/python tests/native_list_metadata_contract.py
           .venv/bin/python tests/native_list_hierarchy_contract.py
           .venv/bin/python tests/native_reminder_subtree_contract.py
+          .venv/bin/python tests/native_subtask_insert_contract.py
           .venv/bin/python tests/native_list_colors_contract.py
           .venv/bin/python tests/native_reminder_dates_contract.py
           .venv/bin/python tests/native_service_isolation_contract.py

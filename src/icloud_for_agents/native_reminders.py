@@ -364,6 +364,8 @@ class RemindersCreateAdapter:
         item['before']=self.snapshot(item)
         if operation=='create_subtask':
             metadata=item['before'].get('native_metadata');children=metadata.get('child_ids') if isinstance(metadata,dict) else None
+            if not isinstance(metadata,dict) or metadata.get('is_subtask') is not False:
+                raise SafetyError('Creating beneath an existing subtask has not passed provider save validation; select a root reminder')
             if item['before']['item'].get('completed') is not False or not isinstance(children,list) or len(children)>=100 or item['child_id'] in children:raise SafetyError('Subtask creation requires an incomplete parent and a bounded observed child list')
         if operation=='update_reminder' and 'due' in fields:
             metadata=item['before'].get('native_metadata');early=metadata.get('early_alerts') if isinstance(metadata,dict) else None

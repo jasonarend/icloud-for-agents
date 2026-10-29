@@ -231,7 +231,7 @@ class PlanStore:
         coverage='only_fields_exposed_by_the_current_adapter'
         if item['operation']=='move_reminder' and 'source_graph' in item.get('before',{}):coverage='all_reviewed_subtree_snapshots_and_both_bounded_list_graphs'
         if item['operation']=='create_subtask':
-            if not unknown or legacy or observed.get('preassigned_child_observation')!={'id':item.get('child_id'),'found_in_selected_live_scope':False,'found_in_recovery_view':False,'coverage':'selected_EventKit_scope_and_provider_recovery_view','absence_globally_proven':False}:return False
+            if legacy or observed.get('preassigned_child_observation')!={'id':item.get('child_id'),'found_in_selected_live_scope':False,'found_in_recovery_view':False,'coverage':'selected_EventKit_scope_and_provider_recovery_view','absence_globally_proven':False}:return False
             coverage='parent_snapshot_and_preassigned_child_scope_observations'
         if (observed.get('plan_id')!=original_id or observed.get('reminder_id')!=item.get('id') or observed.get('source_id')!=item.get('source_id')
                 or observed.get('observed_snapshot_matches_before') is not True or observed.get('terminal_response')!=terminal['terminal_response']

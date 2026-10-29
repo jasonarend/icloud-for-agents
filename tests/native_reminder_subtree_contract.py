@@ -52,7 +52,7 @@ int main(){@autoreleasepool{
 }}
 '''
 
-def run():
+def fixture_source():
     fixture=FIXTURE[:FIXTURE.index('int main()')]
     fixture=fixture.replace('@interface FixtureID:NSObject','@interface FixtureID:NSObject<NSCopying>').replace('@implementation FixtureID','@implementation FixtureID\n-(id)copyWithZone:(NSZone *)zone{return self;}')
     fixture=fixture.replace('@interface FixtureStore:NSObject','static NSArray *moveLists,*moveReminders;\n@interface FixtureStore:NSObject')
@@ -67,9 +67,18 @@ def run():
     fixture=fixture.replace('@interface FixtureSave:NSObject','@interface FixtureSave:NSObject\n@property NSMutableDictionary *moveChanges;\n-(id)trackedReminderChangeItems;')
     start=fixture.index('@implementation FixtureSave');end=fixture.index('\n@end',start)+len('\n@end')
     fixture=fixture[:start]+SAVE.replace('self.moveChanges=[NSMutableDictionary dictionary];','self.moveChanges=[NSMutableDictionary dictionary];activeChanges=self.moveChanges;')+fixture[end:]
+    return fixture
+
+
+def shipped_source():
     source=(ROOT/'src/icloud_for_agents/native/reminders-model.m').read_text().replace('    if(NSProcessInfo.processInfo.operatingSystemVersion.majorVersion!=27)return NO;','').replace('    if(!dlopen("/System/Library/PrivateFrameworks/ReminderKit.framework/ReminderKit",RTLD_LAZY|RTLD_LOCAL))return NO;','')
     source=source.replace('NSProcessInfo.processInfo.operatingSystemVersion.majorVersion!=27 || !dlopen("/System/Library/PrivateFrameworks/ReminderKit.framework/ReminderKit",RTLD_LAZY|RTLD_LOCAL)','NO')
     for real,fake in [('REMAssignment','FixtureAssignment'),('REMDueDateDeltaInterval','FixtureDelta'),('REMStore','FixtureStore'),('REMListsDataView','FixtureListsView'),('REMObjectID','FixtureID'),('REMReminder','FixtureReminder'),('REMSaveRequest','FixtureSave'),('REMListSectionsDataView','FixtureSectionView')]:source=source.replace('NSClassFromString(@"'+real+'")','NSClassFromString(@"'+fake+'")')
+    return source
+
+
+def run():
+    fixture=fixture_source();source=shipped_source()
     with tempfile.TemporaryDirectory(prefix='native-subtree-contract-') as directory:
         p=Path(directory);(p/'reminders-model.h').write_text((ROOT/'src/icloud_for_agents/native/reminders-model.h').read_text());(p/'test.m').write_text(source+'\n'+fixture+'\n'+MAIN)
         result=subprocess.run(['/usr/bin/clang','-fobjc-arc','-framework','Foundation',str(p/'test.m'),'-o',str(p/'contract')],capture_output=True,text=True,timeout=60);assert result.returncode==0,result.stderr
