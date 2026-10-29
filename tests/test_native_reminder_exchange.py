@@ -105,3 +105,18 @@ class ReminderExchangeTests(unittest.TestCase):
                 else:self.fail('Failed read was accepted')
         with patch('subprocess.run',side_effect=self.launch({'protocol_version':1,'error':'not_found_in_scope'})),self.assertRaises(NativeObjectNotFound):
             reader._dispatch({'protocol_version':1,'action':'get','id':'synthetic','source_ids':['selected']},config)
+    def test_redacted_sdk_codes_are_retained_without_descriptions_or_authority(self):
+        plan=self.plan();identity=plan['plan_id'];response={'protocol_version':1,'error':'mutation_failed_or_uncertain','mutation_dispatched':True,'native_error_domain':'com.apple.reminderkit','native_error_code':-3004,'localized_description':'Private synthetic account or content','user_info':{'secret':'Never retain'}}
+        with patch('subprocess.run',side_effect=self.launch(response)):result=self.engine.execute(identity)
+        self.assertEqual(result['status'],'failed_or_uncertain');self.assertIn('[SDK com.apple.reminderkit -3004]',result['safety_reason']);terminal=self.store.read(self.store.path(identity,'.native-reminder-response-0'));self.assertEqual(terminal['native_error_code'],-3004);self.assertNotIn('Private synthetic',json.dumps(terminal));self.assertNotIn('Never retain',json.dumps(terminal));stored=self.store.read(self.store.path(identity,'.json'));self.assertEqual(inspect(self.store,stored)['helper_native_error'],{'domain':'com.apple.reminderkit','code':-3004});self.assertFalse(self.store.operation_settled(identity))
+    def test_unknown_domains_boolean_float_and_oversized_codes_remain_digest_only(self):
+        from icloud_for_agents.native_reminder_exchange import native_diagnostic
+        for fields in ({'native_error_domain':'private@example.com','native_error_code':1},{'native_error_domain':'other','native_error_code':True},{'native_error_domain':'other','native_error_code':1.0},{'native_error_domain':'other','native_error_code':2**80},{'native_error_domain':'other'}):self.assertEqual(native_diagnostic(fields),{})
+        self.assertEqual(native_diagnostic({'native_error_domain':'other','native_error_code':0,'description':'private'}),{'native_error_domain':'other','native_error_code':0})
+    def test_corrupt_optional_diagnostics_cannot_validate_terminal_evidence(self):
+        plan=self.plan();identity=plan['plan_id']
+        with patch('subprocess.run',side_effect=self.launch({'protocol_version':1,'error':'mutation_failed_or_uncertain','mutation_dispatched':True})):self.engine.execute(identity)
+        path=self.store.path(identity,'.native-reminder-response-0');before=self.store.read(path);stored=self.store.read(self.store.path(identity,'.json'))
+        for fields in ({'native_error_domain':'other'},{'native_error_domain':'other','native_error_code':True},{'native_error_domain':'private@example.com','native_error_code':1}):
+            path.write_text(json.dumps(dict(before,**fields)))
+            with self.assertRaises(SafetyError):inspect(self.store,stored)

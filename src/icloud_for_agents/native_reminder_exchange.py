@@ -1,4 +1,4 @@
-"""Digest-only evidence for one admitted Reminder helper exchange.
+"""Digest-bound evidence and redacted SDK codes for one admitted Reminder exchange.
 
 These records do not settle uncertainty or authorize another operation. Missing
 terminal evidence remains missing; no historical result is reconstructed.
@@ -28,6 +28,16 @@ def begin(request):
     return {'store':store,'plan_id':identity,'index':index,'request':record}
 
 
+SDK_DOMAINS={'com.apple.reminderkit','NSCocoaErrorDomain','NSPOSIXErrorDomain','EKErrorDomain','NSOSStatusErrorDomain','other'}
+
+
+def native_diagnostic(value):
+    domain=value.get('native_error_domain');code=value.get('native_error_code')
+    if isinstance(domain,str) and domain in SDK_DOMAINS and type(code) is int and -(2**63)<=code<2**63:
+        return {'native_error_domain':domain,'native_error_code':code}
+    return {}
+
+
 def finish(exchange,response):
     if exchange is None:
         return
@@ -39,6 +49,7 @@ def finish(exchange,response):
             'plan_sha256':exchange['request']['plan_sha256'],'index':exchange['index'],
             'response_sha256':digest(response),'response_kind':'error' if 'error' in response else 'no_error_field',
             'mutation_dispatched':dispatched}
+    if record['response_kind']=='error':record.update(native_diagnostic(response))
     exchange['store'].write_once(exchange['store'].path(exchange['plan_id'],'.native-reminder-response-'+str(exchange['index'])),record)
 
 
@@ -58,9 +69,11 @@ def inspect(store,plan):
     response=store.read(response_path)
     sha=response.get('response_sha256') if isinstance(response,dict) else None
     reported=response.get('mutation_dispatched') if isinstance(response,dict) else None
-    if (not isinstance(response,dict) or set(response)!={'request_sha256','plan_sha256','index','response_sha256','response_kind','mutation_dispatched'}
+    if (not isinstance(response,dict) or set(response) not in ({'request_sha256','plan_sha256','index','response_sha256','response_kind','mutation_dispatched'},{'request_sha256','plan_sha256','index','response_sha256','response_kind','mutation_dispatched','native_error_domain','native_error_code'})
             or response['request_sha256']!=request['request_sha256'] or response['plan_sha256']!=request['plan_sha256'] or type(response['index']) is not int or response['index']!=0
             or not isinstance(sha,str) or len(sha)!=64 or any(c not in '0123456789abcdef' for c in sha)
             or not isinstance(response['response_kind'],str) or response['response_kind'] not in {'error','no_error_field'} or (reported is not None and type(reported) is not bool)):
         raise SafetyError('Reminder terminal evidence is malformed or mismatched')
-    return {'terminal_response':'recorded','helper_reported_mutation_dispatched':reported}
+    diagnostic=native_diagnostic(response)
+    if ('native_error_domain' in response or 'native_error_code' in response) and (not diagnostic or response['response_kind']!='error'):raise SafetyError('Reminder SDK diagnostics are malformed')
+    return {'terminal_response':'recorded','helper_reported_mutation_dispatched':reported,**({'helper_native_error':{'domain':diagnostic['native_error_domain'],'code':diagnostic['native_error_code']}} if diagnostic else {})}

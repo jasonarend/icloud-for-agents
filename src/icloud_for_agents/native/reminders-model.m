@@ -6,6 +6,12 @@
 #import <CommonCrypto/CommonDigest.h>
 static NSData *EncodeFlag(NSDictionary *value){return [NSJSONSerialization dataWithJSONObject:value options:0 error:NULL] ?: [NSData data];}
 static NSDictionary *FlagFailure(NSString *category){return @{@"protocol_version":@1,@"error":@"private_metadata_unavailable",@"category":category,@"data_mutated":@NO};}
+// Keep only stable public SDK domain/code; NSError descriptions/userInfo can contain private data.
+static NSDictionary *MutationFailure(NSError *error){
+    NSMutableDictionary *value=[@{@"protocol_version":@1,@"error":@"mutation_failed_or_uncertain",@"mutation_dispatched":@YES}mutableCopy];
+    if(error){NSSet *domains=[NSSet setWithArray:@[@"com.apple.reminderkit",@"NSCocoaErrorDomain",@"NSPOSIXErrorDomain",@"EKErrorDomain",@"NSOSStatusErrorDomain"]];value[@"native_error_domain"]=[domains containsObject:error.domain]?error.domain:@"other";value[@"native_error_code"]=@(error.code);}
+    return value;
+}
 static NSString *Signature(Method method){
     if(!method)return @"";
     NSString *raw=[NSString stringWithUTF8String:method_getTypeEncoding(method)];
@@ -165,7 +171,7 @@ NSData *ICloudRemindersRenameSmartList(NSData *data,BOOL (^enterMutation)(void))
         for(NSString *name in @[@"trackedAccountChangeItems",@"trackedListChangeItems",@"trackedListSectionChangeItems",@"trackedReminderChangeItems",@"trackedSmartListSectionChangeItems",@"trackedTemplateChangeItems",@"trackedTemplateSectionChangeItems"]){id entries=ObjectValue(save,name);if(![entries isKindOfClass:NSDictionary.class] || [entries count])return EncodeFlag(FlagFailure(@"unsupported_smart_list_write"));}
         if(!enterMutation())return EncodeFlag(FlagFailure(@"native_dispatch_cancelled"));dispatched=YES;error=nil;
         BOOL saved=((BOOL(*)(id,SEL,NSError**))objc_msgSend)(save,NSSelectorFromString(@"saveSynchronouslyWithError:"),&error);
-        if(!saved || error)return EncodeFlag(@{@"protocol_version":@1,@"error":@"mutation_failed_or_uncertain",@"mutation_dispatched":@YES});
+        if(!saved || error)return EncodeFlag(MutationFailure(error));
         return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":request[@"id"],@"source_id":request[@"source_id"],@"saved_locally":@YES}});
     }@catch(NSException *exception){return EncodeFlag(@{@"protocol_version":@1,@"error":dispatched?@"mutation_failed_or_uncertain":@"private_metadata_unavailable",@"mutation_dispatched":@(dispatched)});}
 }
@@ -630,7 +636,7 @@ NSData *ICloudRemindersSetFlag(NSData *data,BOOL (^enterMutation)(void)){
         if(!enterMutation())return EncodeFlag(FlagFailure(@"native_dispatch_cancelled"));
         dispatched=YES;NSError *error=nil;
         BOOL saved=((BOOL(*)(id,SEL,NSError **))objc_msgSend)(save,NSSelectorFromString(@"saveSynchronouslyWithError:"),&error);
-        if(!saved || error)return EncodeFlag(@{@"protocol_version":@1,@"error":@"mutation_failed_or_uncertain",@"mutation_dispatched":@YES});
+        if(!saved || error)return EncodeFlag(MutationFailure(error));
         return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":identity[@"id"],@"source_id":identity[@"source_id"],@"list_id":identity[@"list_id"],@"saved_locally":@YES}});
     }@catch(NSException *exception){return EncodeFlag(@{@"protocol_version":@1,@"error":dispatched?@"mutation_failed_or_uncertain":@"private_metadata_unavailable",@"mutation_dispatched":@(dispatched)});}
 }
@@ -662,7 +668,7 @@ NSData *ICloudRemindersSetUrgent(NSData *data,BOOL (^enterMutation)(void)){
         if(!enterMutation())return EncodeFlag(FlagFailure(@"native_dispatch_cancelled"));
         dispatched=YES;NSError *error=nil;
         BOOL saved=((BOOL(*)(id,SEL,NSError **))objc_msgSend)(save,NSSelectorFromString(@"saveSynchronouslyWithError:"),&error);
-        if(!saved || error)return EncodeFlag(@{@"protocol_version":@1,@"error":@"mutation_failed_or_uncertain",@"mutation_dispatched":@YES});
+        if(!saved || error)return EncodeFlag(MutationFailure(error));
         return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":identity[@"id"],@"source_id":identity[@"source_id"],@"list_id":identity[@"list_id"],@"saved_locally":@YES}});
     }@catch(NSException *exception){return EncodeFlag(@{@"protocol_version":@1,@"error":dispatched?@"mutation_failed_or_uncertain":@"private_metadata_unavailable",@"mutation_dispatched":@(dispatched)});}
 }
@@ -745,7 +751,7 @@ NSData *ICloudRemindersRemoveTag(NSData *data,BOOL (^enterMutation)(void)){
         [seen removeObject:targetIdentity];if(![seen isEqual:remaining])return EncodeFlag(FlagFailure(@"snapshot_changed"));
         if(!enterMutation())return EncodeFlag(FlagFailure(@"native_dispatch_cancelled"));
         dispatched=YES;NSError *error=nil;BOOL saved=((BOOL(*)(id,SEL,NSError **))objc_msgSend)(save,NSSelectorFromString(@"saveSynchronouslyWithError:"),&error);
-        if(!saved || error)return EncodeFlag(@{@"protocol_version":@1,@"error":@"mutation_failed_or_uncertain",@"mutation_dispatched":@YES});
+        if(!saved || error)return EncodeFlag(MutationFailure(error));
         return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":identity[@"id"],@"source_id":identity[@"source_id"],@"list_id":identity[@"list_id"],@"saved_locally":@YES}});
     }@catch(NSException *exception){return EncodeFlag(@{@"protocol_version":@1,@"error":dispatched?@"mutation_failed_or_uncertain":@"private_metadata_unavailable",@"mutation_dispatched":@(dispatched)});}
 }
@@ -805,7 +811,7 @@ NSData *ICloudRemindersAddTag(NSData *data,BOOL (^enterMutation)(void)){
         [remaining removeObject:addedID];if(![seen isEqual:remaining])return EncodeFlag(FlagFailure(@"snapshot_changed"));
         if(!enterMutation())return EncodeFlag(FlagFailure(@"native_dispatch_cancelled"));
         dispatched=YES;NSError *error=nil;BOOL saved=((BOOL(*)(id,SEL,NSError **))objc_msgSend)(save,NSSelectorFromString(@"saveSynchronouslyWithError:"),&error);
-        if(!saved || error)return EncodeFlag(@{@"protocol_version":@1,@"error":@"mutation_failed_or_uncertain",@"mutation_dispatched":@YES});
+        if(!saved || error)return EncodeFlag(MutationFailure(error));
         return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":identity[@"id"],@"source_id":identity[@"source_id"],@"list_id":identity[@"list_id"],@"saved_locally":@YES,@"tag_id":addedID}});
     }@catch(NSException *exception){return EncodeFlag(@{@"protocol_version":@1,@"error":dispatched?@"mutation_failed_or_uncertain":@"private_metadata_unavailable",@"mutation_dispatched":@(dispatched)});}
 }
@@ -869,7 +875,7 @@ NSData *ICloudRemindersReplaceTag(NSData *data,BOOL (^enterMutation)(void)){
         [remaining removeObject:addedID];[seen removeObject:removedCanonical];if(![seen isEqual:remaining])return EncodeFlag(FlagFailure(@"snapshot_changed"));
         if(!enterMutation())return EncodeFlag(FlagFailure(@"native_dispatch_cancelled"));
         dispatched=YES;NSError *error=nil;BOOL saved=((BOOL(*)(id,SEL,NSError **))objc_msgSend)(save,NSSelectorFromString(@"saveSynchronouslyWithError:"),&error);
-        if(!saved || error)return EncodeFlag(@{@"protocol_version":@1,@"error":@"mutation_failed_or_uncertain",@"mutation_dispatched":@YES});
+        if(!saved || error)return EncodeFlag(MutationFailure(error));
         return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":identity[@"id"],@"source_id":identity[@"source_id"],@"list_id":identity[@"list_id"],@"saved_locally":@YES,@"tag_id":addedID}});
     }@catch(NSException *exception){return EncodeFlag(@{@"protocol_version":@1,@"error":dispatched?@"mutation_failed_or_uncertain":@"private_metadata_unavailable",@"mutation_dispatched":@(dispatched)});}
 }
@@ -934,7 +940,7 @@ NSData *ICloudRemindersCreateSubtask(NSData *data,BOOL (^enterMutation)(void)){
         if(!child)return EncodeFlag(FlagFailure(@"unsupported_subtask_write"));
         if(!enterMutation())return EncodeFlag(FlagFailure(@"native_dispatch_cancelled"));
         dispatched=YES;NSError *error=nil;BOOL saved=((BOOL(*)(id,SEL,NSError **))objc_msgSend)(save,NSSelectorFromString(@"saveSynchronouslyWithError:"),&error);
-        if(!saved || error)return EncodeFlag(@{@"protocol_version":@1,@"error":@"mutation_failed_or_uncertain",@"mutation_dispatched":@YES});
+        if(!saved || error)return EncodeFlag(MutationFailure(error));
         return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":childID,@"source_id":identity[@"source_id"],@"list_id":identity[@"list_id"],@"parent_id":identity[@"id"],@"saved_locally":@YES}});
     }@catch(NSException *exception){return EncodeFlag(@{@"protocol_version":@1,@"error":dispatched?@"mutation_failed_or_uncertain":@"private_metadata_unavailable",@"mutation_dispatched":@(dispatched)});}
 }
@@ -1347,7 +1353,7 @@ NSData *ICloudRemindersMoveSubtree(NSData *data,BOOL (^enterMutation)(void)){
         if(![trackedIDs isEqual:[NSSet setWithArray:closure]])return EncodeFlag(FlagFailure(@"unsupported_move_effect"));
         if(!enterMutation())return EncodeFlag(FlagFailure(@"native_dispatch_cancelled"));dispatched=YES;error=nil;
         BOOL saved=((BOOL(*)(id,SEL,NSError **))objc_msgSend)(save,NSSelectorFromString(@"saveSynchronouslyWithError:"),&error);
-        if(!saved || error)return EncodeFlag(@{@"protocol_version":@1,@"error":@"mutation_failed_or_uncertain",@"mutation_dispatched":@YES});
+        if(!saved || error)return EncodeFlag(MutationFailure(error));
         return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":rootID,@"source_id":source,@"list_id":destination,@"moved_ids":sorted,@"saved_locally":@YES}});
     }@catch(NSException *exception){return EncodeFlag(@{@"protocol_version":@1,@"error":dispatched?@"mutation_failed_or_uncertain":@"private_metadata_unavailable",@"mutation_dispatched":@(dispatched)});}
 }
@@ -1385,7 +1391,7 @@ NSData *ICloudRemindersSetListPinned(NSData *data,BOOL (^enterMutation)(void)){
         if(![ObjectValue(key,@"entityName") isEqual:@"REMCDList"] || ![uuid isKindOfClass:NSUUID.class] || !UUIDEqual([uuid UUIDString],request[@"list_id"]) || ObjectValue(lists[key],@"valueWithoutPerformingCopy")!=change)return EncodeFlag(FlagFailure(@"unsupported_pin_write"));
         if(!enterMutation())return EncodeFlag(FlagFailure(@"native_dispatch_cancelled"));
         dispatched=YES;error=nil;BOOL saved=((BOOL(*)(id,SEL,NSError **))objc_msgSend)(save,NSSelectorFromString(@"saveSynchronouslyWithError:"),&error);
-        if(!saved || error)return EncodeFlag(@{@"protocol_version":@1,@"error":@"mutation_failed_or_uncertain",@"mutation_dispatched":@YES});
+        if(!saved || error)return EncodeFlag(MutationFailure(error));
         return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":request[@"list_id"],@"source_id":request[@"source_id"],@"pinned":@(pinned),@"saved_locally":@YES}});
     }@catch(NSException *exception){return EncodeFlag(@{@"protocol_version":@1,@"error":dispatched?@"mutation_failed_or_uncertain":@"private_metadata_unavailable",@"mutation_dispatched":@(dispatched)});}
 }
@@ -1435,7 +1441,7 @@ NSData *ICloudRemindersRemoveRootLeaf(NSData *data,BOOL (^enterMutation)(void)){
         id key=[[tracked allKeys]firstObject],uuid=ObjectValue(key,@"uuid"),listKey=[[lists allKeys]firstObject],listChange=ObjectValue(lists[listKey],@"valueWithoutPerformingCopy");
         if(![ObjectValue(key,@"entityName") isEqual:@"REMCDReminder"] || ![uuid isKindOfClass:NSUUID.class] || !UUIDEqual([uuid UUIDString],identifier) || ObjectValue(tracked[key],@"valueWithoutPerformingCopy")!=change || !LifecycleTrackedList(save,listChange,listID,[NSSet setWithObject:@"reminderIDsMergeableOrdering"]))return EncodeFlag(FlagFailure(@"unsupported_lifecycle_write"));
         if(!enterMutation())return EncodeFlag(FlagFailure(@"native_dispatch_cancelled"));dispatched=YES;NSError *error=nil;BOOL saved=((BOOL(*)(id,SEL,NSError **))objc_msgSend)(save,NSSelectorFromString(@"saveSynchronouslyWithError:"),&error);
-        if(!saved || error)return EncodeFlag(@{@"protocol_version":@1,@"error":@"mutation_failed_or_uncertain",@"mutation_dispatched":@YES});
+        if(!saved || error)return EncodeFlag(MutationFailure(error));
         return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":identifier,@"source_id":source,@"list_id":listID,@"saved_locally":@YES}});
     }@catch(NSException *e){return EncodeFlag(@{@"protocol_version":@1,@"error":dispatched?@"mutation_failed_or_uncertain":@"private_metadata_unavailable",@"mutation_dispatched":@(dispatched)});}
 }
@@ -1458,7 +1464,7 @@ NSData *ICloudRemindersRestoreRootLeaf(NSData *data,BOOL (^enterMutation)(void))
         id save=((id(*)(id,SEL,id))objc_msgSend)([saveClass alloc],NSSelectorFromString(@"initWithStore:"),store),change=((id(*)(id,SEL,id))objc_msgSend)(save,NSSelectorFromString(@"updateList:"),list);if(!MethodMatches([change class],@"undeleteRemindersWithoutUndoWithIDs:",@"v@:@",NO))return EncodeFlag(FlagFailure(@"unsupported_lifecycle_write"));((void(*)(id,SEL,id))objc_msgSend)(change,NSSelectorFromString(@"undeleteRemindersWithoutUndoWithIDs:"),@[objectID]);
         id pending=ObjectValue(ObjectValue(change,@"storage"),@"reminderIDsToUndelete"),reminders=ObjectValue(save,@"trackedReminderChangeItems");if(![pending isKindOfClass:NSSet.class] || [pending count]!=1 || ![reminders isKindOfClass:NSDictionary.class] || [reminders count]!=0 || !LifecycleTrackedList(save,change,listID,[NSSet setWithArray:@[@"reminderIDsMergeableOrdering",@"reminderIDsToUndelete"]]))return EncodeFlag(FlagFailure(@"unsupported_lifecycle_write"));
         id pendingID=[[pending allObjects]firstObject],uuid=ObjectValue(pendingID,@"uuid");if(![ObjectValue(pendingID,@"entityName") isEqual:@"REMCDReminder"] || ![uuid isKindOfClass:NSUUID.class] || !UUIDEqual([uuid UUIDString],identifier))return EncodeFlag(FlagFailure(@"unsupported_lifecycle_write"));
-        if(!enterMutation())return EncodeFlag(FlagFailure(@"native_dispatch_cancelled"));dispatched=YES;error=nil;BOOL saved=((BOOL(*)(id,SEL,NSError **))objc_msgSend)(save,NSSelectorFromString(@"saveSynchronouslyWithError:"),&error);if(!saved || error)return EncodeFlag(@{@"protocol_version":@1,@"error":@"mutation_failed_or_uncertain",@"mutation_dispatched":@YES});
+        if(!enterMutation())return EncodeFlag(FlagFailure(@"native_dispatch_cancelled"));dispatched=YES;error=nil;BOOL saved=((BOOL(*)(id,SEL,NSError **))objc_msgSend)(save,NSSelectorFromString(@"saveSynchronouslyWithError:"),&error);if(!saved || error)return EncodeFlag(MutationFailure(error));
         return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":identifier,@"source_id":source,@"list_id":listID,@"saved_locally":@YES}});
     }@catch(NSException *e){return EncodeFlag(@{@"protocol_version":@1,@"error":dispatched?@"mutation_failed_or_uncertain":@"private_metadata_unavailable",@"mutation_dispatched":@(dispatched)});}
 }
@@ -1495,7 +1501,7 @@ NSData *ICloudRemindersSetListBadge(NSData *data,BOOL (^enterMutation)(void)){
         if(![ObjectValue(key,@"entityName") isEqual:@"REMCDList"] || ![uuid isKindOfClass:NSUUID.class] || !UUIDEqual([uuid UUIDString],request[@"list_id"]) || ObjectValue(lists[key],@"valueWithoutPerformingCopy")!=change)return EncodeFlag(FlagFailure(@"unsupported_badge_write"));
         if(!enterMutation())return EncodeFlag(FlagFailure(@"native_dispatch_cancelled"));
         dispatched=YES;error=nil;BOOL saved=((BOOL(*)(id,SEL,NSError **))objc_msgSend)(save,NSSelectorFromString(@"saveSynchronouslyWithError:"),&error);
-        if(!saved || error)return EncodeFlag(@{@"protocol_version":@1,@"error":@"mutation_failed_or_uncertain",@"mutation_dispatched":@YES});
+        if(!saved || error)return EncodeFlag(MutationFailure(error));
         return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":request[@"list_id"],@"source_id":request[@"source_id"],@"badge":request[@"badge"],@"saved_locally":@YES}});
     }@catch(NSException *exception){return EncodeFlag(@{@"protocol_version":@1,@"error":dispatched?@"mutation_failed_or_uncertain":@"private_metadata_unavailable",@"mutation_dispatched":@(dispatched)});}
 }
@@ -1541,7 +1547,7 @@ NSData *ICloudRemindersReorderRoot(NSData *data,BOOL (^enterMutation)(void)){
             if(![ObjectValue(key,@"entityName")isEqual:@"REMCDReminder"] || !expectedChange || value!=expectedChange || ![keys isKindOfClass:NSSet.class] || ![keys isEqual:[valueID isEqual:identifier]?[NSSet setWithObject:@"listID"]:[NSSet set]] || !StorageMatchesAccount(storage,source) || ![ObjectValue(list,@"entityName")isEqual:@"REMCDList"] || ![ObjectValue(list,@"uuid")isKindOfClass:NSUUID.class] || !UUIDEqual([ObjectValue(list,@"uuid")UUIDString],listID) || ObjectValue(storage,@"parentReminderID"))return EncodeFlag(FlagFailure(@"unsupported_order_write"));
         }
         if(!enterMutation())return EncodeFlag(FlagFailure(@"native_dispatch_cancelled"));dispatched=YES;NSError *error=nil;BOOL saved=((BOOL(*)(id,SEL,NSError**))objc_msgSend)(save,NSSelectorFromString(@"saveSynchronouslyWithError:"),&error);
-        if(!saved || error)return EncodeFlag(@{@"protocol_version":@1,@"error":@"mutation_failed_or_uncertain",@"mutation_dispatched":@YES});return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":identifier,@"source_id":source,@"list_id":listID,@"saved_locally":@YES}});
+        if(!saved || error)return EncodeFlag(MutationFailure(error));return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":identifier,@"source_id":source,@"list_id":listID,@"saved_locally":@YES}});
     }@catch(NSException *e){return EncodeFlag(@{@"protocol_version":@1,@"error":dispatched?@"mutation_failed_or_uncertain":@"private_metadata_unavailable",@"mutation_dispatched":@(dispatched)});}
 }
 
@@ -1604,7 +1610,7 @@ NSData *ICloudRemindersCreateRootGroup(NSData *data,BOOL (^enterMutation)(void))
         if(![staged isEqual:expected] || !TrackedGroupObject(save,@"trackedAccountChangeItems",@"REMCDAccount",source,accountChange) || !TrackedGroupObject(save,@"trackedListChangeItems",@"REMCDList",identifier,group))return EncodeFlag(FlagFailure(@"unsupported_group_write"));
         for(NSString *key in @[@"trackedReminderChangeItems",@"trackedListSectionChangeItems",@"trackedSmartListChangeItems",@"trackedSmartListSectionChangeItems",@"trackedTemplateChangeItems",@"trackedTemplateSectionChangeItems"]){id value=ObjectValue(save,key);if(![value isKindOfClass:NSDictionary.class] || [value count])return EncodeFlag(FlagFailure(@"unsupported_group_write"));}
         if(!enterMutation())return EncodeFlag(FlagFailure(@"native_dispatch_cancelled"));dispatched=YES;NSError *error=nil;BOOL saved=((BOOL(*)(id,SEL,NSError**))objc_msgSend)(save,NSSelectorFromString(@"saveSynchronouslyWithError:"),&error);
-        if(!saved || error)return EncodeFlag(@{@"protocol_version":@1,@"error":@"mutation_failed_or_uncertain",@"mutation_dispatched":@YES});return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":identifier,@"source_id":source,@"saved_locally":@YES}});
+        if(!saved || error)return EncodeFlag(MutationFailure(error));return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":identifier,@"source_id":source,@"saved_locally":@YES}});
     }@catch(NSException *e){return EncodeFlag(@{@"protocol_version":@1,@"error":dispatched?@"mutation_failed_or_uncertain":@"private_metadata_unavailable",@"mutation_dispatched":@(dispatched)});}
 }
 
@@ -1628,7 +1634,7 @@ NSData *ICloudRemindersRenameRootGroup(NSData *data,BOOL (^enterMutation)(void))
         if(!TrackedGroupObject(save,@"trackedAccountChangeItems",@"REMCDAccount",source,accountChange) || ![accountKeys isKindOfClass:NSSet.class] || [accountKeys count] || ![GroupAccountOrder(ObjectValue(ObjectValue(ObjectValue(accountChange,@"storage"),@"listIDsMergeableOrdering"),@"orderedSet"))isEqual:observed[@"account_order"]])return EncodeFlag(FlagFailure(@"unsupported_group_write"));
         for(NSString *key in @[@"trackedReminderChangeItems",@"trackedListSectionChangeItems",@"trackedSmartListChangeItems",@"trackedSmartListSectionChangeItems",@"trackedTemplateChangeItems",@"trackedTemplateSectionChangeItems"]){id value=ObjectValue(save,key);if(![value isKindOfClass:NSDictionary.class] || [value count])return EncodeFlag(FlagFailure(@"unsupported_group_write"));}
         if(!enterMutation())return EncodeFlag(FlagFailure(@"native_dispatch_cancelled"));dispatched=YES;error=nil;BOOL saved=((BOOL(*)(id,SEL,NSError**))objc_msgSend)(save,NSSelectorFromString(@"saveSynchronouslyWithError:"),&error);
-        if(!saved || error)return EncodeFlag(@{@"protocol_version":@1,@"error":@"mutation_failed_or_uncertain",@"mutation_dispatched":@YES});return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":identifier,@"source_id":source,@"saved_locally":@YES}});
+        if(!saved || error)return EncodeFlag(MutationFailure(error));return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":identifier,@"source_id":source,@"saved_locally":@YES}});
     }@catch(NSException *e){return EncodeFlag(@{@"protocol_version":@1,@"error":dispatched?@"mutation_failed_or_uncertain":@"private_metadata_unavailable",@"mutation_dispatched":@(dispatched)});}
 }
 
@@ -1678,7 +1684,7 @@ NSData *ICloudRemindersAssignListGroup(NSData *data,BOOL (^enterMutation)(void))
         if(!sourceSeen || !targetSeen)return EncodeFlag(FlagFailure(@"unsupported_list_group_write"));
         for(NSString *key in @[@"trackedReminderChangeItems",@"trackedListSectionChangeItems",@"trackedSmartListChangeItems",@"trackedSmartListSectionChangeItems",@"trackedTemplateChangeItems",@"trackedTemplateSectionChangeItems"]){id value=ObjectValue(save,key);if(![value isKindOfClass:NSDictionary.class] || [value count])return EncodeFlag(FlagFailure(@"unsupported_list_group_write"));}
         if(!enterMutation())return EncodeFlag(FlagFailure(@"native_dispatch_cancelled"));dispatched=YES;NSError *error=nil;BOOL saved=((BOOL(*)(id,SEL,NSError**))objc_msgSend)(save,NSSelectorFromString(@"saveSynchronouslyWithError:"),&error);
-        if(!saved || error)return EncodeFlag(@{@"protocol_version":@1,@"error":@"mutation_failed_or_uncertain",@"mutation_dispatched":@YES});return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":identifier,@"source_id":source,@"list_id":identifier,@"saved_locally":@YES}});
+        if(!saved || error)return EncodeFlag(MutationFailure(error));return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":identifier,@"source_id":source,@"list_id":identifier,@"saved_locally":@YES}});
     }@catch(NSException *e){return EncodeFlag(@{@"protocol_version":@1,@"error":dispatched?@"mutation_failed_or_uncertain":@"private_metadata_unavailable",@"mutation_dispatched":@(dispatched)});}
 }
 
@@ -1704,7 +1710,7 @@ NSData *ICloudRemindersReorderRootGroup(NSData *data,BOOL (^enterMutation)(void)
                 || ![GroupAccountOrder(ObjectValue(ObjectValue(ObjectValue(ac,@"storage"),@"listIDsMergeableOrdering"),@"orderedSet"))isEqual:expected])return EncodeFlag(FlagFailure(@"unsupported_group_order_write"));
         for(NSString *key in @[@"trackedReminderChangeItems",@"trackedListSectionChangeItems",@"trackedSmartListChangeItems",@"trackedSmartListSectionChangeItems",@"trackedTemplateChangeItems",@"trackedTemplateSectionChangeItems"]){id value=ObjectValue(save,key);if(![value isKindOfClass:NSDictionary.class] || [value count])return EncodeFlag(FlagFailure(@"unsupported_group_order_write"));}
         if(!enterMutation())return EncodeFlag(FlagFailure(@"native_dispatch_cancelled"));dispatched=YES;NSError *error=nil;BOOL saved=((BOOL(*)(id,SEL,NSError**))objc_msgSend)(save,NSSelectorFromString(@"saveSynchronouslyWithError:"),&error);
-        if(!saved || error)return EncodeFlag(@{@"protocol_version":@1,@"error":@"mutation_failed_or_uncertain",@"mutation_dispatched":@YES});return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":identifier,@"source_id":source,@"saved_locally":@YES}});
+        if(!saved || error)return EncodeFlag(MutationFailure(error));return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":identifier,@"source_id":source,@"saved_locally":@YES}});
     }@catch(NSException *e){return EncodeFlag(@{@"protocol_version":@1,@"error":dispatched?@"mutation_failed_or_uncertain":@"private_metadata_unavailable",@"mutation_dispatched":@(dispatched)});}
 }
 
@@ -1737,7 +1743,7 @@ NSData *ICloudRemindersReparentLeaf(NSData *data,BOOL (^enterMutation)(void)){
         id accounts=ObjectValue(save,@"trackedAccountChangeItems");if(![accounts isKindOfClass:NSDictionary.class] || [accounts count]!=1)return EncodeFlag(FlagFailure(@"unsupported_parent_write"));id account=ObjectValue([[accounts allValues]firstObject],@"valueWithoutPerformingCopy");if(!TrackedGroupObject(save,@"trackedAccountChangeItems",@"REMCDAccount",source,account) || ![ObjectValue(account,@"changedKeys")isKindOfClass:NSSet.class] || [ObjectValue(account,@"changedKeys")count])return EncodeFlag(FlagFailure(@"unsupported_parent_write"));
         for(NSString *key in @[@"trackedListSectionChangeItems",@"trackedSmartListChangeItems",@"trackedSmartListSectionChangeItems",@"trackedTemplateChangeItems",@"trackedTemplateSectionChangeItems"]){id value=ObjectValue(save,key);if(![value isKindOfClass:NSDictionary.class] || [value count])return EncodeFlag(FlagFailure(@"unsupported_parent_write"));}
         if(!enterMutation())return EncodeFlag(FlagFailure(@"native_dispatch_cancelled"));dispatched=YES;NSError *error=nil;BOOL saved=((BOOL(*)(id,SEL,NSError**))objc_msgSend)(save,NSSelectorFromString(@"saveSynchronouslyWithError:"),&error);
-        if(!saved || error)return EncodeFlag(@{@"protocol_version":@1,@"error":@"mutation_failed_or_uncertain",@"mutation_dispatched":@YES});return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":identifier,@"source_id":source,@"list_id":listID,@"saved_locally":@YES}});
+        if(!saved || error)return EncodeFlag(MutationFailure(error));return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":identifier,@"source_id":source,@"list_id":listID,@"saved_locally":@YES}});
     }@catch(NSException *e){return EncodeFlag(@{@"protocol_version":@1,@"error":dispatched?@"mutation_failed_or_uncertain":@"private_metadata_unavailable",@"mutation_dispatched":@(dispatched)});}
 }
 
@@ -1797,7 +1803,7 @@ NSData *ICloudRemindersCreateSmartList(NSData *data,BOOL (^enterMutation)(void))
         if(![staged isEqual:expected] || !TrackedGroupObject(save,@"trackedAccountChangeItems",@"REMCDAccount",source,ac) || !TrackedGroupObject(save,@"trackedSmartListChangeItems",@"REMCDSmartList",identifier,change))return EncodeFlag(FlagFailure(@"unsupported_smart_list_write"));
         for(NSString *name in @[@"trackedListChangeItems",@"trackedListSectionChangeItems",@"trackedReminderChangeItems",@"trackedSmartListSectionChangeItems",@"trackedTemplateChangeItems",@"trackedTemplateSectionChangeItems"]){id entries=ObjectValue(save,name);if(![entries isKindOfClass:NSDictionary.class] || [entries count])return EncodeFlag(FlagFailure(@"unsupported_smart_list_write"));}
         if(!enterMutation())return EncodeFlag(FlagFailure(@"native_dispatch_cancelled"));dispatched=YES;NSError *error=nil;BOOL saved=((BOOL(*)(id,SEL,NSError**))objc_msgSend)(save,NSSelectorFromString(@"saveSynchronouslyWithError:"),&error);
-        if(!saved || error)return EncodeFlag(@{@"protocol_version":@1,@"error":@"mutation_failed_or_uncertain",@"mutation_dispatched":@YES});
+        if(!saved || error)return EncodeFlag(MutationFailure(error));
         return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":identifier,@"source_id":source,@"saved_locally":@YES}});
     }@catch(NSException *e){return EncodeFlag(@{@"protocol_version":@1,@"error":dispatched?@"mutation_failed_or_uncertain":@"private_metadata_unavailable",@"mutation_dispatched":@(dispatched)});}
 }
@@ -1839,7 +1845,7 @@ NSData *ICloudRemindersSetSmartListSources(NSData *data,BOOL (^enterMutation)(vo
         id key=[[tracked allKeys]firstObject],uuid=ObjectValue(key,@"uuid");if(![ObjectValue(key,@"entityName")isEqual:@"REMCDSmartList"] || ![uuid isKindOfClass:NSUUID.class] || !UUIDEqual([uuid UUIDString],request[@"id"]) || ObjectValue(tracked[key],@"valueWithoutPerformingCopy")!=change)return EncodeFlag(FlagFailure(@"unsupported_smart_list_write"));
         for(NSString *name in @[@"trackedAccountChangeItems",@"trackedListChangeItems",@"trackedListSectionChangeItems",@"trackedReminderChangeItems",@"trackedSmartListSectionChangeItems",@"trackedTemplateChangeItems",@"trackedTemplateSectionChangeItems"]){id entries=ObjectValue(save,name);if(![entries isKindOfClass:NSDictionary.class] || [entries count])return EncodeFlag(FlagFailure(@"unsupported_smart_list_write"));}
         if(!enterMutation())return EncodeFlag(FlagFailure(@"native_dispatch_cancelled"));dispatched=YES;error=nil;BOOL saved=((BOOL(*)(id,SEL,NSError**))objc_msgSend)(save,NSSelectorFromString(@"saveSynchronouslyWithError:"),&error);
-        if(!saved || error)return EncodeFlag(@{@"protocol_version":@1,@"error":@"mutation_failed_or_uncertain",@"mutation_dispatched":@YES});
+        if(!saved || error)return EncodeFlag(MutationFailure(error));
         return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":request[@"id"],@"source_id":request[@"source_id"],@"saved_locally":@YES}});
     }@catch(NSException *exception){return EncodeFlag(@{@"protocol_version":@1,@"error":dispatched?@"mutation_failed_or_uncertain":@"private_metadata_unavailable",@"mutation_dispatched":@(dispatched)});}
 }
@@ -1874,6 +1880,6 @@ NSData *ICloudRemindersSetSection(NSData *data,BOOL (^enterMutation)(void)){
         if(!TrackedGroupObject(save,@"trackedAccountChangeItems",@"REMCDAccount",source,account) || ![ObjectValue(account,@"changedKeys")isKindOfClass:NSSet.class] || [ObjectValue(account,@"changedKeys")count])return EncodeFlag(FlagFailure(@"unsupported_section_write"));
         for(NSString *key in @[@"trackedReminderChangeItems",@"trackedListSectionChangeItems",@"trackedSmartListChangeItems",@"trackedSmartListSectionChangeItems",@"trackedTemplateChangeItems",@"trackedTemplateSectionChangeItems"]){id values=ObjectValue(save,key);if(![values isKindOfClass:NSDictionary.class] || [values count])return EncodeFlag(FlagFailure(@"unsupported_section_write"));}
         if(!enterMutation())return EncodeFlag(FlagFailure(@"native_dispatch_cancelled"));dispatched=YES;NSError *error=nil;BOOL saved=((BOOL(*)(id,SEL,NSError**))objc_msgSend)(save,NSSelectorFromString(@"saveSynchronouslyWithError:"),&error);
-        if(!saved || error)return EncodeFlag(@{@"protocol_version":@1,@"error":@"mutation_failed_or_uncertain",@"mutation_dispatched":@YES});return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":identifier,@"source_id":source,@"list_id":listID,@"saved_locally":@YES}});
+        if(!saved || error)return EncodeFlag(MutationFailure(error));return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":identifier,@"source_id":source,@"list_id":listID,@"saved_locally":@YES}});
     }@catch(NSException *e){return EncodeFlag(@{@"protocol_version":@1,@"error":dispatched?@"mutation_failed_or_uncertain":@"private_metadata_unavailable",@"mutation_dispatched":@(dispatched)});}
 }

@@ -101,7 +101,8 @@ int main(){@autoreleasepool{
 def run():
  source=(ROOT/'src/icloud_for_agents/native/reminders-model.m').read_text();start=source.index('NSData *ICloudRemindersSetSection(');operation=source[start:source.index('\n}\n',start)+3]
  with tempfile.TemporaryDirectory(prefix='native-reminder-sections-') as directory:
-  root=Path(directory);(root/'test.m').write_text(FIXTURE+'\n'+operation+'\n'+MAIN)
+  root=Path(directory);helper=source[source.index('static NSDictionary *MutationFailure('):source.index('static NSString *Signature(')]
+  (root/'test.m').write_text(FIXTURE+'\n'+helper+'\n'+operation+'\n'+MAIN)
   result=subprocess.run(['/usr/bin/clang','-fobjc-arc','-fblocks','-framework','Foundation',str(root/'test.m'),'-o',str(root/'contract')],capture_output=True,text=True,timeout=60);assert result.returncode==0,result.stderr
   result=subprocess.run([str(root/'contract')],capture_output=True,text=True,timeout=5);assert result.returncode==0,result.stderr
  return {'status':'passed','apple_store_opened':False,'typed_single_member_delta_and_nil_group':True,'closed_gate_side_effect_tracking_foreign_noop_stale_and_future_refusals':True,'failed_save_retains_uncertainty':True}

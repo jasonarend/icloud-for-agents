@@ -64,12 +64,12 @@ def inspect_uncertain_reminder(engine, plan_id):
                 'snapshot_coverage':COVERAGE,'observation_consistency':'separate_live_reads_may_change',
                 'original_uncertainty_retained':True,'causal_dispatch_proven':False,'data_mutated':False,'do_not_retry':True,**inspect(engine.store,plan)}
     if item.get('operation')=='reparent_reminder':
-        from .native_reminder_parents import snapshot,COVERAGE
+        from .native_reminder_parents import snapshot,coverage
         observed=snapshot(engine.adapter,item)
         if engine.context(True)!=context:raise SafetyError('Reminder access changed during parent observation')
         from .native_reminder_exchange import inspect
         return {'plan_id':plan_id,'reminder_id':item['id'],'source_id':item['source_id'],'observed_snapshot_matches_before':observed==before,
-                'snapshot_coverage':COVERAGE,'observation_consistency':'separate_live_reads_may_change',
+                'snapshot_coverage':coverage(item),'observation_consistency':'separate_live_reads_may_change',
                 'original_uncertainty_retained':True,'causal_dispatch_proven':False,'data_mutated':False,'do_not_retry':True,**inspect(engine.store,plan)}
     if item.get('operation')=='reorder_group':
         from .native_group_order import snapshot,COVERAGE

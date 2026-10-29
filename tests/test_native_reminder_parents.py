@@ -117,3 +117,25 @@ class ParentTests(unittest.TestCase):
   m=ReminderObservationRecovery(self.engine.account,self.store,self.adapter)
   with self.assertRaises(SafetyError):m.prepare(p['plan_id'],legacy_missing_terminal=True)
   review=m.prepare(p['plan_id']);self.assertEqual(m.execute(review['plan_id'])['recovery_state'],'observed_unchanged_reminder_accepted_after_review');self.engine.assert_settled();self.assertEqual(self.adapter.calls,[])
+ def test_retained_experimental_nested_attempt_is_read_only_and_never_replayed(self):
+  from icloud_for_agents.native_reminder_parents import snapshot,coverage,recovery_effect,COVERAGE,RECOVERY_EFFECT
+  from icloud_for_agents.native_reminder_exchange import begin,finish
+  from icloud_for_agents.native_reminder_recovery import ReminderObservationRecovery
+  graph=self.adapter.reader.read('list_order',list_id=f.ORIGIN);change=dict(self.change(),fields={'parent_id':SIBLING,'anchor_id':None,'placement':'end'})
+  with self.assertRaises(SafetyError):self.adapter.prepare(change)
+  item=dict(change,list_id=f.ORIGIN,old_parent_id=f.ROOT,family_ids=sorted({f.CHILD,f.ROOT,SIBLING}),lineage_guard_version=2,before={'source_graph':graph},fidelity_verified=True,effects={'quota_objects':3});item['before']=snapshot(self.adapter,item)
+  self.assertNotEqual(coverage(item),COVERAGE);self.assertNotEqual(recovery_effect(item),RECOVERY_EFFECT);self.assertEqual(coverage({}),COVERAGE);self.assertEqual(recovery_effect({}),RECOVERY_EFFECT)
+  def unchanged(part):finish(begin(mutation_request('reminders',part)),{'protocol_version':1,'error':'mutation_failed_or_uncertain','mutation_dispatched':True});raise SafetyError('Historical synthetic native save error')
+  # This fixtures only the retained historical request, never a product writer.
+  with patch.object(self.adapter,'prepare',return_value=item),patch.object(self.adapter,'apply',side_effect=unchanged):p=self.engine.prepare_once([change]);self.engine.execute(p['plan_id'])
+  original=self.store.path(p['plan_id'],'.result').read_bytes();manager=ReminderObservationRecovery(self.engine.account,self.store,self.adapter);review=manager.prepare(p['plan_id']);self.assertEqual(manager.execute(review['plan_id'])['recovery_state'],'observed_unchanged_reminder_accepted_after_review');self.engine.assert_settled();self.assertEqual(original,self.store.path(p['plan_id'],'.result').read_bytes());self.assertEqual(self.adapter.calls,[])
+  with self.assertRaises(SafetyError):self.engine.execute(p['plan_id'])
+  with self.assertRaises(SafetyError):self.adapter.prepare(change)
+  bad=copy.deepcopy(item);bad['family_ids'].remove(f.ROOT)
+  with self.assertRaises(SafetyError):snapshot(self.adapter,bad)
+
+ def test_unknown_historical_parent_versions_cannot_acquire_observation_coverage(self):
+  from icloud_for_agents.native_reminder_parents import coverage,recovery_effect
+  for version in (True,2.0,3,'2',None):
+   for read in (coverage,recovery_effect):
+    with self.assertRaises(SafetyError):read({'lineage_guard_version':version})

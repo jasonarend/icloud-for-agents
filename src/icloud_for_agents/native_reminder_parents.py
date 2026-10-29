@@ -7,10 +7,41 @@ COVERAGE='reviewed_leaf_old_new_root_parents_anchor_and_complete_list_order'
 RECOVERY_EFFECT='Only the reviewed leaf, root parents, anchor and bounded list graph/manual order are compared. Causal dispatch, delayed effects and unexposed metadata remain unproven. No replay.'
 HIERARCHY_FIELDS={'parent_id','is_subtask','has_subtasks','child_ids','children_status','children_fetch_status'}
 
+def experimental(item):
+    if 'lineage_guard_version' not in item:return False
+    if type(item['lineage_guard_version']) is not int or item['lineage_guard_version']!=2:raise SafetyError('Unknown historical parent observation version')
+    return True
+
+
+def coverage(item):
+    # Retain evidence from an authorized local experimental attempt. This marker
+    # is never emitted by the current root-parent-only preparation path.
+    return 'reviewed_leaf_complete_parent_chains_anchor_and_complete_list_order_v2' if experimental(item) else COVERAGE
+
+
+def recovery_effect(item):
+    return RECOVERY_EFFECT.replace('root parents','complete bounded parent chains') if experimental(item) else RECOVERY_EFFECT
+
+
+def experimental_read_family(item):
+    before=item['before'];nodes={v['id']:v for v in before['source_graph']['nodes']};identity=item['id'];selected={identity};anchor=item['fields']['anchor_id']
+    if anchor is not None:selected.add(anchor)
+    if identity not in nodes or any(v['parent_id']==identity for v in nodes.values()):raise SafetyError('Historical experimental observation requires a reviewed leaf')
+    for current in (nodes[identity]['parent_id'],item['fields']['parent_id']):
+        seen=set()
+        while current is not None:
+            if current==identity or current not in nodes or current in seen:raise SafetyError('Historical experimental parent chain is incomplete or cyclic')
+            seen.add(current);selected.add(current)
+            if len(selected)>20:raise SafetyError('Historical experimental observation exceeds twenty objects')
+            current=nodes[current]['parent_id']
+    if item['family_ids']!=sorted(selected):raise SafetyError('Historical experimental observation lacks its complete reviewed parent chains')
+
+
 def reordered(order,identity,fields):
     result=[v for v in order if v!=identity];anchor=fields['anchor_id'];index=len(result) if anchor is None else result.index(anchor)+(fields['placement']=='after');result.insert(index,identity);return result
 
 def snapshot(adapter,item):
+    if experimental(item):experimental_read_family(item)
     source=item['source_id'];scope=list_scope(adapter,source,item['list_id']);graph=adapter.reader.read('list_order',list_id=item['list_id'])
     if graph.get('source_id')!=source or graph.get('list_id')!=item['list_id']:raise SafetyError('The exact list graph and manual order are required')
     values=[]

@@ -251,9 +251,9 @@ class PlanStore:
             if legacy or payload.get('effects',{}).get('section_coverage')!=RECOVERY_EFFECT:return False
             coverage=COVERAGE
         if item['operation']=='reparent_reminder':
-            from .native_reminder_parents import COVERAGE,RECOVERY_EFFECT
-            if legacy or payload.get('effects',{}).get('parent_coverage')!=RECOVERY_EFFECT:return False
-            coverage=COVERAGE
+            from .native_reminder_parents import coverage as parent_coverage,recovery_effect
+            if legacy or payload.get('effects',{}).get('parent_coverage')!=recovery_effect(item):return False
+            coverage=parent_coverage(item)
         if item['operation']=='reorder_group':
             from .native_group_order import COVERAGE,RECOVERY_EFFECT
             if legacy or payload.get('effects',{}).get('group_order_coverage')!=RECOVERY_EFFECT:return False

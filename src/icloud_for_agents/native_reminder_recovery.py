@@ -74,8 +74,8 @@ class ReminderObservationRecovery:
                 from .native_reminder_sections import RECOVERY_EFFECT
                 payload['effects']['section_coverage']=RECOVERY_EFFECT
             if item.get('operation')=='reparent_reminder':
-                from .native_reminder_parents import RECOVERY_EFFECT
-                payload['effects']['parent_coverage']=RECOVERY_EFFECT
+                from .native_reminder_parents import recovery_effect
+                payload['effects']['parent_coverage']=recovery_effect(item)
             if item.get('operation')=='reorder_group':
                 from .native_group_order import RECOVERY_EFFECT
                 payload['effects']['group_order_coverage']=RECOVERY_EFFECT
