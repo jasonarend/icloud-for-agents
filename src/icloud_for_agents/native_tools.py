@@ -280,6 +280,10 @@ def register_change_tools(mcp):
             requires the same ID/source, fields.deletion_plan_id from this owner's
             completed deletion, optional deletion_index (default 0), and exact
             destination fields.list_id. Restore can reactivate original alarms.
+            reorder_reminder uses exact source/id, fields.anchor_id and placement
+            before/after within one selected private list. Both IDs must be roots.
+            Parent/child links and exposed content are preserved; descendants
+            count against grants. This observes native manual sequence, not app sorting.
             set_list_badge uses source_id/list_id and fields.badge: kind default,
             or kind emoji/symbol with a value. Native validation requires one
             emoji or an available macOS system symbol. It changes only appearance.

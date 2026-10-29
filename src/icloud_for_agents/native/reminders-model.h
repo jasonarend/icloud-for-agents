@@ -37,4 +37,6 @@ FOUNDATION_EXPORT NSData *ICloudRemindersSetListPinned(NSData *request,BOOL (^en
 FOUNDATION_EXPORT NSData *ICloudRemindersRemoveRootLeaf(NSData *request,BOOL (^enterMutation)(void));
 FOUNDATION_EXPORT NSData *ICloudRemindersRestoreRootLeaf(NSData *request,BOOL (^enterMutation)(void));
 NSData *ICloudRemindersSetListBadge(NSData *data, BOOL (^enterMutation)(void));
+NSData *ICloudRemindersListOrder(NSData *data);
+NSData *ICloudRemindersReorderRoot(NSData *data, BOOL (^enterMutation)(void));
 NS_ASSUME_NONNULL_END

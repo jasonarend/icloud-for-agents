@@ -151,14 +151,19 @@ def reconcile(engine,identity):
     with engine.serialized():
         plan=engine.store.read(engine.store.path(identity,'.json'));result=engine.store.read(engine.store.path(identity,'.result'));payload=plan.get('payload',{});items=payload.get('changes',[]);started=engine.store.read(engine.store.path(identity,'.started'))
         if (plan.get('kind')!='reminders_change' or payload.get('account')!=engine.account or not isinstance(items,list) or len(items)!=1
-                or items[0].get('operation') not in {'delete_reminder','restore_reminder'} or result.get('status')!='failed_or_uncertain'
+                or items[0].get('operation') not in {'delete_reminder','restore_reminder','reorder_reminder'} or result.get('status')!='failed_or_uncertain'
                 or result.get('phase')!='mutation' or result.get('attempted')!=[] or result.get('completed')!=[]
                 or started.get('sha256')!=digest(plan) or started.get('account')!=engine.account
                 or payload.get('context',{}).get('source_ids')!=context['source_ids'] or payload.get('context',{}).get('backend')!=context['backend']):
             raise SafetyError('Lifecycle reconciliation requires one owned known-ID terminal-error attempt with unchanged source/backend')
         terminal=inspect(engine.store,plan);request=engine.store.read(engine.store.path(identity,'.native-reminder-request-0'));response=engine.store.read(engine.store.path(identity,'.native-reminder-response-0'))
         if terminal.get('terminal_response')!='recorded' or terminal.get('helper_reported_mutation_dispatched') is False or response.get('response_kind')!='error':raise SafetyError('Retained request-bound terminal error required; missing evidence is never reconstructed')
-        item=items[0];outcome={'id':item['id'],'source_id':item['source_id'],'list_id':item['list_id']};verify=verify_delete if item['operation']=='delete_reminder' else verify_restore;observed=verify(engine.adapter,item,outcome,details=True)
+        item=items[0];outcome={'id':item['id'],'source_id':item['source_id'],'list_id':item['list_id']}
+        if item['operation']=='reorder_reminder':
+            from .native_reminder_order import expected_observation
+            observed=expected_observation(engine.adapter,item)
+        else:
+            verify=verify_delete if item['operation']=='delete_reminder' else verify_restore;observed=verify(engine.adapter,item,outcome,details=True)
         if not isinstance(observed,dict) or not expected_record_matches(item,observed) or engine.context(True)!=context:raise SafetyError('Expected lifecycle state does not independently verify; original uncertainty remains')
         engine.store.write_once(engine.store.path(identity,'.native-lifecycle-readback'),{'status':'native_lifecycle_expected_state_observed','plan_sha256':digest(plan),'result_sha256':digest(result),
             'request_record_sha256':digest(request),'response_record_sha256':digest(response),'item_sha256':digest(item),'observed':observed,'observed_sha256':digest(observed),
@@ -170,6 +175,9 @@ def expected_record_matches(item,observed):
     """Pure binding checks for persisted readback evidence; no native access."""
     try:
         if not isinstance(observed,dict) or observed.get('id')!=item['id'] or observed.get('source_id')!=item['source_id']:return False
+        if item['operation']=='reorder_reminder':
+            from .native_reminder_order import record_matches
+            return record_matches(item,observed)
         before=item['before'];identity=item['id'];source=item['source_id']
         if item['operation']=='delete_reminder':
             expected=deepcopy(before['source_graph']);expected['nodes']=[node for node in expected['nodes'] if node['id']!=identity];recovery=observed['recovery'];lookup=recovery['lookup'];tree=recovery['tree'];nodes=tree['nodes']

@@ -14,13 +14,14 @@ func respond(_ value:[String:Any])->Never{FileHandle.standardOutput.write(try! J
 func fail(_ category:String)->Never{respond(["error":category,"native_data_changed":false])}
 let input=try! JSONSerialization.jsonObject(with:FileHandle.standardInput.readDataToEndOfFile()) as! [String:Any]
 let req:[String:Any]=["list_id":input["requested_list"] as! String]
-let action="list_hierarchy",lists=[Calendar(input["list"] as! String,input["source"] as! String)],store=Store()
+let action=input["action"] as? String ?? "list_hierarchy",lists=[Calendar(input["list"] as! String,input["source"] as! String)],store=Store()
 let publicRows=(input["public"] as! [[String:Any]]).map(EKReminder.init)
 func ICloudRemindersListHierarchy(_ payload:Data)->Data{return try! JSONSerialization.data(withJSONObject:input["native"]!)}
+func ICloudRemindersListOrder(_ payload:Data)->Data{return ICloudRemindersListHierarchy(payload)}
 '''
 
 def run():
-    source=(ROOT/'src/icloud_for_agents/native/reminders.swift').read_text();block=source[source.index('if action == "list_hierarchy" {'):source.index('if action == "list_sections" ||')]
+    source=(ROOT/'src/icloud_for_agents/native/reminders.swift').read_text();block=source[source.index('if action == "list_hierarchy" || action == "list_order" {'):source.index('if action == "list_sections" ||')]
     with tempfile.TemporaryDirectory(prefix='native-list-graph-') as directory:
         script=Path(directory)/'graph.swift';binary=Path(directory)/'graph';script.write_text(STUB+block)
         subprocess.run(['/usr/bin/swiftc',str(script),'-o',str(binary)],check=True,capture_output=True,timeout=60)
@@ -29,6 +30,9 @@ def run():
         def call(data):return json.loads(subprocess.run([str(binary)],input=json.dumps(data),text=True,capture_output=True,check=True,timeout=5).stdout)
         good=call(request());assert good['membership_verified'] and good['hierarchy_complete'] and len(good['nodes'])==2
         assert call(request((),()))['nodes']==[]
+        ordered=request(action='list_order');ordered['native'].update(backend='reminderkit-list-order-v1',ordered_ids=[CHILD,ID]);assert call(ordered)['ordered_ids']==[CHILD,ID]
+        for invalid in ([ID,ID],[ID],['foreign',CHILD]):
+            ordered['native']['ordered_ids']=invalid;assert 'error' in call(ordered)
         for native,public in [((ID,),(ID,CHILD)),((ID,ID),(ID,CHILD)),((ID,CHILD),(ID,ID)),((ID,CHILD),(ID,'not-uuid'))]:assert 'error' in call(request(native,public))
         for change in ({'source':'foreign'},{'list':'foreign'},{'title':None},{'title':'x'*1001}):
             data=request();data['public'][0].update(change);assert 'error' in call(data)

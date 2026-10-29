@@ -355,7 +355,7 @@ if action == "request_access" {
     RunLoop.current.run(until: Date(timeIntervalSinceNow: 60))
     fail("permission_timeout")
 }
-let actions = ["status", "sources", "lists", "default_list", "list_sections", "list_features", "list_parent", "list_hierarchy", "group_lists", "templates", "template_sections", "smart_lists", "query", "get", "list_membership", "recovery_lookup", "recovery_tree", "recovery_list", "apply"]
+let actions = ["status", "sources", "lists", "default_list", "list_sections", "list_features", "list_parent", "list_hierarchy", "list_order", "group_lists", "templates", "template_sections", "smart_lists", "query", "get", "list_membership", "recovery_lookup", "recovery_tree", "recovery_list", "apply"]
 guard actions.contains(action) else { fail("unsupported_action") }
 if action == "status" {
     respond(["protocol_version": 1, "service": "reminders", "access": permission,
@@ -451,10 +451,10 @@ func membershipRecord(_ values:[EKReminder],_ list:EKCalendar)->[String:Any] {
             "sha256":SHA256.hash(data:data).map {String(format:"%02x",$0)}.joined()]
 }
 if action == "default_list" {respond(defaultListRecord(store.defaultCalendarForNewReminders(),lists))}
-if action == "list_hierarchy" {
+if action == "list_hierarchy" || action == "list_order" {
     guard let id=req["list_id"] as? String,let list=lists.first(where:{$0.calendarIdentifier==id}),
           let payload=try? JSONSerialization.data(withJSONObject:["source_id":list.source.sourceIdentifier,"list_id":id]),
-          let native=(try? JSONSerialization.jsonObject(with:ICloudRemindersListHierarchy(payload))) as? [String:Any] else {fail("not_found_in_scope")}
+          let native=(try? JSONSerialization.jsonObject(with:action == "list_order" ? ICloudRemindersListOrder(payload) : ICloudRemindersListHierarchy(payload))) as? [String:Any] else {fail("not_found_in_scope")}
     if native["error"] != nil {respond(native)}
     guard let nodes=native["nodes"] as? [[String:Any]],nodes.count<=200 else {fail("unsupported_list_hierarchy")}
     store.fetchReminders(matching:store.predicateForReminders(in:[list])) { values in
@@ -468,6 +468,9 @@ if action == "list_hierarchy" {
         }
         let nativeIDs=nodes.compactMap{$0["id"] as? String}
         guard nativeIDs.count==nodes.count,Set(nativeIDs)==Set(publicItems.keys) else {fail("hierarchy_membership_disagrees")}
+        if action == "list_order" {
+            guard let ordered=native["ordered_ids"] as? [String],ordered.count==nativeIDs.count,Set(ordered)==Set(nativeIDs) else {fail("ordering_membership_disagrees")}
+        }
         var result=native
         result["nodes"]=nodes.map { node -> [String:Any] in
             var result=node;let value=publicItems[node["id"] as! String]!;result["title"]=value.title;result["completed"]=value.isCompleted;return result
@@ -616,7 +619,7 @@ func reminderRecurrence(_ value:Any,due:DateComponents?)->EKRecurrenceRule? {
     return rule
 }
 if action == "apply" {
-    if let change=req["change"] as? [String:Any],let operation=change["operation"] as? String,["delete_reminder","restore_reminder","set_list_badge","set_list_pinned","set_flagged","remove_tag","add_tag","replace_tag","set_urgent","add_early","clear_early","create_subtask","create_section","rename_section","move_reminder"].contains(operation) {
+    if let change=req["change"] as? [String:Any],let operation=change["operation"] as? String,["reorder_reminder","delete_reminder","restore_reminder","set_list_badge","set_list_pinned","set_flagged","remove_tag","add_tag","replace_tag","set_urgent","add_early","clear_early","create_subtask","create_section","rename_section","move_reminder"].contains(operation) {
         privateReminderGateArmed=true;NativeMutationGate.armDeadline()
     }
     if let item=req["change"] as? [String:Any],let operation=item["operation"] as? String,["delete_reminder","restore_reminder"].contains(operation) {
@@ -648,6 +651,30 @@ if action == "apply" {
                 if response["error"] != nil {fail((response["mutation_dispatched"] as? Bool)==true ? "mutation_failed_or_uncertain" : "unsupported_edit_target")}
                 guard let output=response["result"] as? [String:Any] else {fail("mutation_failed_or_uncertain")};respond(["protocol_version":1,"result":output])
             }
+        }
+        RunLoop.current.run(until:Date(timeIntervalSinceNow:30));fail("mutation_failed_or_uncertain")
+    }
+    if let item=req["change"] as? [String:Any],item["operation"] as? String == "reorder_reminder" {
+        guard let source=item["source_id"] as? String,sourceIDs.contains(source),let identifier=item["id"] as? String,let listID=item["list_id"] as? String,
+              let fields=item["fields"] as? [String:Any],Set(fields.keys)==["anchor_id","placement"],let anchor=fields["anchor_id"] as? String,let placement=fields["placement"] as? String,["before","after"].contains(placement),
+              let before=item["before"] as? [String:Any],let scope=before["source_scope"] as? [String:Any],let expectedList=scope["list"] as? [String:Any],
+              let graph=before["source_graph"] as? [String:Any],let nodes=graph["nodes"] as? [[String:Any]],let ordered=graph["ordered_ids"] as? [String],nodes.count<=200,
+              let previous=before["items"] as? [[String:Any]],previous.count>=2,previous.count<=21,
+              let list=lists.first(where:{$0.calendarIdentifier==listID && $0.source.sourceIdentifier==source}),list.allowsContentModifications,NSDictionary(dictionary:listRecord(list)).isEqual(to:expectedList) else {fail("invalid_mutation")}
+        store.fetchReminders(matching:store.predicateForReminders(in:[list])) { values in
+            guard let values=values,values.count==nodes.count,values.count<=200,Set(values.map{$0.calendarItemIdentifier})==Set(nodes.compactMap{$0["id"] as? String}) else {fail("snapshot_changed")}
+            var seen=Set<String>()
+            for snapshot in previous {
+                guard let item=snapshot["item"] as? [String:Any],let id=item["id"] as? String,seen.insert(id).inserted,
+                      let reminder=values.first(where:{$0.calendarItemIdentifier==id}),!reminder.hasRecurrenceRules,NSDictionary(dictionary:object(reminder)).isEqual(to:item),
+                      let native=snapshot["native_metadata"] as? [String:Any],native["section"] is NSNull,native["section_status"] as? String=="provider_not_reported",nativeSnapshotMatches(reminder,native),
+                      let urgent=snapshot["urgent"] as? NSNumber,CFGetTypeID(urgent)==CFBooleanGetTypeID(),
+                      let bytes=try? JSONSerialization.data(withJSONObject:["id":id,"source_id":source,"list_id":listID]),let result=(try? JSONSerialization.jsonObject(with:ICloudRemindersReadUrgent(bytes))) as? [String:Any],let meta=result["native_metadata"] as? [String:Any],let current=meta["urgent"] as? NSNumber,CFGetTypeID(current)==CFBooleanGetTypeID(),current.boolValue==urgent.boolValue else {fail("snapshot_changed")}
+            }
+            guard seen.contains(identifier),seen.contains(anchor),let payload=try? JSONSerialization.data(withJSONObject:["source_id":source,"list_id":listID,"id":identifier,"anchor_id":anchor,"placement":placement,"source_nodes":nodes.map{["id":$0["id"]!,"parent_id":$0["parent_id"]!]},"ordered_ids":ordered]),
+                  let result=(try? JSONSerialization.jsonObject(with:ICloudRemindersReorderRoot(payload,{NativeMutationGate.beginMutation()}))) as? [String:Any] else {fail("invalid_mutation")}
+            if result["error"] != nil {fail((result["mutation_dispatched"] as? Bool)==true ? "mutation_failed_or_uncertain" : "unsupported_edit_target")}
+            guard let output=result["result"] as? [String:Any] else {fail("mutation_failed_or_uncertain")};respond(["protocol_version":1,"result":output])
         }
         RunLoop.current.run(until:Date(timeIntervalSinceNow:30));fail("mutation_failed_or_uncertain")
     }

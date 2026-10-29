@@ -1385,3 +1385,48 @@ NSData *ICloudRemindersSetListBadge(NSData *data,BOOL (^enterMutation)(void)){
         return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":request[@"list_id"],@"source_id":request[@"source_id"],@"badge":request[@"badge"],@"saved_locally":@YES}});
     }@catch(NSException *exception){return EncodeFlag(@{@"protocol_version":@1,@"error":dispatched?@"mutation_failed_or_uncertain":@"private_metadata_unavailable",@"mutation_dispatched":@(dispatched)});}
 }
+
+// Provider manual order, bounded against the independently enumerated native graph.
+static NSArray *NativeOrderedIDs(id order){
+    if(![order isKindOfClass:NSOrderedSet.class] && ![order isKindOfClass:NSArray.class])return nil;
+    if([order count]>200)return nil;NSMutableArray *result=[NSMutableArray array];NSMutableSet *seen=[NSMutableSet set];
+    for(id value in order){id uuid=ObjectValue(value,@"uuid");if(![ObjectValue(value,@"entityName")isEqual:@"REMCDReminder"] || ![uuid isKindOfClass:NSUUID.class] || [seen containsObject:[uuid UUIDString]])return nil;[seen addObject:[uuid UUIDString]];[result addObject:[uuid UUIDString]];}return result;
+}
+NSData *ICloudRemindersListOrder(NSData *data){
+    @try{
+        NSDictionary *identity=[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
+        NSMutableDictionary *graph=[[NSJSONSerialization JSONObjectWithData:ICloudRemindersListHierarchy(data) options:NSJSONReadingMutableContainers error:NULL]mutableCopy];if(!graph || graph[@"error"])return EncodeFlag(graph?:FlagFailure(@"unsupported_list_order"));
+        Class ids=NSClassFromString(@"REMObjectID");id store=[NSClassFromString(@"REMStore")new],oid=((id(*)(id,SEL,id))objc_msgSend)((id)ids,NSSelectorFromString(@"objectIDWithURL:"),[NSURL URLWithString:[@"x-apple-reminderkit://REMCDList/" stringByAppendingString:identity[@"list_id"]]]);NSError *error=nil;
+        id list=((id(*)(id,SEL,id,NSError**))objc_msgSend)(store,NSSelectorFromString(@"fetchListWithObjectID:error:"),oid,&error);
+        if(error || !UUIDEqual(ObjectUUID(list,@"REMCDList"),identity[@"list_id"]) || !UUIDEqual(ObjectUUID(ObjectValue(list,@"account"),@"REMCDAccount"),identity[@"source_id"]))return EncodeFlag(FlagFailure(@"native_identity_mismatch"));
+        NSArray *ordered=NativeOrderedIDs(ObjectValue(list,@"reminderIDsOrdering"));NSSet *expected=[NSSet setWithArray:[graph[@"nodes"]valueForKey:@"id"]];
+        if(!ordered || ordered.count!=expected.count || ![[NSSet setWithArray:ordered]isEqual:expected])return EncodeFlag(FlagFailure(@"ordering_membership_disagrees"));
+        graph[@"ordered_ids"]=ordered;graph[@"backend"]=@"reminderkit-list-order-v1";return EncodeFlag(graph);
+    }@catch(NSException *e){return EncodeFlag(FlagFailure(@"private_read_exception"));}
+}
+NSData *ICloudRemindersReorderRoot(NSData *data,BOOL (^enterMutation)(void)){
+    __block BOOL dispatched=NO;
+    @try{
+        NSDictionary *request=[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];if(![request isKindOfClass:NSDictionary.class] || request.count!=7 || !enterMutation || ![@[@"before",@"after"]containsObject:request[@"placement"]] || ![request[@"anchor_id"]isKindOfClass:NSString.class] || ![[NSUUID alloc]initWithUUIDString:request[@"anchor_id"]])return EncodeFlag(FlagFailure(@"invalid_public_identity"));
+        NSDictionary *identity=@{@"source_id":request[@"source_id"]?:NSNull.null,@"list_id":request[@"list_id"]?:NSNull.null,@"id":request[@"id"]?:NSNull.null};NSData *bytes=[NSJSONSerialization dataWithJSONObject:identity options:0 error:NULL];NSDictionary *failure=nil;id store=nil,root=SelectedReminderWithStore(bytes,&failure,&store);if(!root)return EncodeFlag(failure);
+        NSString *source=request[@"source_id"],*listID=request[@"list_id"],*identifier=request[@"id"],*anchorID=request[@"anchor_id"];id list=ObjectValue(root,@"list");if(!LifecycleListPrivate(list,source,listID) || UUIDEqual(identifier,anchorID))return EncodeFlag(FlagFailure(@"unsupported_order_write"));
+        NSData *scope=[NSJSONSerialization dataWithJSONObject:@{@"source_id":source,@"list_id":listID} options:0 error:NULL];NSDictionary *graph=[NSJSONSerialization JSONObjectWithData:ICloudRemindersListOrder(scope) options:0 error:NULL];
+        if(!LifecycleGraphMatches(graph,request[@"source_nodes"],source,listID) || ![graph[@"ordered_ids"]isEqual:request[@"ordered_ids"]])return EncodeFlag(FlagFailure(@"snapshot_changed"));
+        NSSet *roots=[NSSet setWithArray:@[identifier,anchorID]];NSUInteger matches=0;for(NSDictionary *node in graph[@"nodes"])if([roots containsObject:node[@"id"]]){matches++;if(node[@"parent_id"]!=NSNull.null)return EncodeFlag(FlagFailure(@"unsupported_order_write"));}if(matches!=2)return EncodeFlag(FlagFailure(@"unsupported_order_write"));
+        NSMutableDictionary *anchorIdentity=[identity mutableCopy];anchorIdentity[@"id"]=anchorID;id anchor=SelectedReminder([NSJSONSerialization dataWithJSONObject:anchorIdentity options:0 error:NULL],&failure);if(!anchor)return EncodeFlag(failure);
+        Class cls=NSClassFromString(@"REMSaveRequest");if(!MethodMatches(cls,@"initWithStore:",@"@@:@",NO) || !MethodMatches(cls,@"updateList:",@"@@:@",NO) || !MethodMatches(cls,@"updateReminder:",@"@@:@",NO) || !MethodMatches(cls,@"saveSynchronouslyWithError:",@"B@:^@",NO))return EncodeFlag(FlagFailure(@"unsupported_order_write"));
+        id save=((id(*)(id,SEL,id))objc_msgSend)([cls alloc],NSSelectorFromString(@"initWithStore:"),store),change=((id(*)(id,SEL,id))objc_msgSend)(save,NSSelectorFromString(@"updateList:"),list),rootChange=((id(*)(id,SEL,id))objc_msgSend)(save,NSSelectorFromString(@"updateReminder:"),root),anchorChange=((id(*)(id,SEL,id))objc_msgSend)(save,NSSelectorFromString(@"updateReminder:"),anchor);
+        NSString *selector=[request[@"placement"]isEqual:@"before"]?@"insertReminderChangeItem:beforeReminderChangeItem:":@"insertReminderChangeItem:afterReminderChangeItem:";if(!MethodMatches([change class],selector,@"v@:@@",NO))return EncodeFlag(FlagFailure(@"unsupported_order_write"));
+        ((void(*)(id,SEL,id,id))objc_msgSend)(change,NSSelectorFromString(selector),rootChange,anchorChange);
+        NSMutableArray *expected=[graph[@"ordered_ids"]mutableCopy];[expected removeObject:identifier];NSUInteger at=[expected indexOfObject:anchorID]+([request[@"placement"]isEqual:@"after"]?1:0);[expected insertObject:identifier atIndex:at];
+        NSArray *staged=NativeOrderedIDs(ObjectValue(ObjectValue(change,@"storage"),@"reminderIDsMergeableOrdering"));
+        if(![staged isEqual:expected] || [staged isEqual:graph[@"ordered_ids"]] || !LifecycleTrackedList(save,change,listID,[NSSet setWithArray:@[@"reminderIDsMergeableOrdering",@"reminderIDsOrderingHints"]]))return EncodeFlag(FlagFailure(@"unsupported_order_write"));
+        id tracked=ObjectValue(save,@"trackedReminderChangeItems");if(![tracked isKindOfClass:NSDictionary.class] || [tracked count]!=2)return EncodeFlag(FlagFailure(@"unsupported_order_write"));
+        for(id key in tracked){id uuid=ObjectValue(key,@"uuid"),value=ObjectValue(tracked[key],@"valueWithoutPerformingCopy");NSString *valueID=[uuid isKindOfClass:NSUUID.class]?[uuid UUIDString]:nil;id expectedChange=[valueID isEqual:identifier]?rootChange:[valueID isEqual:anchorID]?anchorChange:nil;
+            id storage=ObjectValue(value,@"storage"),list=ObjectValue(storage,@"listID"),keys=ObjectValue(value,@"changedKeys");
+            if(![ObjectValue(key,@"entityName")isEqual:@"REMCDReminder"] || !expectedChange || value!=expectedChange || ![keys isKindOfClass:NSSet.class] || ![keys isEqual:[valueID isEqual:identifier]?[NSSet setWithObject:@"listID"]:[NSSet set]] || !StorageMatchesAccount(storage,source) || ![ObjectValue(list,@"entityName")isEqual:@"REMCDList"] || ![ObjectValue(list,@"uuid")isKindOfClass:NSUUID.class] || !UUIDEqual([ObjectValue(list,@"uuid")UUIDString],listID) || ObjectValue(storage,@"parentReminderID"))return EncodeFlag(FlagFailure(@"unsupported_order_write"));
+        }
+        if(!enterMutation())return EncodeFlag(FlagFailure(@"native_dispatch_cancelled"));dispatched=YES;NSError *error=nil;BOOL saved=((BOOL(*)(id,SEL,NSError**))objc_msgSend)(save,NSSelectorFromString(@"saveSynchronouslyWithError:"),&error);
+        if(!saved || error)return EncodeFlag(@{@"protocol_version":@1,@"error":@"mutation_failed_or_uncertain",@"mutation_dispatched":@YES});return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":identifier,@"source_id":source,@"list_id":listID,@"saved_locally":@YES}});
+    }@catch(NSException *e){return EncodeFlag(@{@"protocol_version":@1,@"error":dispatched?@"mutation_failed_or_uncertain":@"private_metadata_unavailable",@"mutation_dispatched":@(dispatched)});}
+}

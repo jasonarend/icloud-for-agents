@@ -3,9 +3,9 @@ import uuid
 from .core import SafetyError
 
 
-def validate_list_graph(result,list_id,source_ids):
+def validate_list_graph(result,list_id,source_ids,*,ordered=False):
     if (not isinstance(result,dict) or result.get('protocol_version')!=1 or result.get('list_id')!=list_id
-            or result.get('source_id') not in source_ids or result.get('backend')!='reminderkit-list-hierarchy-v1'
+            or result.get('source_id') not in source_ids or result.get('backend')!=('reminderkit-list-order-v1' if ordered else 'reminderkit-list-hierarchy-v1')
             or result.get('data_mutated') is not False or result.get('membership_verified') is not True
             or result.get('hierarchy_complete') is not True or result.get('observation_consistency')!='separate_provider_reads'
             or result.get('coverage')!='native_list_and_subtasks_matching_eventkit'
@@ -28,4 +28,8 @@ def validate_list_graph(result,list_id,source_ids):
                 chain.add(current);current=parents[current]
     except (ValueError,TypeError,AttributeError,UnicodeError):
         raise SafetyError('List hierarchy has invalid, duplicate, missing, cyclic or out-of-bound native relationships') from None
-    return {key:result[key] for key in ('protocol_version','source_id','list_id','backend','data_mutated','membership_verified','hierarchy_complete','observation_consistency','coverage')}|{'nodes':sorted(nodes,key=lambda row:row['id'])}
+    if ordered:
+        identities=result.get('ordered_ids')
+        if (not isinstance(identities,list) or len(identities)!=len(nodes) or any(not isinstance(value,str) for value in identities) or len(set(identities))!=len(identities) or set(identities)!=set(parents)):
+            raise SafetyError('Native manual order does not match the complete bounded list graph')
+    return ({'ordered_ids':list(result['ordered_ids'])} if ordered else {})|{key:result[key] for key in ('protocol_version','source_id','list_id','backend','data_mutated','membership_verified','hierarchy_complete','observation_consistency','coverage')}|{'nodes':sorted(nodes,key=lambda row:row['id'])}

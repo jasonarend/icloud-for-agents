@@ -7,7 +7,7 @@ from .core import SafetyError, digest
 
 OBSERVABLE_CHANGES = {'update_reminder', 'set_completed', 'set_recurrence', 'set_flagged',
                       'remove_tag', 'add_tag', 'replace_tag', 'set_urgent', 'add_early',
-                      'clear_early', 'move_reminder', 'create_subtask', 'delete_reminder', 'restore_reminder'}
+                      'clear_early', 'move_reminder', 'create_subtask', 'delete_reminder', 'restore_reminder', 'reorder_reminder'}
 
 
 def inspect_uncertain_reminder(engine, plan_id):
@@ -70,6 +70,10 @@ def inspect_uncertain_reminder(engine, plan_id):
         from .native_reminder_moves import observe_unchanged
         matches=observe_unchanged(engine.adapter,item,observed)
         coverage='all_reviewed_subtree_snapshots_and_both_bounded_list_graphs'
+    if item['operation']=='reorder_reminder':
+        from .native_reminder_order import unchanged
+        matches=unchanged(engine.adapter,item,observed)
+        coverage='reviewed_root_descendants_anchor_and_complete_manual_sequence'
     candidate=None
     if item['operation']=='create_subtask':
         from .core import NativeObjectNotFound
