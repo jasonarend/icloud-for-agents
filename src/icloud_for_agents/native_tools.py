@@ -274,6 +274,12 @@ def register_change_tools(mcp):
             create_list uses source_id and fields.title; create_reminder also
             requires list_id. update_reminder/set_completed use
             exact source_id and id. rename_list uses source_id/list_id/title.
+            delete_reminder uses exact source_id/id and fields.recoverable=true.
+            Only private nonrecurring root leaves without sections or descendants
+            are supported; permanent deletion is unavailable. restore_reminder
+            requires the same ID/source, fields.deletion_plan_id from this owner's
+            completed deletion, optional deletion_index (default 0), and exact
+            destination fields.list_id. Restore can reactivate original alarms.
             set_list_pinned uses source_id/list_id and fields.pinned (Boolean),
             with the explicitly selected ReminderKit backend.
             set_list_color uses source_id/list_id and fields.color (#RRGGBB or
@@ -335,6 +341,14 @@ def register_change_tools(mcp):
             from .native_reminder_observation import inspect_uncertain_reminder
             check_plan_scope('reminders',plan_id)
             return inspect_uncertain_reminder(editor('reminders'),plan_id)
+
+        @mcp.tool(annotations=READ)
+        @guard
+        def reminders_reconcile_lifecycle(plan_id:str)->dict:
+            """Independently verify a known native lifecycle state after a retained terminal error. Preserve the original failure and never replay a deletion or restore."""
+            from .native_reminder_lifecycle import reconcile
+            check_plan_scope('reminders',plan_id)
+            return reconcile(editor('reminders'),plan_id)
 
         @mcp.tool(annotations=WRITE)
         @guard

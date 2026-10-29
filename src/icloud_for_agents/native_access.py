@@ -27,8 +27,8 @@ def access_status(name):
         'permanently_delete_note':'No independently verified irreversible deletion route.',
         'move_note':'Requires explicitly selected read-only folder metadata and a compatible helper.',
     } if name=='notes' else {
-        'delete_reminder':'Recoverable deletion and native hierarchy effects are unverified.',
-        'restore_reminder':'Exact native restoration and destination verification are unavailable.',
+        'delete_reminder':'Requires the selected ReminderKit backend, compatible helper and a verified root leaf with provider recovery support.',
+        'restore_reminder':'Requires the selected ReminderKit backend, compatible helper and a completed owned root-leaf deletion ledger.',
         'delete_list':'Complete contents and recoverable deletion effects are unverified.',
         'permanently_delete_reminder':'No independently verified irreversible deletion route.',
         'move_reminder':'Requires the explicitly selected ReminderKit backend, compatible helper and complete bounded list graphs.',
@@ -37,13 +37,13 @@ def access_status(name):
     metadata_moves=name=='notes' and config.get('metadata_backend')=='notes-store-readonly'
     if metadata_moves:unsupported.pop('move_note');unsupported.pop('restore_note');unsupported.pop('delete_note')
     if name=='reminders' and config.get('advanced_backend')=='reminderkit':
-        unsupported.pop('clear_early');unsupported.pop('move_reminder')
+        unsupported.pop('clear_early');unsupported.pop('move_reminder');unsupported.pop('delete_reminder');unsupported.pop('restore_reminder')
     return {'pending_native_requests':pending,'service': name, 'effective_access': effective, 'configured_access': mode,
             'runtime_access': global_mode, 'approval_policy': policy,
             'source_ids': config.get('source_ids', []),
             'scope_selected': bool(config.get('source_ids')),
             'os_permission': 'not_checked', 'writes_implemented': True,
-            'implemented_write_operations':(['create_note','create_folder','append_note','prepend_note','replace_text','update_note','rename_folder']+(['move_note','restore_note','delete_note'] if metadata_moves else []) if name=='notes' else ['create_list','create_reminder','update_reminder','set_completed','rename_list','set_list_color','set_recurrence']+(['set_list_pinned','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','add_early','clear_early','create_subtask','create_section','rename_section','move_reminder'] if config.get('advanced_backend')=='reminderkit' else [])),
+            'implemented_write_operations':(['create_note','create_folder','append_note','prepend_note','replace_text','update_note','rename_folder']+(['move_note','restore_note','delete_note'] if metadata_moves else []) if name=='notes' else ['create_list','create_reminder','update_reminder','set_completed','rename_list','set_list_color','set_recurrence']+(['delete_reminder','restore_reminder','set_list_pinned','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','add_early','clear_early','create_subtask','create_section','rename_section','move_reminder'] if config.get('advanced_backend')=='reminderkit' else [])),
             'implemented_recovery_operations':(['accept_observed_creation','repair_title_only_candidate','accept_observed_known_move_state','accept_observed_unchanged_edit'] if name=='notes' else ['known_update_correction']),
             'standing_grants_implemented': True,'one_time_elevation_implemented':True,
             'read_actions': sorted(READ_ACTIONS[name]),

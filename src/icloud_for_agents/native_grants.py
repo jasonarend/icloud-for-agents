@@ -16,7 +16,7 @@ from .native_read import native_config
 FIELDS={
  'notes':{'copy_observation':{'title','body','format'},'create_note':{'title','body','format'},'append_note':{'body','format'},'prepend_note':{'body','format'},'replace_text':{'find','replacement','expected_matches'},
           'update_note':{'title','body','format'},'move_note':{'destination_folder_id'},'restore_note':{'destination_folder_id'},'delete_note':{'recoverable'},'create_folder':{'title'},'rename_folder':{'title'}},
- 'reminders':{'copy_observation':{'title','notes','priority','due','start','url','alarms'},'create_subtask':{'title'},'create_section':{'title'},'rename_section':{'title'},'create_reminder':{'title','notes','priority','due','start','url','alarms','location_alarms','recurrence'},'update_reminder':{'title','notes','priority','due','start','url','alarms','location_alarms'},
+ 'reminders':{'delete_reminder':{'recoverable'},'restore_reminder':{'deletion_plan_id','deletion_index','list_id'},'copy_observation':{'title','notes','priority','due','start','url','alarms'},'create_subtask':{'title'},'create_section':{'title'},'rename_section':{'title'},'create_reminder':{'title','notes','priority','due','start','url','alarms','location_alarms','recurrence'},'update_reminder':{'title','notes','priority','due','start','url','alarms','location_alarms'},
               'set_completed':{'completed'},'set_flagged':{'flagged'},'set_urgent':{'urgent'},'add_early':{'unit','count'},'clear_early':{'clear'},'remove_tag':{'tag_id'},'add_tag':{'tag_name'},'replace_tag':{'tag_id','tag_name'},'move_reminder':{'list_id'},'create_list':{'title'},'rename_list':{'title'},'set_list_color':{'color'},'set_list_pinned':{'pinned'},'set_recurrence':{'recurrence','recurrence_scope'}}}
 
 
@@ -49,7 +49,7 @@ def validate_scope(name,scope,now):
             raise SafetyError('Native grant field scope must explicitly select supported fields')
         if 'location_alarms' in fields and 'alarms' not in fields:raise SafetyError('Location-alarm authority requires explicit complete alarm-set authority')
         if (not isinstance(dest,list) or len(dest)>20 or any(not exact(d) for d in dest)
-                or len(set(dest))!=len(dest) or bool(dest)!=(op in {'move_note','restore_note','move_reminder','create_subtask','rename_section'})):
+                or len(set(dest))!=len(dest) or bool(dest)!=(op in {'move_note','restore_note','move_reminder','restore_reminder','create_subtask','rename_section'})):
             raise SafetyError('Moves require exact destinations, subtask creation exact parents and section renames exact section IDs; other rules cannot grant them')
         if op=='rename_section':
             import uuid
@@ -118,10 +118,13 @@ class NativeGrants:
                         roles[role['folder_id']]=stable
                 result.append({'source':dict(source,verified_move_roles=[roles[key] for key in sorted(roles)]),'destinations':destinations})
                 continue
+            if self.name=='reminders' and rule['operation']=='delete_reminder':
+                from .native_reminder_moves import list_scope
+                result.append({'source':list_scope(self.engine.adapter,rule['source_id'],rule['container_id']),'destinations':[]});continue
             if self.name=='reminders' and rule['operation']=='set_list_pinned':
                 from .native_reminder_moves import list_scope
                 result.append({'source':list_scope(self.engine.adapter,rule['source_id'],rule['container_id']),'destinations':[]});continue
-            if self.name=='reminders' and rule['operation']=='move_reminder':
+            if self.name=='reminders' and rule['operation'] in {'move_reminder','restore_reminder'}:
                 from .native_reminder_moves import list_scope
                 source=list_scope(self.engine.adapter,rule['source_id'],rule['container_id'])
                 destinations=[list_scope(self.engine.adapter,rule['source_id'],value) for value in rule['destinations']]
@@ -181,6 +184,8 @@ class NativeGrants:
             payload['effects']['move_scope']='Moves require explicitly selected read-only metadata, ordinary unshared source/destination ancestors and exact destination IDs. Roles and ancestry are rechecked at admission; every note retains its own content and attachment snapshot. No Recently Deleted, cross-account or shared moves.'
         if self.name=='reminders' and any(rule['operation']=='move_reminder' for rule in scope['rules']):
             payload['effects']['move_scope']='Move a root together with all reviewed descendants within the selected source and exact private physical lists. Every descendant counts against batch and rolling object caps. Section migration, recurring reminders and subtask detachment are refused; display ordering and unexposed metadata remain unverified.'
+        if self.name=='reminders' and any(rule['operation'] in {'delete_reminder','restore_reminder'} for rule in scope['rules']):
+            payload['effects']['recovery_scope']='Only originally reviewed private nonrecurring root leaves without descendants or sections. Deletion is recoverable and never purges; restoration requires the completed owned deletion ledger and exact approved destination, preserves the native ID and can reactivate original alarms and due notifications. Unexposed recovery content remains unverified until restore readback. Delete and restore require separate explicit rules.'
         if any(rule['operation']=='copy_observation' for rule in scope['rules']):
             payload['effects']['observation_copy']='Allows new lossy copies from caller-supplied observations in this exact scope; originals are unchanged, and copies do not retain original identity, native metadata or attachments. Duplicates may result. Each batch discloses its omissions and selected fields.'
             if self.name=='reminders':payload['effects']['observation_copy']+=' Reminder copies start incomplete; copied dates and absolute alarms can affect notifications controlled by Apple. Past alarms may notify immediately.'
@@ -301,7 +306,7 @@ class NativeGrants:
         marker=item.get('standing_operation');scope_op=op if marker is None else marker
         if marker is not None and (marker!='copy_observation' or op!=('create_note' if self.name=='notes' else 'create_reminder')):
             raise SafetyError('Invalid observation copy grant operation')
-        container=(item.get('parent_folder_id',item['source_id']) if op=='create_folder' else item['source_id'] if op=='create_list'
+        container=(item.get('before',{}).get('original',{}).get('item',{}).get('list_id') if op=='restore_reminder' else item.get('parent_folder_id',item['source_id']) if op=='create_folder' else item['source_id'] if op=='create_list'
                    else item.get('folder_id') if self.name=='notes' else item.get('list_id') if op in {'create_reminder','create_section','rename_section','rename_list','set_list_color','set_list_pinned'}
                    else item.get('before',{}).get('item',{}).get('list_id'))
         fields=item.get('requested_fields')
@@ -317,7 +322,7 @@ class NativeGrants:
                     and set(fields)<=set(rule['fields'])):
                 if requires_location and 'location_alarms' not in rule['fields']:continue
                 dest=item['fields'].get('destination_folder_id' if self.name=='notes' else 'list_id')
-                if op in {'move_note','restore_note','move_reminder'} and dest not in rule['destinations']:continue
+                if op in {'move_note','restore_note','move_reminder','restore_reminder'} and dest not in rule['destinations']:continue
                 if op=='create_subtask' and item['id'] not in rule['destinations']:continue
                 if op=='rename_section' and item['section_id'].upper() not in {value.upper() for value in rule['destinations']}:continue
                 return

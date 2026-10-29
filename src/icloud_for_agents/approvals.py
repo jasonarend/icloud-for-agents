@@ -230,6 +230,9 @@ class PlanStore:
         item=items[0]
         coverage='only_fields_exposed_by_the_current_adapter'
         if item['operation']=='move_reminder' and 'source_graph' in item.get('before',{}):coverage='all_reviewed_subtree_snapshots_and_both_bounded_list_graphs'
+        if item['operation'] in {'delete_reminder','restore_reminder'}:
+            if legacy or payload.get('effects',{}).get('lifecycle_coverage')!='Only reviewed live or recovery observations and the bounded list graph are compared. Deleted content not exposed by recovery, delayed effects and causal dispatch remain unproven. No replay or automatic retry.':return False
+            coverage='unchanged_root_leaf_and_bounded_source_graph' if item['operation']=='delete_reminder' else 'reviewed_recovery_observations_and_bounded_destination_graph'
         if item['operation']=='create_subtask':
             if legacy or observed.get('preassigned_child_observation')!={'id':item.get('child_id'),'found_in_selected_live_scope':False,'found_in_recovery_view':False,'coverage':'selected_EventKit_scope_and_provider_recovery_view','absence_globally_proven':False}:return False
             coverage='parent_snapshot_and_preassigned_child_scope_observations'
@@ -466,8 +469,25 @@ class PlanStore:
                 and len(attempts)==len(plan['payload'].get('changes',[])) and bool(attempts)
                 and record.get('attempt_record_hashes')==[digest(self.read(self.path(plan_id,'.attempt-'+str(i)))) for i in range(len(attempts))])
 
+    def _native_lifecycle_readback_completed(self,identity):
+        path=self.path(identity,'.native-lifecycle-readback')
+        if not path.exists():return False
+        from .native_reminder_exchange import inspect
+        from .native_reminder_lifecycle import expected_record_matches
+        record=self.read(path);plan=self.read(self.path(identity,'.json'));result=self.read(self.path(identity,'.result'));payload=plan.get('payload',{});items=payload.get('changes',[]);started=self.read(self.path(identity,'.started'))
+        if (plan.get('kind')!='reminders_change' or not isinstance(items,list) or len(items)!=1 or items[0].get('operation') not in {'delete_reminder','restore_reminder'}
+                or result.get('status')!='failed_or_uncertain' or result.get('phase')!='mutation' or result.get('attempted')!=[] or result.get('completed')!=[]
+                or started.get('sha256')!=digest(plan) or started.get('account')!=payload.get('account')):return False
+        terminal=inspect(self,plan);request=self.read(self.path(identity,'.native-reminder-request-0'));response=self.read(self.path(identity,'.native-reminder-response-0'));item=items[0];observed=record.get('observed',{})
+        return (terminal.get('terminal_response')=='recorded' and terminal.get('helper_reported_mutation_dispatched') is not False and response.get('response_kind')=='error'
+                and record.get('status')=='native_lifecycle_expected_state_observed' and record.get('plan_sha256')==digest(plan) and record.get('result_sha256')==digest(result)
+                and record.get('item_sha256')==digest(item) and record.get('request_record_sha256')==digest(request) and record.get('response_record_sha256')==digest(response)
+                and record.get('observed_sha256')==digest(observed) and observed.get('id')==item.get('id') and observed.get('source_id')==item.get('source_id')
+                and observed.get('state')==('in_recovery' if item['operation']=='delete_reminder' else 'restored')
+                and record.get('original_failure_preserved') is True and record.get('causal_dispatch_proven') is False and record.get('do_not_retry') is True and expected_record_matches(item,observed))
+
     def _reconciliation_completed(self, original_id):
-        if self._native_reconciliation_completed(original_id) or self._native_correction_completed(original_id) or self._native_recovery_completed(original_id):return True
+        if self._native_lifecycle_readback_completed(original_id) or self._native_reconciliation_completed(original_id) or self._native_correction_completed(original_id) or self._native_recovery_completed(original_id):return True
         path = self.path(original_id, ".reconciled-result")
         if not path.exists():
             return False
@@ -621,7 +641,7 @@ class PlanStore:
             proof=self.read(self.path(plan_id,'.native-correction-result'))
             if proof.get('status')=='original_before_state_restored_after_correction':return {'status':'restored_before_after_explicit_correction','original_status':'failed_or_uncertain','original_request_succeeded':False,'do_not_retry':True}
             return {"status":"verified_after_explicit_correction","original_status":"failed_or_uncertain","do_not_retry":True}
-        if self._native_reconciliation_completed(plan_id):
+        if self._native_reconciliation_completed(plan_id) or self._native_lifecycle_readback_completed(plan_id):
             return {"status":"applied_after_readback_reconciliation","original_status":"failed_or_uncertain","do_not_retry":True}
         result = self.path(plan_id, ".result")
         if result.exists():

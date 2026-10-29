@@ -612,8 +612,40 @@ func reminderRecurrence(_ value:Any,due:DateComponents?)->EKRecurrenceRule? {
     return rule
 }
 if action == "apply" {
-    if let change=req["change"] as? [String:Any],let operation=change["operation"] as? String,["set_list_pinned","set_flagged","remove_tag","add_tag","replace_tag","set_urgent","add_early","clear_early","create_subtask","create_section","rename_section","move_reminder"].contains(operation) {
+    if let change=req["change"] as? [String:Any],let operation=change["operation"] as? String,["delete_reminder","restore_reminder","set_list_pinned","set_flagged","remove_tag","add_tag","replace_tag","set_urgent","add_early","clear_early","create_subtask","create_section","rename_section","move_reminder"].contains(operation) {
         privateReminderGateArmed=true;NativeMutationGate.armDeadline()
+    }
+    if let item=req["change"] as? [String:Any],let operation=item["operation"] as? String,["delete_reminder","restore_reminder"].contains(operation) {
+        guard let source=item["source_id"] as? String,sourceIDs.contains(source),let identifier=item["id"] as? String,let listID=item["list_id"] as? String,
+              let fields=item["fields"] as? [String:Any],let before=item["before"] as? [String:Any],let list=lists.first(where:{$0.calendarIdentifier==listID && $0.source.sourceIdentifier==source}),list.allowsContentModifications else {fail("invalid_mutation")}
+        let restoring=operation=="restore_reminder",scope=before[restoring ? "destination_scope" : "source_scope"] as? [String:Any]
+        guard let expectedList=scope?["list"] as? [String:Any],NSDictionary(dictionary:listRecord(list)).isEqual(to:expectedList),
+              let nodes=before[restoring ? "destination_nodes" : "source_nodes"] as? [[String:Any]],nodes.count<=200 else {fail("snapshot_changed")}
+        if restoring {
+            guard Set(fields.keys)==["list_id"],fields["list_id"] as? String==listID,let original=before["original_item"] as? [String:Any],original["id"] as? String==identifier,original["source_id"] as? String==source,
+                  original["has_recurrence"] as? Bool==false,original["public_metadata_complete"] as? Bool==true,let title=original["title"] as? String,title.count<=1000,
+                  let recovery=before["recovery"] as? [String:Any],store.calendarItem(withIdentifier:identifier)==nil else {fail("unsupported_edit_target")}
+            store.fetchReminders(matching:store.predicateForReminders(in:[list])) {values in
+                guard let values=values,values.count<200,values.count==nodes.count,Set(values.map{$0.calendarItemIdentifier})==Set(nodes.compactMap{$0["id"] as? String}),
+                      let payload=try? JSONSerialization.data(withJSONObject:["source_id":source,"id":identifier,"list_id":listID,"title":title,"destination_nodes":nodes,"expected_recovery":recovery]),let response=(try? JSONSerialization.jsonObject(with:ICloudRemindersRestoreRootLeaf(payload,{NativeMutationGate.beginMutation()}))) as? [String:Any] else {fail("snapshot_changed")}
+                if response["error"] != nil {fail((response["mutation_dispatched"] as? Bool)==true ? "mutation_failed_or_uncertain" : "unsupported_edit_target")}
+                guard let output=response["result"] as? [String:Any] else {fail("mutation_failed_or_uncertain")};respond(["protocol_version":1,"result":output])
+            }
+        } else {
+            guard Set(fields.keys)==["recoverable"],let recoverable=fields["recoverable"] as? NSNumber,CFGetTypeID(recoverable)==CFBooleanGetTypeID(),recoverable.boolValue,
+                  let previous=before["item"] as? [String:Any],previous["id"] as? String==identifier,previous["source_id"] as? String==source,previous["list_id"] as? String==listID,
+                  let native=before["native_metadata"] as? [String:Any],native["is_subtask"] as? Bool==false,native["child_ids"] as? [String]==[],native["section"] is NSNull,native["section_status"] as? String=="provider_not_reported",
+                  let expectedUrgent=before["urgent"] as? NSNumber,CFGetTypeID(expectedUrgent)==CFBooleanGetTypeID() else {fail("unsupported_edit_target")}
+            store.fetchReminders(matching:store.predicateForReminders(in:[list])) {values in
+                guard let values=values,values.count<=200,values.count==nodes.count,Set(values.map{$0.calendarItemIdentifier})==Set(nodes.compactMap{$0["id"] as? String}),let reminder=values.first(where:{$0.calendarItemIdentifier==identifier}),!reminder.hasRecurrenceRules,
+                      NSDictionary(dictionary:object(reminder)).isEqual(to:previous),nativeSnapshotMatches(reminder,native),
+                      let identity=try? JSONSerialization.data(withJSONObject:["id":identifier,"source_id":source,"list_id":listID]),let urgent=(try? JSONSerialization.jsonObject(with:ICloudRemindersReadUrgent(identity))) as? [String:Any],let metadata=urgent["native_metadata"] as? [String:Any],let currentUrgent=metadata["urgent"] as? NSNumber,CFGetTypeID(currentUrgent)==CFBooleanGetTypeID(),currentUrgent.boolValue==expectedUrgent.boolValue,
+                      let payload=try? JSONSerialization.data(withJSONObject:["source_id":source,"id":identifier,"list_id":listID,"source_nodes":nodes]),let response=(try? JSONSerialization.jsonObject(with:ICloudRemindersRemoveRootLeaf(payload,{NativeMutationGate.beginMutation()}))) as? [String:Any] else {fail("snapshot_changed")}
+                if response["error"] != nil {fail((response["mutation_dispatched"] as? Bool)==true ? "mutation_failed_or_uncertain" : "unsupported_edit_target")}
+                guard let output=response["result"] as? [String:Any] else {fail("mutation_failed_or_uncertain")};respond(["protocol_version":1,"result":output])
+            }
+        }
+        RunLoop.current.run(until:Date(timeIntervalSinceNow:30));fail("mutation_failed_or_uncertain")
     }
     if let item=req["change"] as? [String:Any],item["operation"] as? String == "set_list_pinned" {
         guard let source=item["source_id"] as? String,sourceIDs.contains(source),let listID=item["list_id"] as? String,item["id"] as? String==listID,

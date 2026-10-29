@@ -56,7 +56,7 @@ class ReminderObservationRecovery:
         with self.engine.serialized():
             plan,result,item=self.original(original_id)
             if self.store._native_reminder_recovery_completed(original_id):raise SafetyError('An observation has already been accepted for this Reminder')
-            if item.get('operation')=='create_subtask' and legacy:raise SafetyError('Subtask candidate acceptance requires retained terminal evidence')
+            if item.get('operation') in {'create_subtask','delete_reminder','restore_reminder'} and legacy:raise SafetyError('Subtask and lifecycle acceptance require retained terminal evidence')
             observed=self.observation(original_id,True) if legacy else self.observation(original_id,unknown=True) if accept_unknown_dispatch else self.observation(original_id)
             request=None if legacy else self.store.read(self.store.path(original_id,'.native-reminder-request-0'))
             response=None if legacy else self.store.read(self.store.path(original_id,'.native-reminder-response-0'))
@@ -68,6 +68,8 @@ class ReminderObservationRecovery:
                     'decision':'Accept only the current observed reminder snapshot after review and allow fresh, separately authorized work.',
                     'uncertainty':'The original dispatch and provider effects remain unproven. Unexposed metadata, other objects and delayed effects are not ruled out.',
                     'future_actions':'Fresh plans still require current scope, fidelity and approval checks.'}}
+            if item.get('operation') in {'delete_reminder','restore_reminder'}:
+                payload['effects']['lifecycle_coverage']='Only reviewed live or recovery observations and the bounded list graph are compared. Deleted content not exposed by recovery, delayed effects and causal dispatch remain unproven. No replay or automatic retry.'
             if accept_unknown_dispatch:
                 payload['accept_unknown_dispatch']=True
                 payload['effects']['retained_terminal_unknown_dispatch']=UNKNOWN_DISPATCH_EFFECT

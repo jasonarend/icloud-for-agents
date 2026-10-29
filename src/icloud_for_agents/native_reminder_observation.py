@@ -7,7 +7,7 @@ from .core import SafetyError, digest
 
 OBSERVABLE_CHANGES = {'update_reminder', 'set_completed', 'set_recurrence', 'set_flagged',
                       'remove_tag', 'add_tag', 'replace_tag', 'set_urgent', 'add_early',
-                      'clear_early', 'move_reminder', 'create_subtask'}
+                      'clear_early', 'move_reminder', 'create_subtask', 'delete_reminder', 'restore_reminder'}
 
 
 def inspect_uncertain_reminder(engine, plan_id):
@@ -31,6 +31,16 @@ def inspect_uncertain_reminder(engine, plan_id):
     if not isinstance(item, dict):
         raise SafetyError('The original reminder snapshot is unavailable')
     before = item.get('before')
+    lifecycle=item.get('operation') in {'delete_reminder','restore_reminder'}
+    if lifecycle:
+        from .native_reminder_lifecycle import unchanged_observation
+        matches,coverage=unchanged_observation(engine.adapter,item)
+        if engine.context(True)!=context:raise SafetyError('Reminder access changed during observation')
+        from .native_reminder_exchange import inspect
+        return {'plan_id':plan_id,'reminder_id':item['id'],'source_id':item['source_id'],
+                'observed_snapshot_matches_before':matches,'snapshot_coverage':coverage,
+                'observation_consistency':'separate_live_reads_may_change','original_uncertainty_retained':True,
+                'causal_dispatch_proven':False,'data_mutated':False,'do_not_retry':True,**inspect(engine.store,plan)}
     identity, source = item.get('id'), item.get('source_id')
     if (not isinstance(item.get('operation'), str) or item['operation'] not in OBSERVABLE_CHANGES
             or not isinstance(identity, str) or not identity or not isinstance(source, str) or source not in context['source_ids']

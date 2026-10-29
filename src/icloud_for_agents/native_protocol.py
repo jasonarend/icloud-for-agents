@@ -40,13 +40,24 @@ def mutation_request(service,item):
                 if isinstance(roles,list) and roles:
                     change['folder_guard']='verified_trash_destination' if operation=='delete_note' else 'verified_recovery_roles' if operation=='restore_note' else 'verified_store_roles';change['before']['roles']=roles
         if content_roles is not None:change.setdefault('before',{})['roles']=content_roles
-    elif service=='reminders' and operation in {'create_list','create_reminder','create_section','rename_section','update_reminder','set_completed','move_reminder','rename_list','set_list_color','set_list_pinned','set_recurrence','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','add_early','clear_early','create_subtask'}:
+    elif service=='reminders' and operation in {'delete_reminder','restore_reminder','create_list','create_reminder','create_section','rename_section','update_reminder','set_completed','move_reminder','rename_list','set_list_color','set_list_pinned','set_recurrence','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','add_early','clear_early','create_subtask'}:
         change={key:item[key] for key in ('operation','source_id','list_id','id','child_id','section_id','fields') if key in item}
         if operation in {'update_reminder','set_completed','move_reminder','set_recurrence','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','add_early','clear_early','create_subtask'}:
             change['before']={'item':item['before']['item']}
             if 'native_metadata' in item['before']:change['before']['native_metadata']=item['before']['native_metadata']
             if 'urgent' in item['before']:change['before']['urgent']=item['before']['urgent']
         if operation in {'rename_list','set_list_color','set_list_pinned','create_section','rename_section'}:change['before']=item['before']
+        if operation in {'delete_reminder','restore_reminder'}:
+            from .native_reminder_moves import structure
+            before=item['before']
+            if operation=='delete_reminder':
+                change['before']={key:before[key] for key in ('item','native_metadata','urgent','source_scope')}
+                change['before']['source_nodes']=structure(before['source_graph'])
+                change['before']['recovery']=before['recovery']
+            else:
+                change['fields']={'list_id':item['fields']['list_id']}
+                change['before']={'original_item':before['original']['item'],'destination_scope':before['destination_scope'],
+                                  'destination_nodes':structure(before['destination_graph']),'recovery':before['recovery']}
         if operation=='move_reminder' and 'source_graph' in item['before']:
             from .native_reminder_moves import structure
             before=item['before'];change['hierarchy_guard']='verified_list_graphs'
