@@ -8,10 +8,24 @@ import shutil
 from pathlib import Path
 
 
+def sign(target, identifier, identity):
+    command = ['/usr/bin/codesign', '--force', '--sign', identity, '--identifier', identifier]
+    if identity != '-':
+        # This is a local build, not a notarization or publication workflow.
+        command.append('--timestamp=none')
+    subprocess.run([*command, str(target)], check=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, default=Path('build/native/iCloud for Agents.app'))
+    parser.add_argument('--sign-identity', default='-',
+                        help='Explicit local Keychain signing identity; default is ad hoc. Never grants permissions or publishes.')
     args = parser.parse_args()
+    if (not args.sign_identity.strip() or len(args.sign_identity)>1000
+            or args.sign_identity.startswith('-') and args.sign_identity!='-'
+            or any(ord(c)<32 or 127<=ord(c)<=159 for c in args.sign_identity)):
+        parser.error('Use an explicit nonempty local signing identity or the default ad hoc identity')
     root = Path(__file__).resolve().parents[1]
     bundle = args.output.resolve()
     if bundle.suffix != '.app':
@@ -46,8 +60,8 @@ def main():
     for path in objects:path.unlink()
     processor=executable.parent/'icloud-agents-image-text'
     subprocess.run(['/usr/bin/swiftc',str(native/'notes-ocr.swift'),'-target',architecture+'-apple-macos14.0','-o',str(processor)],check=True)
-    subprocess.run(['/usr/bin/codesign','--force','--sign','-','--identifier',info['CFBundleIdentifier']+'.image-text',str(processor)],check=True)
-    subprocess.run(['/usr/bin/codesign', '--force', '--sign', '-', '--identifier', info['CFBundleIdentifier'], str(bundle)], check=True)
+    sign(processor, info['CFBundleIdentifier']+'.image-text', args.sign_identity)
+    sign(bundle, info['CFBundleIdentifier'], args.sign_identity)
     print(executable)
 
 

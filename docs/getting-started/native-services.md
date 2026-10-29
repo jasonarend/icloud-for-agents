@@ -73,6 +73,9 @@ Acceptance of a client requires observing the real consent dialog, the requestin
 
 An authorized agent can build the repository-owned helper with `scripts/build-native-helper.py`, using a new output directory for each reviewed build. Swift and codesign are macOS build-time tools; neither a separate MCP server nor an additional Python runtime dependency is required. The resulting app is ad-hoc signed for development. Notes transport validates the owned app directories, entrypoint, declared bundle identity and bundled fixed scripts; symlinked or group/world-writable assets are refused. Approval fingerprints include the executable, bundle metadata and scripts. A release still needs its own signing/distribution and upgrade-permission continuity evidence.
 
+A builder may explicitly select an existing local Keychain certificate with `--sign-identity`. The same chosen identity signs the bundled image-text processor and outer helper with their fixed identifiers; the default remains ad hoc. The script never discovers or chooses a certificate automatically, creates a certificate, exports a key, contacts a timestamp service, notarizes, publishes, grants OS access or changes application permissions. Obtain authorization for the selected signing identity and leave any Keychain prompt to its owner. Stable signing can be investigated separately from normal setup; it is not proof that macOS accepted a permission, that an upgrade preserves access, or that a client displayed the intended dialog. Existing output bundles remain protected from replacement.
+
+
 After the owner selects a service, private settings accept `native_services` alongside the optional `notes` and `reminders` service booleans. For example, these nonsecret fields illustrate the schema; they do not enable a live installation:
 
 ```json
