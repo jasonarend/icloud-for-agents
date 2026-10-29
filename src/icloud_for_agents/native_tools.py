@@ -367,8 +367,12 @@ def register_change_tools(mcp):
             verify. No template content/sharing changes or list instantiation. Its
             scenario rule uses the exact template ID as container_id and title only.
             create_smart_list uses source_id and fields.title/list_ids for a new
-            Lists-only AND custom Smart List over one to ten exact private ordinary
-            nongrocery physical lists. The server preassigns its ID and appends it
+            Lists-AND custom Smart List over one to ten exact private ordinary
+            nongrocery physical lists. Optional fields.date_filter is exactly
+            {"mode":"today","include_overdue":false or true}, requiring explicit
+            date_filter permission in a standing rule. Today follows the displaying
+            device current day; unknown date criteria and global filters refuse.
+            The server preassigns its ID and appends it
             to native account order. No Reminders are copied or edited. Its scenario
             rule uses source_id as container_id and explicit permitted list IDs as
             destinations. The view is persistent; no delete-view operation is included.

@@ -1,4 +1,4 @@
-"""Create one native custom Lists-only Smart List with a preassigned identity."""
+"""Create a bounded native Lists-AND Smart List with an optional Today criterion."""
 from copy import deepcopy
 import uuid
 from .core import SafetyError
@@ -6,7 +6,7 @@ from .native_once import planning_access
 from .native_reminder_groups import inventory as root_inventory, valid_id
 from .native_reminder_moves import list_scope
 from .native_reminder_smart_lists import snapshot as read_view
-from .native_reminder_smart_sources import ids, encoded
+from .native_reminder_smart_sources import ids, encoded, normalize_date_filter
 
 COVERAGE = 'bounded_custom_smart_list_inventory_root_order_and_referenced_private_lists'
 RECOVERY_EFFECT = ('Only the complete bounded custom-view inventory, private root-group inventory, account order and referenced list scopes are compared. '
@@ -42,7 +42,7 @@ def prepare(adapter, change):
     if (not isinstance(change, dict) or set(change) != {'operation', 'source_id', 'fields'}
             or change.get('operation') != 'create_smart_list'
             or change['source_id'] not in planning_access('reminders')['source_ids']
-            or not isinstance(change['fields'], dict) or set(change['fields']) != {'title', 'list_ids'}):
+            or not isinstance(change['fields'], dict) or set(change['fields']) not in ({'title','list_ids'},{'title','list_ids','date_filter'})):
         raise SafetyError('Create a custom Smart List using exact source_id, fields.title and fields.list_ids')
     title = change['fields']['title']
     if (not isinstance(title, str) or not title.strip() or len(title) > 1000
@@ -50,6 +50,7 @@ def prepare(adapter, change):
         raise SafetyError('Use a bounded nonempty Smart List title without control characters')
     item = {'operation': 'create_smart_list', 'source_id': change['source_id'], 'id': str(uuid.uuid4()).upper(),
             'fields': {'title': title, 'list_ids': ids(change['fields']['list_ids'])}}
+    if 'date_filter' in change['fields']:item['fields']['date_filter']=normalize_date_filter(change['fields']['date_filter'])
     item['before'] = snapshot(adapter, item)
     before = item['before']
     if (len(before['views']) >= 100 or len(before['roots']['account_order']) >= 1000
@@ -57,10 +58,11 @@ def prepare(adapter, change):
             or item['id'] in before['roots']['account_order']):
         raise SafetyError('Duplicate custom-view title or identity, or bounded native inventory is full')
     item.update(fidelity_verified=True, effects={
-        'view': 'Create one custom Smart List with a server-preassigned ID and a Lists-only AND filter over the exact approved physical lists.',
-        'scope': 'One to ten selected-source private ordinary nongrocery writable physical lists. No excluded lists, other criteria or sharing.',
+        'view': 'Create one custom Smart List with a server-preassigned ID and a positive Lists-AND filter over the exact approved physical lists, optionally with the explicitly reviewed Today date criterion.',
+        'scope': 'One to ten selected-source private ordinary nongrocery writable physical lists. No excluded lists, unknown criteria or sharing. The optional Today criterion follows the displaying device current day; other-device semantics are unverified.',
         'ordering': 'Append the new view ID to native root account order, preserving every existing entry. Apple controls app sorting and synchronization.',
         'preservation': 'No existing Smart List, Reminder, physical list, group, section or template is edited or moved. The view displays existing Reminders without copying them.',
+        'date_filter':item['fields'].get('date_filter'),
         'cleanup': 'No Smart List deletion operation is included. This creates a persistent native view.', 'quota_objects': 1})
     return item
 
@@ -75,7 +77,7 @@ def expected_snapshot(item):
 def record_matches(item, observed):
     try:
         view = {'protocol_version': 1, 'source_id': item['source_id'], 'id': item['id'], 'title': item['fields']['title'],
-                'minimum_supported_version': 20220430, 'definition_json': encoded(item['fields']['list_ids']), 'data_mutated': False, 'backend': 'reminderkit-smart-definition-v2'}
+                'minimum_supported_version': 20220430, 'definition_json': encoded(item['fields']['list_ids'],date_filter=item['fields'].get('date_filter')), 'data_mutated': False, 'backend': 'reminderkit-smart-definition-v2'}
         return (item['operation'] == 'create_smart_list' and observed.get('state') == 'custom_smart_list_created'
                 and observed.get('id') == item['id'] and observed.get('source_id') == item['source_id']
                 and observed.get('snapshot') == expected_snapshot(item) and observed.get('view') == view)

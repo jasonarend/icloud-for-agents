@@ -6,6 +6,7 @@ import tempfile
 from native_smart_rename_contract import ROOT, FIXTURE
 
 EXTRA = r'''
+static NSData *capturedFilter;
 @interface FakeAccount:NSObject
 @property FakeID *remObjectID;
 @end
@@ -35,7 +36,7 @@ static NSDictionary *physical;
 -(void)setFilterData:(id)value;
 @end
 @implementation FakeChange(Filter)
--(void)setFilterData:(id)value{self.storage.filterData=value;[self.changedKeys addObject:@"filterData"];
+-(void)setFilterData:(id)value{self.storage.filterData=value;capturedFilter=value;[self.changedKeys addObject:@"filterData"];
  if([mode isEqual:@"extra_key"])[self.changedKeys addObject:@"name"];
  if([mode isEqual:@"version_drift"])self.storage.minimumSupportedVersion=0;
  if([mode isEqual:@"filter_drift"])self.storage.filterData=[@"{}"dataUsingEncoding:NSUTF8StringEncoding];
@@ -49,6 +50,11 @@ int main(int argc,const char **argv){@autoreleasepool{
  mode=[NSString stringWithUTF8String:argv[1]];NSString *source=@"11111111-1111-4111-8111-111111111111",*identifier=@"22222222-2222-4222-8222-222222222222",*old=@"33333333-3333-4333-8333-333333333333",*next=@"44444444-4444-4444-8444-444444444444";
  original=[FakeList new];original.remObjectID=ident(@"REMCDSmartList",identifier);original.storage=[FakeStorage new];original.storage.remObjectID=original.remObjectID;original.storage.accountID=ident(@"REMCDAccount",source);original.storage.name=@"Synthetic source view";original.storage.minimumSupportedVersion=20220430;
  NSMutableDictionary *criterion=[@{@"operation":@"and",@"lists":@{@"include":@[old],@"exclude":@[]}}mutableCopy];if([mode isEqual:@"unknown_criteria"])criterion[@"unknown"]=@YES;if([mode isEqual:@"or"])criterion[@"operation"]=@"or";
+ if([mode isEqual:@"today"] || [mode isEqual:@"overdue"])criterion[@"date"]=@{@"today":@([mode isEqual:@"overdue"])};
+ if([mode isEqual:@"date_number"])criterion[@"date"]=@{@"today":@1};
+ if([mode isEqual:@"date_null"])criterion[@"date"]=NSNull.null;
+ if([mode isEqual:@"date_unknown"])criterion[@"date"]=@{@"tomorrow":@YES};
+ if([mode isEqual:@"date_extra"])criterion[@"date"]=@{@"today":@NO,@"extra":@YES};
  original.storage.filterData=[NSJSONSerialization dataWithJSONObject:criterion options:0 error:NULL];
  NSMutableDictionary *objects=[NSMutableDictionary dictionary];for(NSString *identity in @[old,next]){FakeList *list=[FakeList new];list.remObjectID=ident(@"REMCDList",identity);list.storage=[FakeStorage new];list.storage.remObjectID=list.remObjectID;list.storage.accountID=ident(@"REMCDAccount",source);objects[identity]=list;}physical=objects;
  if([mode isEqual:@"foreign_reference"])((FakeList*)objects[next]).storage.accountID=ident(@"REMCDAccount",identifier);
@@ -62,7 +68,7 @@ int main(int argc,const char **argv){@autoreleasepool{
  if([mode isEqual:@"multiple"])request[@"list_ids"]=@[old,next];
  if([mode isEqual:@"extra_field"])request[@"extra"]=@YES;
  NSData *reply=ICloudRemindersSetSmartListSources(EncodeFlag(request),^BOOL{gates++;return ![mode isEqual:@"closed"];});
- id response=[NSJSONSerialization JSONObjectWithData:reply options:0 error:NULL];NSData *out=EncodeFlag(@{@"response":response,@"gate_calls":@(gates),@"save_calls":@(saves)});fwrite(out.bytes,1,out.length,stdout);return 0;
+ id response=[NSJSONSerialization JSONObjectWithData:reply options:0 error:NULL];id filter=capturedFilter?[NSJSONSerialization JSONObjectWithData:capturedFilter options:0 error:NULL]:@{};NSData *out=EncodeFlag(@{@"response":response,@"filter":filter?:@{},@"gate_calls":@(gates),@"save_calls":@(saves)});fwrite(out.bytes,1,out.length,stdout);return 0;
 }}
 '''
 
@@ -82,9 +88,11 @@ def run():
         def call(mode):return json.loads(subprocess.run([str(binary),mode],capture_output=True,text=True,check=True,timeout=5).stdout)
         closed=call('closed');assert closed['gate_calls']==1 and closed['save_calls']==0 and closed['response']['error']
         opened=call('valid');assert opened['gate_calls']==1 and opened['save_calls']==1 and opened['response']['result']['saved_locally'] is True
+        for mode,overdue in (('today',False),('overdue',True)):
+            value=call(mode);assert value['gate_calls']==1 and value['save_calls']==1 and value['filter']['date']=={'today':overdue},value
         multiple=call('multiple');assert multiple['gate_calls']==1 and multiple['save_calls']==1 and multiple['response']['result']['saved_locally'] is True
         error=call('save_error');assert error['save_calls']==1 and error['response']['mutation_dispatched'] is True
-        for mode in ('version_drift','shared','grocery','foreign_reference','unknown_criteria','or','missing_old','duplicate','empty','unreviewed','same_sources','extra_field','extra_key','filter_drift','title_drift','unrelated_reminder'):
+        for mode in ('date_number','date_null','date_unknown','date_extra','version_drift','shared','grocery','foreign_reference','unknown_criteria','or','missing_old','duplicate','empty','unreviewed','same_sources','extra_field','extra_key','filter_drift','title_drift','unrelated_reminder'):
             value=call(mode);assert value['gate_calls']==0 and value['save_calls']==0 and value['response']['error'],mode
     return {'status':'passed','apple_store_opened':False,'exact_source_and_private_references_verified':True,
             'known_schema_only':True,'closed_gate_and_single_save_verified':True,'unrelated_changes_refused':True}

@@ -35,7 +35,7 @@ class Adapter(RemindersCreateAdapter):
     def apply(self,item):
         require_write('reminders',item);self.calls.append(item['operation'])
         self.reader.views[item['id']]={'protocol_version':1,'source_id':item['source_id'],'id':item['id'],'title':item['fields']['title'],
-                                      'minimum_supported_version':20220430,'definition_json':encoded(item['fields']['list_ids']),'data_mutated':False,'backend':'reminderkit-smart-definition-v2'}
+                                      'minimum_supported_version':20220430,'definition_json':encoded(item['fields']['list_ids'],date_filter=item['fields'].get('date_filter')),'data_mutated':False,'backend':'reminderkit-smart-definition-v2'}
         self.reader.roots['account_order'].append(item['id'])
         return {'id':item['id'],'source_id':item['source_id'],'saved_locally':True}
 
@@ -73,6 +73,46 @@ class SmartCreateTests(unittest.TestCase):
         self.adapter.reader.incomplete=True
         with self.assertRaises(SafetyError):self.engine.prepare_once([self.change()])
         self.assertEqual(self.adapter.calls,[])
+
+    def test_today_modes_are_exact_and_require_explicit_grant_field(self):
+        manager=NativeGrants(self.engine);scope=self.scope();old=manager.prepare(scope)['plan_id'];manager.activate(old)
+        change=self.change();change['fields']['date_filter']={'mode':'today','include_overdue':False}
+        with self.assertRaises(SafetyError):self.engine.prepare_with_grant(old,[change])
+        manager.revoke(old);scope['rules'][0]['fields'].append('date_filter');grant=manager.prepare(scope)['plan_id'];manager.activate(grant)
+        for overdue in (False,True):
+            change=self.change('Synthetic Today '+str(overdue));change['fields']['date_filter']={'mode':'today','include_overdue':overdue}
+            plan=self.engine.prepare_with_grant(grant,[change]);item=plan['review']['payload']['changes'][0]
+            self.assertEqual(item['effects']['date_filter'],change['fields']['date_filter'])
+            self.assertEqual(self.engine.execute(plan['plan_id'])['status'],'applied')
+            self.assertEqual(json.loads(self.adapter.reader.views[item['id']]['definition_json'])['date'],{'today':overdue})
+        plan=self.engine.prepare_with_grant(grant,[dict(change,fields=dict(change['fields'],title='Synthetic over quota'))])
+        with self.assertRaises(SafetyError):self.engine.execute(plan['plan_id'])
+        manager.revoke(grant)
+        with self.assertRaises(SafetyError):self.engine.execute(plan['plan_id'])
+        self.engine.assert_settled()
+
+    def test_today_rejects_untyped_unknown_and_partial_criteria_before_dispatch(self):
+        for value in (None,{},False,{'mode':'today','include_overdue':1},{'mode':'today','include_overdue':'false'},
+                      {'mode':'tomorrow','include_overdue':False},{'mode':'today'},
+                      {'mode':'today','include_overdue':False,'timezone':'UTC'}):
+            change=self.change();change['fields']['date_filter']=value
+            with self.assertRaises(SafetyError):self.engine.prepare_once([change])
+        self.assertEqual(self.adapter.calls,[])
+
+    def test_today_expected_state_recovery_retains_date_and_refuses_forgery(self):
+        from icloud_for_agents.native_reminder_exchange import begin,finish
+        apply=self.adapter.apply
+        def uncertain(item):
+            apply(item);finish(begin(mutation_request('reminders',item)),{'protocol_version':1,'error':'mutation_failed_or_uncertain','mutation_dispatched':True});raise SafetyError('Synthetic terminal error')
+        change=self.change();change['fields']['date_filter']={'mode':'today','include_overdue':True}
+        plan=self.engine.prepare_once([change])
+        with patch.object(self.adapter,'apply',side_effect=uncertain):self.engine.execute(plan['plan_id'])
+        self.engine.reconcile_known_changes(plan['plan_id']);self.engine.assert_settled()
+        path=self.store.path(plan['plan_id'],'.native-lifecycle-readback');value=self.store.read(path)
+        definition=json.loads(value['observed']['view']['definition_json']);definition['date']['today']=False
+        value['observed']['view']['definition_json']=json.dumps(definition,sort_keys=True,separators=(',',':'))
+        value['observed_sha256']=digest(value['observed']);path.write_text(json.dumps(value))
+        self.assertFalse(self.store._native_lifecycle_readback_completed(plan['plan_id']));self.assertEqual(len(self.adapter.calls),1)
 
     def test_shared_reference_root_order_and_custom_inventory_drift_refuse_before_dispatch(self):
         self.adapter.reader.shared=True

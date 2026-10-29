@@ -42,26 +42,34 @@ def run(policy):
                         receipt=runtime/(plan['plan_id']+'.approved');fd=os.open(receipt,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
                         with os.fdopen(fd,'w') as stream:json.dump({'plan_id':plan['plan_id'],'sha256':plan['sha256']},stream)
                 counter=0
-                def change(values):
+                def change(values,overdue=None):
                     nonlocal counter
                     counter+=1
-                    return {'operation':'create_smart_list','source_id':SOURCE,'fields':{'title':'Synthetic custom view '+str(counter),'list_ids':values}}
+                    fields={'title':'Synthetic custom view '+str(counter),'list_ids':values}
+                    if overdue is not None:fields['date_filter']={'mode':'today','include_overdue':overdue}
+                    return {'operation':'create_smart_list','source_id':SOURCE,'fields':fields}
                 def execute(plan):
                     if policy=='local-receipt':assert call('reminders_execute_approved',{'plan_id':plan['plan_id']}).get('isError')
                     approve(plan);assert data(call('reminders_execute_approved',{'plan_id':plan['plan_id']}))['status']=='applied'
                     assert call('reminders_execute_approved',{'plan_id':plan['plan_id']}).get('isError')
                 assert call('reminders_prepare_changes',{'changes':[change([DEST])]}).get('isError')
-                for values in ([DEST],[ORIGIN]):
-                    execute(data(call('reminders_prepare_once',{'changes':[change(values)]})))
+                for values,overdue in (([DEST],False),([ORIGIN],True)):
+                    execute(data(call('reminders_prepare_once',{'changes':[change(values,overdue)]})))
                 scope={'scenario':'Synthetic custom view sources','rules':[
                     {'operation':'create_smart_list','source_id':SOURCE,'container_id':ID,'fields':['title','list_ids'],'destinations':[ORIGIN,DEST]}],
                     'max_batch':1,'max_24h':4,'expires':None}
                 grant=data(call('reminders_prepare_grant',{'scope':scope}));approve(grant)
                 assert data(call('reminders_activate_grant',{'grant_id':grant['plan_id']}))['grant_active'] is True
-                for values in ([DEST],[ORIGIN]):
-                    proposal=data(call('reminders_prepare_with_grant',{'grant_id':grant['plan_id'],'changes':[change(values)]}))
+                assert call('reminders_prepare_with_grant',{'grant_id':grant['plan_id'],'changes':[change([DEST],False)]}).get('isError')
+                assert data(call('reminders_revoke_grant',{'grant_id':grant['plan_id']}))['status']=='revoked'
+                scope['rules'][0]['fields'].append('date_filter');scope['max_24h']=2
+                grant=data(call('reminders_prepare_grant',{'scope':scope}));approve(grant)
+                assert data(call('reminders_activate_grant',{'grant_id':grant['plan_id']}))['grant_active'] is True
+                for values,overdue in (([DEST],False),([ORIGIN],True)):
+                    proposal=data(call('reminders_prepare_with_grant',{'grant_id':grant['plan_id'],'changes':[change(values,overdue)]}))
                     assert data(call('reminders_execute_approved',{'plan_id':proposal['plan_id']}))['status']=='applied'
                 pending=data(call('reminders_prepare_with_grant',{'grant_id':grant['plan_id'],'changes':[change([DEST])]}))
+                assert call('reminders_execute_approved',{'plan_id':pending['plan_id']}).get('isError')
                 assert data(call('reminders_access_status',{}))['effective_access']=='read-only'
                 assert data(call('reminders_revoke_grant',{'grant_id':grant['plan_id']}))['status']=='revoked'
                 assert call('reminders_execute_approved',{'plan_id':pending['plan_id']}).get('isError')

@@ -23,18 +23,36 @@ def ids(values):
     return sorted(normalized)
 
 
-def source_ids(view):
-    value = parse(view['definition_json'])
-    lists = value.get('lists')
-    if (set(value) != {'lists', 'operation'} or value['operation'] != 'and'
-            or not isinstance(lists, dict) or set(lists) != {'include', 'exclude'} or lists['exclude'] != []):
-        raise SafetyError('Source changes currently require a Lists-only AND Smart List without excluded lists; other criteria are not rewritten')
-    return ids(lists['include'])
+def normalize_date_filter(value):
+    if (not isinstance(value,dict) or set(value)!={'mode','include_overdue'} or value.get('mode')!='today'
+            or type(value.get('include_overdue')) is not bool):
+        raise SafetyError('Use an explicit today date_filter with Boolean include_overdue; no arbitrary date criteria')
+    return {'mode':'today','include_overdue':value['include_overdue']}
 
 
-def encoded(values):
-    return json.dumps({'lists': {'include': ids(values), 'exclude': []}, 'operation': 'and'},
-                      sort_keys=True, separators=(',', ':'))
+def supported_definition(view):
+    value=parse(view['definition_json']);lists=value.get('lists')
+    if (set(value) not in ({'lists','operation'},{'lists','operation','date'}) or value.get('operation')!='and'
+            or not isinstance(lists,dict) or set(lists)!={'include','exclude'} or lists['exclude']!=[]):
+        raise SafetyError('Use positive Lists-AND criteria, optionally with the verified Today predicate; other criteria are preserved by refusal')
+    ids(lists['include'])
+    if 'date' in value and (not isinstance(value['date'],dict) or set(value['date'])!={'today'} or type(value['date']['today']) is not bool):
+        raise SafetyError('Unknown native date predicate; no rewrite')
+    return value
+
+
+def source_ids(view):return ids(supported_definition(view)['lists']['include'])
+
+
+def observed_date(view):
+    value=supported_definition(view)
+    return {'mode':'today','include_overdue':value['date']['today']} if 'date' in value else None
+
+
+def encoded(values,*,date_filter=None):
+    value={'lists':{'include':ids(values),'exclude':[]},'operation':'and'}
+    if date_filter is not None:value['date']={'today':normalize_date_filter(date_filter)['include_overdue']}
+    return json.dumps(value,sort_keys=True,separators=(',',':'))
 
 
 def snapshot(adapter, item):
@@ -66,10 +84,10 @@ def prepare(adapter, change):
     if item['before']['view'] != view:
         raise SafetyError('Smart List definition changed during preparation')
     item.update(fidelity_verified=True, effects={
-        'change': 'Replace only the source-list criterion of this exact Lists-only AND custom Smart List.',
+        'change': 'Replace only the source-list criterion of this exact positive Lists-AND custom Smart List; preserve any verified Today predicate.',
         'before_list_ids': previous, 'after_list_ids': proposed,
         'preservation': 'Keep the view title and all underlying Reminders unchanged. No Reminder move, completion, deletion, sharing or ordering change is requested.',
-        'scope': 'All old and new references must be selected-source private ordinary nongrocery physical lists. No excluded lists, other criteria, built-in views or cross-account references.',
+        'scope': 'All old and new references must be selected-source private ordinary nongrocery physical lists. No excluded lists, unknown criteria, built-in views or cross-account references; a known Today predicate is retained exactly.',
         'display': 'The view can display a different set of Reminders after its filter changes. Apple controls refresh and synchronization.',
         'representation': 'The supported native JSON is canonicalized; restoring the same source IDs restores the criterion, not its former JSON whitespace or key order.',
         'quota_objects': 1})
@@ -78,7 +96,7 @@ def prepare(adapter, change):
 
 def record_matches(item, observed):
     try:
-        before = item['before'];expected = dict(before, view=dict(before['view'], definition_json=encoded(item['fields']['list_ids'])))
+        before = item['before'];expected = dict(before, view=dict(before['view'], definition_json=encoded(item['fields']['list_ids'],date_filter=observed_date(before['view']))))
         return (item['operation'] == 'set_smart_list_sources' and observed.get('state') == 'custom_smart_list_sources_changed'
                 and observed.get('id') == item['id'] and observed.get('source_id') == item['source_id']
                 and observed.get('snapshot') == expected)

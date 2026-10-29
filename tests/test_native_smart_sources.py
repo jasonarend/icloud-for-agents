@@ -10,7 +10,7 @@ from icloud_for_agents.native_changes import NativeChanges
 from icloud_for_agents.native_grants import NativeGrants
 from icloud_for_agents.native_protocol import mutation_request
 from icloud_for_agents.native_reminders import RemindersCreateAdapter
-from icloud_for_agents.native_reminder_smart_sources import ids,encoded,source_ids
+from icloud_for_agents.native_reminder_smart_sources import ids,encoded,source_ids,observed_date
 
 SMART='66666666-6666-4666-8666-666666666666'
 
@@ -28,7 +28,7 @@ class Adapter(RemindersCreateAdapter):
     backend_id='synthetic-smart-sources'
     def __init__(self):self.reader=Reader();self.calls=[]
     def apply(self,item):
-        require_write('reminders',item);self.calls.append(item['operation']);self.reader.view['definition_json']=encoded(item['fields']['list_ids'])
+        require_write('reminders',item);self.calls.append(item['operation']);self.reader.view['definition_json']=encoded(item['fields']['list_ids'],date_filter=observed_date(self.reader.view))
         return {'id':item['id'],'source_id':item['source_id'],'saved_locally':True}
 
 class SmartSourcesTests(unittest.TestCase):
@@ -60,6 +60,27 @@ class SmartSourcesTests(unittest.TestCase):
             with self.assertRaises(SafetyError):self.engine.prepare_once([self.change()])
         self.adapter.reader.view['definition_json']=original
         with self.assertRaises(SafetyError):self.engine.prepare_once([self.change([f.ORIGIN])])
+        self.assertEqual(self.adapter.calls,[])
+
+    def test_today_predicate_is_preserved_during_source_roundtrip(self):
+        for overdue in (False,True):
+            self.adapter.reader.view['definition_json']=encoded([f.ORIGIN],date_filter={'mode':'today','include_overdue':overdue})
+            original=copy.deepcopy(self.adapter.reader.view)
+            for values in ([f.DEST],[f.ORIGIN]):
+                plan=self.engine.prepare_once([self.change(values)])
+                self.assertEqual(self.engine.execute(plan['plan_id'])['status'],'applied')
+                self.assertEqual(observed_date(self.adapter.reader.view),{'mode':'today','include_overdue':overdue})
+            self.assertEqual(self.adapter.reader.view,original)
+        self.engine.assert_settled()
+
+    def test_unknown_native_date_shapes_and_date_drift_refuse(self):
+        for date in (None,False,{}, {'today':0},{'today':False,'tomorrow':False},{'tomorrow':True}):
+            self.adapter.reader.view['definition_json']=json.dumps({'operation':'and','lists':{'include':[f.ORIGIN],'exclude':[]},'date':date})
+            with self.assertRaises(SafetyError):self.engine.prepare_once([self.change()])
+        self.adapter.reader.view['definition_json']=encoded([f.ORIGIN],date_filter={'mode':'today','include_overdue':False})
+        plan=self.engine.prepare_once([self.change()])
+        self.adapter.reader.view['definition_json']=encoded([f.ORIGIN],date_filter={'mode':'today','include_overdue':True})
+        with self.assertRaises(SafetyError):self.engine.execute(plan['plan_id'])
         self.assertEqual(self.adapter.calls,[])
 
     def test_foreign_shared_or_grocery_reference_and_current_drift_refuse(self):

@@ -1823,16 +1823,18 @@ NSData *ICloudRemindersReparentLeaf(NSData *data,BOOL (^enterMutation)(void)){
     }@catch(NSException *e){return EncodeFlag(@{@"protocol_version":@1,@"error":dispatched?@"mutation_failed_or_uncertain":@"private_metadata_unavailable",@"mutation_dispatched":@(dispatched)});}
 }
 
-// Change only a proven Lists-only AND criterion; never accept arbitrary filter JSON.
+// Create a bounded positive Lists-AND view with an optional typed Today criterion.
 NSData *ICloudRemindersCreateSmartList(NSData *data,BOOL (^enterMutation)(void)){
     __block BOOL dispatched=NO;
     @try{
         NSDictionary *r=[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
-        if(![r isKindOfClass:NSDictionary.class] || r.count!=5 || !enterMutation || ![r[@"source_id"]isKindOfClass:NSString.class] || ![r[@"id"]isKindOfClass:NSString.class]
+        if(![r isKindOfClass:NSDictionary.class] || !(r.count==5 || (r.count==6 && r[@"date_filter"])) || !enterMutation || ![r[@"source_id"]isKindOfClass:NSString.class] || ![r[@"id"]isKindOfClass:NSString.class]
                 || ![[[[NSUUID alloc]initWithUUIDString:r[@"id"]]UUIDString]isEqual:r[@"id"]] || ![r[@"title"]isKindOfClass:NSString.class]
                 || ![r[@"title"]stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet].length || [r[@"title"]length]>1000 || [r[@"title"]lengthOfBytesUsingEncoding:NSUTF8StringEncoding]>4000
                 || [r[@"title"]rangeOfCharacterFromSet:NSCharacterSet.controlCharacterSet].location!=NSNotFound)return EncodeFlag(FlagFailure(@"invalid_public_identity"));
         NSString *source=r[@"source_id"],*identifier=r[@"id"];NSArray *selected=r[@"list_ids"];NSDictionary *before=r[@"before"];
+        NSDictionary *date=r[@"date_filter"];
+        if(date && (![date isKindOfClass:NSDictionary.class] || ![[NSSet setWithArray:date.allKeys]isEqual:[NSSet setWithArray:@[@"mode",@"include_overdue"]]] || ![date[@"mode"]isEqual:@"today"] || ![date[@"include_overdue"]isKindOfClass:NSNumber.class] || CFGetTypeID((__bridge CFTypeRef)date[@"include_overdue"])!=CFBooleanGetTypeID()))return EncodeFlag(FlagFailure(@"invalid_public_identity"));
         if(![selected isKindOfClass:NSArray.class] || selected.count<1 || selected.count>10 || ![before isKindOfClass:NSDictionary.class] || before.count!=3)return EncodeFlag(FlagFailure(@"invalid_public_identity"));
         NSMutableSet *seen=[NSMutableSet set];for(id value in selected){if(![value isKindOfClass:NSString.class] || ![[[[NSUUID alloc]initWithUUIDString:value]UUIDString]isEqual:value] || [seen containsObject:value])return EncodeFlag(FlagFailure(@"invalid_public_identity"));[seen addObject:value];}
         if(![selected isEqual:[selected sortedArrayUsingSelector:@selector(compare:)]])return EncodeFlag(FlagFailure(@"invalid_public_identity"));
@@ -1853,7 +1855,9 @@ NSData *ICloudRemindersCreateSmartList(NSData *data,BOOL (^enterMutation)(void))
             id oid=((id(*)(id,SEL,id))objc_msgSend)((id)idsClass,NSSelectorFromString(@"objectIDWithURL:"),[NSURL URLWithString:[@"x-apple-reminderkit://REMCDList/"stringByAppendingString:listID]]);NSError *error=nil;
             id list=((id(*)(id,SEL,id,NSError**))objc_msgSend)(store,NSSelectorFromString(@"fetchListWithObjectID:error:"),oid,&error);if(error || !LifecycleListPrivate(list,source,listID))return EncodeFlag(FlagFailure(@"native_identity_mismatch"));[seen addObject:listID];}
         if(![seen isEqual:[NSSet setWithArray:selected]] || ![GroupAccountOrder(ObjectValue(account,@"listIDsOrdering"))isEqual:roots[@"account_order"]])return EncodeFlag(FlagFailure(@"snapshot_changed"));
-        NSData *filter=[NSJSONSerialization dataWithJSONObject:@{@"lists":@{@"include":selected,@"exclude":@[]},@"operation":@"and"}options:NSJSONWritingSortedKeys error:NULL];if(!filter)return EncodeFlag(FlagFailure(@"unsupported_smart_list_write"));
+        NSMutableDictionary *definition=[@{@"lists":@{@"include":selected,@"exclude":@[]},@"operation":@"and"}mutableCopy];
+        if(date)definition[@"date"]=@{@"today":date[@"include_overdue"]};
+        NSData *filter=[NSJSONSerialization dataWithJSONObject:definition options:NSJSONWritingSortedKeys error:NULL];if(!filter)return EncodeFlag(FlagFailure(@"unsupported_smart_list_write"));
         id oid=((id(*)(id,SEL,id))objc_msgSend)((id)idsClass,NSSelectorFromString(@"objectIDWithURL:"),[NSURL URLWithString:[@"x-apple-reminderkit://REMCDSmartList/"stringByAppendingString:identifier]]),
            save=((id(*)(id,SEL,id))objc_msgSend)([cls alloc],NSSelectorFromString(@"initWithStore:"),store),ac=((id(*)(id,SEL,id))objc_msgSend)(save,NSSelectorFromString(@"updateAccount:"),account),
            change=((id(*)(id,SEL,id,id,id))objc_msgSend)(save,NSSelectorFromString(@"addCustomSmartListWithName:toAccountChangeItem:smartListObjectID:"),r[@"title"],ac,oid),storage=ObjectValue(change,@"storage");
@@ -1894,7 +1898,10 @@ NSData *ICloudRemindersSetSmartListSources(NSData *data,BOOL (^enterMutation)(vo
         id observed=[NSJSONSerialization JSONObjectWithData:ICloudRemindersSmartListDefinition(EncodeFlag(identity)) options:0 error:NULL];
         if(![before isKindOfClass:NSDictionary.class] || observed[@"error"] || ![observed isEqual:before] || ![scopes isKindOfClass:NSArray.class] || [scopes count]<1 || [scopes count]>20 || ![newIDs isKindOfClass:NSArray.class] || [newIDs count]<1 || [newIDs count]>10)return EncodeFlag(FlagFailure(@"snapshot_changed"));
         NSData *oldData=[before[@"definition_json"] dataUsingEncoding:NSUTF8StringEncoding];id old=[NSJSONSerialization JSONObjectWithData:oldData options:0 error:NULL],lists=[old isKindOfClass:NSDictionary.class]?old[@"lists"]:nil;
-        if(![old isKindOfClass:NSDictionary.class] || ![[NSSet setWithArray:[old allKeys]] isEqual:[NSSet setWithArray:@[@"lists",@"operation"]]] || ![old[@"operation"] isEqual:@"and"] || ![lists isKindOfClass:NSDictionary.class] || ![[NSSet setWithArray:[lists allKeys]] isEqual:[NSSet setWithArray:@[@"include",@"exclude"]]] || ![lists[@"exclude"] isKindOfClass:NSArray.class] || [lists[@"exclude"] count] || ![lists[@"include"] isKindOfClass:NSArray.class] || [lists[@"include"] count]<1 || [lists[@"include"] count]>10)return EncodeFlag(FlagFailure(@"unsupported_smart_list_write"));
+        NSSet *oldKeys=[old isKindOfClass:NSDictionary.class]?[NSSet setWithArray:[old allKeys]]:nil;
+        if(![old isKindOfClass:NSDictionary.class] || !([oldKeys isEqual:[NSSet setWithArray:@[@"lists",@"operation"]]] || [oldKeys isEqual:[NSSet setWithArray:@[@"lists",@"operation",@"date"]]]) || ![old[@"operation"] isEqual:@"and"] || ![lists isKindOfClass:NSDictionary.class] || ![[NSSet setWithArray:[lists allKeys]] isEqual:[NSSet setWithArray:@[@"include",@"exclude"]]] || ![lists[@"exclude"] isKindOfClass:NSArray.class] || [lists[@"exclude"] count] || ![lists[@"include"] isKindOfClass:NSArray.class] || [lists[@"include"] count]<1 || [lists[@"include"] count]>10)return EncodeFlag(FlagFailure(@"unsupported_smart_list_write"));
+        id date=old[@"date"];
+        if(date && (![date isKindOfClass:NSDictionary.class] || [date count]!=1 || ![date[@"today"]isKindOfClass:NSNumber.class] || CFGetTypeID((__bridge CFTypeRef)date[@"today"])!=CFBooleanGetTypeID()))return EncodeFlag(FlagFailure(@"unsupported_smart_list_write"));
         NSMutableSet *previous=[NSMutableSet set],*proposed=[NSMutableSet set];
         for(NSUInteger i=0;i<2;i++){NSArray *values=i?newIDs:lists[@"include"];NSMutableSet *set=i?proposed:previous;
             for(id value in values){NSUUID *uuid=[value isKindOfClass:NSString.class]?[[NSUUID alloc]initWithUUIDString:value]:nil;NSString *canonical=uuid.UUIDString;
@@ -1913,7 +1920,8 @@ NSData *ICloudRemindersSetSmartListSources(NSData *data,BOOL (^enterMutation)(vo
         id view=((id(*)(id,SEL,id))objc_msgSend)([viewClass alloc],NSSelectorFromString(@"initWithStore:"),store),oid=((id(*)(id,SEL,id))objc_msgSend)((id)idsClass,NSSelectorFromString(@"objectIDWithURL:"),[NSURL URLWithString:[@"x-apple-reminderkit://REMCDSmartList/"stringByAppendingString:request[@"id"]]]);NSError *error=nil;
         id object=((id(*)(id,SEL,id,NSError**))objc_msgSend)(view,NSSelectorFromString(@"fetchCustomSmartListWithObjectID:error:"),oid,&error),storage=ObjectValue(object,@"storage");
         if(error || !UUIDEqual(ObjectUUID(object,@"REMCDSmartList"),request[@"id"]) || !UUIDEqual(ObjectUUID(storage,@"REMCDSmartList"),request[@"id"]) || !StorageMatchesAccount(storage,request[@"source_id"]) || ![ObjectValue(storage,@"name")isEqual:before[@"title"]] || ![ObjectValue(storage,@"filterData")isEqual:oldData] || ![[storage valueForKey:@"minimumSupportedVersion"]isEqual:before[@"minimum_supported_version"]])return EncodeFlag(FlagFailure(@"snapshot_changed"));
-        NSData *newData=[NSJSONSerialization dataWithJSONObject:@{@"operation":@"and",@"lists":@{@"include":newIDs,@"exclude":@[]}}options:NSJSONWritingSortedKeys error:NULL];if(!newData)return EncodeFlag(FlagFailure(@"unsupported_smart_list_write"));
+        NSMutableDictionary *replacement=[old mutableCopy];replacement[@"lists"]=@{@"include":newIDs,@"exclude":@[]};
+        NSData *newData=[NSJSONSerialization dataWithJSONObject:replacement options:NSJSONWritingSortedKeys error:NULL];if(!newData)return EncodeFlag(FlagFailure(@"unsupported_smart_list_write"));
         id save=((id(*)(id,SEL,id))objc_msgSend)([saveClass alloc],NSSelectorFromString(@"initWithStore:"),store),change=((id(*)(id,SEL,id))objc_msgSend)(save,NSSelectorFromString(@"updateSmartList:"),object),changedStorage=ObjectValue(change,@"storage");
         if(!change || ![change respondsToSelector:NSSelectorFromString(@"setFilterData:")] || !MethodMatches([changedStorage class],@"setFilterData:",@"v@:@",NO))return EncodeFlag(FlagFailure(@"unsupported_smart_list_write"));((void(*)(id,SEL,id))objc_msgSend)(change,NSSelectorFromString(@"setFilterData:"),newData);
         id keys=ObjectValue(change,@"changedKeys"),tracked=ObjectValue(save,@"trackedSmartListChangeItems");

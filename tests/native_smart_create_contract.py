@@ -5,6 +5,7 @@ from native_reminder_groups_contract import groups_fixture,shipped_source,ROOT
 
 SMART = r'''
 static NSString *mode;
+static NSData *capturedFilter;
 @interface FixtureManual:NSObject
 @property FixtureID *objectID;@property NSString *listID;@property short listType;
 @property NSDate *modifiedDate;@property NSArray *topLevelElementIDs;
@@ -27,7 +28,7 @@ static NSString *mode;
 @end
 @implementation FixtureSmartChange
 -(void)setMinimumSupportedVersion:(long long)value{self.storage.minimumSupportedVersion=[mode isEqual:@"wrong_version"]?0:value;}
--(void)setFilterData:(id)value{self.storage.filterData=[mode isEqual:@"filter_drift"]?[NSData data]:value;[self.changedKeys addObject:@"filterData"];}
+-(void)setFilterData:(id)value{self.storage.filterData=[mode isEqual:@"filter_drift"]?[NSData data]:value;capturedFilter=self.storage.filterData;[self.changedKeys addObject:@"filterData"];}
 @end
 @interface FixtureSmartView:NSObject
 -(id)initWithStore:(id)store;-(id)fetchCustomSmartListsInAccount:(id)account error:(NSError**)error;
@@ -84,8 +85,14 @@ int main(int argc,const char **argv){@autoreleasepool{
  if([mode isEqual:@"empty_ids"])request[@"list_ids"]=@[];
  if([mode isEqual:@"extra_field"])request[@"raw_filter"]=@"{}";
  if([mode isEqual:@"control_title"])request[@"title"]=@"Bad\nTitle";
+ if([mode isEqual:@"today"] || [mode isEqual:@"overdue"])request[@"date_filter"]=@{@"mode":@"today",@"include_overdue":@([mode isEqual:@"overdue"])};
+ if([mode isEqual:@"date_number"])request[@"date_filter"]=@{@"mode":@"today",@"include_overdue":@1};
+ if([mode isEqual:@"date_null"])request[@"date_filter"]=NSNull.null;
+ if([mode isEqual:@"date_unknown"])request[@"date_filter"]=@{@"mode":@"tomorrow",@"include_overdue":@NO};
+ if([mode isEqual:@"date_extra"])request[@"date_filter"]=@{@"mode":@"today",@"include_overdue":@NO,@"extra":@YES};
  __block int gates=0;id response=[NSJSONSerialization JSONObjectWithData:ICloudRemindersCreateSmartList(EncodeFlag(request),^BOOL{gates++;return ![mode isEqual:@"closed"];})options:0 error:NULL];
- NSData *output=EncodeFlag(@{@"response":response,@"gate_calls":@(gates),@"save_calls":@(flagSaves)});fwrite(output.bytes,1,output.length,stdout);return 0;
+ id filter=capturedFilter?[NSJSONSerialization JSONObjectWithData:capturedFilter options:0 error:NULL]:@{};
+ NSData *output=EncodeFlag(@{@"response":response,@"filter":filter?:@{},@"gate_calls":@(gates),@"save_calls":@(flagSaves)});fwrite(output.bytes,1,output.length,stdout);return 0;
 }}
 '''
 
@@ -104,8 +111,10 @@ def run():
         def call(mode):return json.loads(subprocess.run([str(path/'contract'),mode],capture_output=True,text=True,check=True,timeout=5).stdout)
         closed=call('closed');assert closed['gate_calls']==1 and closed['save_calls']==0 and closed['response']['error'],closed
         opened=call('valid');assert opened['gate_calls']==1 and opened['save_calls']==1 and opened['response']['result']['saved_locally'] is True,opened
+        for mode,overdue in (('today',False),('overdue',True)):
+            value=call(mode);assert value['gate_calls']==1 and value['save_calls']==1 and value['filter']['date']=={'today':overdue},value
         failed=call('save_error');assert failed['save_calls']==1 and failed['response']['mutation_dispatched'] is True
-        for mode in ('shared','grocery','foreign_reference','root_drift','duplicate_ids','missing_scope','empty_ids','extra_field','control_title','extra_key','filter_drift','wrong_version','wrong_manual_id','wrong_manual_type','manual_content','manual_secondary','manual_account','wrong_type','wrong_parent','wrong_default','wrong_title','undelete','reorder','account_key','wrong_wrapper','unrelated_reminder'):
+        for mode in ('date_number','date_null','date_unknown','date_extra','shared','grocery','foreign_reference','root_drift','duplicate_ids','missing_scope','empty_ids','extra_field','control_title','extra_key','filter_drift','wrong_version','wrong_manual_id','wrong_manual_type','manual_content','manual_secondary','manual_account','wrong_type','wrong_parent','wrong_default','wrong_title','undelete','reorder','account_key','wrong_wrapper','unrelated_reminder'):
             value=call(mode);assert value['gate_calls']==0 and value['save_calls']==0 and value['response']['error'],(mode,value)
     return {'status':'passed','apple_store_opened':False,'exact_preassigned_new_view_and_root_append':True,'empty_manual_order_verified':True,'closed_gate_and_unreviewed_side_effects_refused':True,'failed_save_preserves_uncertainty':True}
 

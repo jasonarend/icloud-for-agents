@@ -822,7 +822,7 @@ if action == "apply" {
     }
     if let item=req["change"] as? [String:Any],item["operation"] as? String=="create_smart_list" {
         guard let source=item["source_id"] as? String,sourceIDs.contains(source),let id=item["id"] as? String,UUID(uuidString:id)?.uuidString==id,
-              let fields=item["fields"] as? [String:Any],Set(fields.keys)==Set(["title","list_ids"]),let title=fields["title"] as? String,
+              let fields=item["fields"] as? [String:Any],(Set(fields.keys)==Set(["title","list_ids"]) || Set(fields.keys)==Set(["title","list_ids","date_filter"])),let title=fields["title"] as? String,
               let selected=fields["list_ids"] as? [String],(1...10).contains(selected.count),selected==selected.sorted(),Set(selected).count==selected.count,
               selected.allSatisfy({UUID(uuidString:$0)?.uuidString==$0}),let before=item["before"] as? [String:Any],
               let scopes=before["scopes"] as? [[String:Any]],scopes.count==selected.count else {fail("invalid_mutation")}
@@ -832,7 +832,13 @@ if action == "apply" {
                   let list=lists.first(where:{$0.calendarIdentifier==listID && $0.source.sourceIdentifier==source}),list.allowsContentModifications,
                   NSDictionary(dictionary:listRecord(list)).isEqual(to:expected) else {fail("snapshot_changed")}
         }
-        guard let payload=try? JSONSerialization.data(withJSONObject:["source_id":source,"id":id,"title":title,"list_ids":selected,"before":before]),
+        var parameters:[String:Any]=["source_id":source,"id":id,"title":title,"list_ids":selected,"before":before]
+        if let value=fields["date_filter"] {
+            guard let criterion=value as? [String:Any],Set(criterion.keys)==Set(["mode","include_overdue"]),criterion["mode"] as? String=="today",
+                  let overdue=criterion["include_overdue"] as? NSNumber,CFGetTypeID(overdue)==CFBooleanGetTypeID() else {fail("invalid_mutation")}
+            parameters["date_filter"]=["mode":"today","include_overdue":overdue]
+        }
+        guard let payload=try? JSONSerialization.data(withJSONObject:parameters),
               let response=(try? JSONSerialization.jsonObject(with:ICloudRemindersCreateSmartList(payload,{NativeMutationGate.beginMutation()}))) as? [String:Any] else {fail("invalid_mutation")}
         if response["error"] != nil {failPrivateReminder(response)}
         guard let output=response["result"] as? [String:Any] else {fail("mutation_failed_or_uncertain")}
