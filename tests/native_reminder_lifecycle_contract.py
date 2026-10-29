@@ -6,6 +6,8 @@ EXTRA=r'''
 @class FixtureSave;
 static FixtureSave *lifecycleSave;
 static BOOL lifecycleDeleted=NO,extraLifecycleEffect=NO,wrongPending=NO;
+static BOOL familyLifecycle=NO;
+static NSString *familyRoot,*familyChild;
 static void StageLeafRemoval(id value);
 '''
 METHODS=r'''
@@ -13,8 +15,8 @@ METHODS=r'''
 '''
 FUNCTIONS=r'''
 static void StageLeafRemoval(FixtureReminderChange *value){value.storage.listID=nil;value.storage.parentReminderID=nil;value.changedKeys=[NSSet setWithArray:extraLifecycleEffect?@[@"listID",@"titleDocumentData"]:@[@"listID"]];FixtureListChange *list=[lifecycleSave updateList:fixture.list];list.changedKeys=[NSSet setWithObject:@"reminderIDsMergeableOrdering"];}
-NSData *ICloudRemindersRecoveryLookup(NSData *data){NSDictionary *identity=[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];return EncodeFlag(@{@"protocol_version":@1,@"source_id":identity[@"source_id"],@"id":identity[@"id"],@"found_in_view":@(lifecycleDeleted),@"found_as_root":@(lifecycleDeleted),@"recovery_root_id":lifecycleDeleted?identity[@"id"]:(id)[NSNull null],@"parent_id":[NSNull null]});}
-NSData *ICloudRemindersRecoveryTree(NSData *data){NSDictionary *identity=[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];return EncodeFlag(@{@"protocol_version":@1,@"source_id":identity[@"source_id"],@"requested_id":identity[@"id"],@"root_id":identity[@"id"],@"nodes":@[@{@"id":identity[@"id"],@"parent_id":[NSNull null],@"title":@"Synthetic leaf"}]});}
+NSData *ICloudRemindersRecoveryLookup(NSData *data){NSDictionary *identity=[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];BOOL child=familyLifecycle && [identity[@"id"] isEqual:familyChild];return EncodeFlag(@{@"protocol_version":@1,@"source_id":identity[@"source_id"],@"id":identity[@"id"],@"found_in_view":@(lifecycleDeleted),@"found_as_root":@(lifecycleDeleted&&!child),@"recovery_root_id":lifecycleDeleted?(familyLifecycle?familyRoot:identity[@"id"]):(id)[NSNull null],@"parent_id":child?(id)familyRoot:NSNull.null});}
+NSData *ICloudRemindersRecoveryTree(NSData *data){NSDictionary *identity=[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];NSMutableArray *nodes=[NSMutableArray arrayWithObject:@{@"id":identity[@"id"],@"parent_id":NSNull.null,@"title":@"Synthetic leaf"}];if(familyLifecycle)[nodes addObject:@{@"id":familyChild,@"parent_id":familyRoot,@"title":@"Synthetic child"}];return EncodeFlag(@{@"protocol_version":@1,@"source_id":identity[@"source_id"],@"requested_id":identity[@"id"],@"root_id":identity[@"id"],@"nodes":nodes});}
 '''
 MAIN=r'''
 int main(){@autoreleasepool{
@@ -41,6 +43,20 @@ int main(){@autoreleasepool{
  restore[@"title"]=@"Changed";NSCAssert(callRestore(YES)[@"error"] && gates==before,@"changed recovery title refused");restore[@"title"]=@"Synthetic leaf";
  list.isShared=YES;NSCAssert(callRestore(YES)[@"error"] && gates==before,@"shared restore list refused");list.isShared=NO;
  saveFails=YES;NSCAssert([callRestore(YES)[@"mutation_dispatched"] isEqual:@YES] && flagSaves==4,@"failed restore save remains uncertain");
+ saveFails=NO;familyLifecycle=YES;familyRoot=task;familyChild=@"55555555-5555-4555-8555-555555555555";lifecycleDeleted=NO;fixture.list=list;
+ FixtureReminder *child=[FixtureReminder new];child.remObjectID=Identity(@"REMCDReminder",familyChild);child.account=fixture.account;child.list=list;child.parentReminder=fixture;child.isSubtask=YES;child.titleAsString=@"Synthetic child";
+ list.graphReminders=@[fixture,child];moveReminders=@[fixture,child];remove[@"source_nodes"]=@[node,@{@"id":familyChild,@"parent_id":task}];before=gates;
+ NSCAssert(callRemove(YES)[@"error"] && gates==before,@"ordinary leaf authority does not delete a family");
+ remove[@"family_ids"]=@[task,familyChild];closed=callRemove(NO);NSCAssert([closed[@"category"] isEqual:@"native_dispatch_cancelled"] && flagSaves==4,@"family staging remains behind the gate: %@",closed);
+ good=callRemove(YES);NSCAssert([good[@"result"][@"id"] isEqual:task] && flagSaves==5,@"explicit complete family can stage one root removal: %@",good);before=gates;
+ remove[@"family_ids"]=@[task,source];NSCAssert(callRemove(YES)[@"error"] && gates==before,@"foreign family member refused");remove[@"family_ids"]=@[task,familyChild];
+ FixtureReminder *grandchild=[FixtureReminder new];grandchild.remObjectID=Identity(@"REMCDReminder",@"66666666-6666-4666-8666-666666666666");grandchild.account=fixture.account;grandchild.list=list;grandchild.parentReminder=child;grandchild.isSubtask=YES;
+ list.graphReminders=@[fixture,child,grandchild];moveReminders=@[fixture,child,grandchild];remove[@"source_nodes"]=@[node,@{@"id":familyChild,@"parent_id":task},@{@"id":@"66666666-6666-4666-8666-666666666666",@"parent_id":familyChild}];NSCAssert(callRemove(YES)[@"error"] && gates==before,@"nested family refuses before mutation");
+ lifecycleDeleted=YES;fixture.list=nil;list.graphReminders=@[];moveReminders=@[];lookup=[NSJSONSerialization JSONObjectWithData:ICloudRemindersRecoveryLookup(EncodeFlag(identity)) options:0 error:NULL];tree=[NSJSONSerialization JSONObjectWithData:ICloudRemindersRecoveryTree(EncodeFlag(identity)) options:0 error:NULL];restore[@"expected_recovery"]=@{@"lookup":lookup,@"tree":tree};
+ NSCAssert(callRestore(YES)[@"error"] && gates==before,@"ordinary leaf restore cannot admit extra family nodes");
+ restore[@"family_ids"]=@[task,familyChild];closed=callRestore(NO);NSCAssert([closed[@"category"] isEqual:@"native_dispatch_cancelled"] && flagSaves==5,@"closed family restore gate");
+ good=callRestore(YES);NSCAssert([good[@"result"][@"id"] isEqual:task] && flagSaves==6,@"exact native recovery family accepted: %@",good);before=gates;
+ restore[@"family_ids"]=@[task,source];NSCAssert(callRestore(YES)[@"error"] && gates==before,@"unreviewed recovery identity refused");
 }}
 '''
 
@@ -63,5 +79,5 @@ def run():
         p=Path(directory);(p/'reminders-model.h').write_text((ROOT/'src/icloud_for_agents/native/reminders-model.h').read_text());(p/'test.m').write_text(source+'\n'+fixture+'\n'+FUNCTIONS+'\n'+MAIN)
         value=subprocess.run(['/usr/bin/clang','-fobjc-arc','-framework','Foundation',str(p/'test.m'),'-o',str(p/'contract')],capture_output=True,text=True,timeout=60);assert value.returncode==0,value.stderr
         value=subprocess.run([str(p/'contract')],capture_output=True,text=True,timeout=5);assert value.returncode==0,value.stderr
-    return {'status':'passed','apple_store_opened':False,'root_leaf_delete_restore_exact_native_identity':True,'closed_gates_and_unreviewed_effects_refused':True,'failed_saves_preserve_uncertainty':True}
+    return {'status':'passed','apple_store_opened':False,'root_leaf_delete_restore_exact_native_identity':True,'explicit_direct_family_scope_and_closed_gates':True,'closed_gates_and_unreviewed_effects_refused':True,'failed_saves_preserve_uncertainty':True}
 if __name__=='__main__':print(json.dumps(run()))

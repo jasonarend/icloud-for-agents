@@ -8,7 +8,10 @@ def audit(event,args):
 sys.addaudithook(audit)
 atexit.register(lambda:Path(os.environ['BRIDGE_TEST_AUDIT']).write_text(json.dumps(blocked)))
 from icloud_for_agents import credentials,native_tools
-from test_native_reminder_lifecycle import Adapter
+if os.environ.get('BRIDGE_TEST_FAMILY_LIFECYCLE')=='1':
+    from test_native_reminder_family_lifecycle import Adapter
+else:
+    from test_native_reminder_lifecycle import Adapter
 credentials.credentials=lambda:(_ for _ in ()).throw(AssertionError('No credentials'))
 adapter=Adapter()
 native_tools.RemindersCreateAdapter=lambda:adapter

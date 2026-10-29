@@ -233,6 +233,7 @@ class PlanStore:
         if item['operation'] in {'delete_reminder','restore_reminder'}:
             if legacy or payload.get('effects',{}).get('lifecycle_coverage')!='Only reviewed live or recovery observations and the bounded list graph are compared. Deleted content not exposed by recovery, delayed effects and causal dispatch remain unproven. No replay or automatic retry.':return False
             coverage='unchanged_root_leaf_and_bounded_source_graph' if item['operation']=='delete_reminder' else 'reviewed_recovery_observations_and_bounded_destination_graph'
+            if item['operation']=='delete_reminder' and item.get('fields',{}).get('include_descendants') is True:coverage='unchanged_reviewed_family_and_bounded_source_graph'
         if item['operation']=='reparent_reminder':
             from .native_reminder_parents import COVERAGE,RECOVERY_EFFECT
             if legacy or payload.get('effects',{}).get('parent_coverage')!=RECOVERY_EFFECT:return False

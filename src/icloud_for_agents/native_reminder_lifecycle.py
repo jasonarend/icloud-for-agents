@@ -21,6 +21,8 @@ def leaf_graph(adapter,source,list_id,identity):
 
 
 def deletion_snapshot(adapter,item):
+    from .native_reminder_family_lifecycle import selected, deletion_snapshot as family_snapshot
+    if selected(item):return family_snapshot(adapter,item)
     source=item['source_id'];identity=item['id'];scope,graph=leaf_graph(adapter,source,item['list_id'],identity)
     observed=adapter.snapshot({'operation':'update_reminder','source_id':source,'id':identity,'fields':{}});check_item_graph(observed,graph,identity)
     if observed['native_metadata'].get('child_ids')!=[] or observed['native_metadata'].get('is_subtask') is not False:raise SafetyError('Exact nonnested leaf metadata is required before removal')
@@ -30,6 +32,8 @@ def deletion_snapshot(adapter,item):
 
 
 def prepare_delete(adapter,change):
+    from .native_reminder_family_lifecycle import selected, prepare_delete as family_prepare
+    if isinstance(change,dict) and selected(change):return family_prepare(adapter,change)
     if not isinstance(change,dict) or set(change)!={'operation','source_id','id','fields'} or change.get('operation')!='delete_reminder':raise SafetyError('Use an exact source, reminder and recoverable removal field')
     source=change['source_id'];advanced(source)
     if change['fields']!={'recoverable':True} or type(change['fields'].get('recoverable')) is not bool:raise SafetyError('Removal requires fields.recoverable true; permanent deletion is unavailable')
@@ -44,7 +48,7 @@ def prepare_delete(adapter,change):
     return item
 
 
-def original_deletion(adapter,item):
+def original_deletion(adapter,item,*,family=False):
     store=getattr(adapter,'_plan_store',None);owner=getattr(adapter,'_plan_owner',None)
     if store is None or not owner:raise SafetyError('Restoration requires the owner-bound deletion ledger')
     fields=item['fields'];identity=fields['deletion_plan_id'];index=fields['deletion_index'];plan=store.read(store.path(identity,'.json'));result=store.read(store.path(identity,'.result'));started=store.read(store.path(identity,'.started'));payload=plan.get('payload',{});changes=payload.get('changes')
@@ -52,7 +56,8 @@ def original_deletion(adapter,item):
             or started.get('sha256')!=digest(plan) or started.get('account')!=owner
             or not (store.operation_settled(identity) or store._native_reconciliation_completed(identity) or store._native_lifecycle_readback_completed(identity))):raise SafetyError('Select a completed owned native deletion plan and exact item index')
     original=changes[index];attempts=result.get('attempted');completed=result.get('completed');terminal_readback=store._native_lifecycle_readback_completed(identity)
-    if original.get('operation')!='delete_reminder' or original.get('id')!=item['id'] or original.get('source_id')!=item['source_id'] or original.get('fields')!={'recoverable':True}:raise SafetyError('Restoration identity or source does not match the deletion ledger')
+    expected_fields={'recoverable':True,'include_descendants':True} if family else {'recoverable':True}
+    if original.get('operation')!='delete_reminder' or original.get('id')!=item['id'] or original.get('source_id')!=item['source_id'] or original.get('fields')!=expected_fields:raise SafetyError('Restoration identity or source does not match the deletion ledger')
     if terminal_readback:
         if index!=0 or len(changes)!=1:raise SafetyError('Terminal lifecycle readback binds only one exact original target')
     else:
@@ -74,7 +79,11 @@ def original_deletion(adapter,item):
             receipt=store.read(store.path(identity,'.approved'))
             if receipt.get('plan_id')!=identity or receipt.get('sha256')!=digest(plan):raise SafetyError('Original exact deletion receipt is unavailable or mismatched')
     before=original.get('before',{});scope,graph=before.get('source_scope'),before.get('source_graph')
-    if not isinstance(scope,dict) or not isinstance(graph,dict) or subtree(graph,item['id'])!=[item['id']]:raise SafetyError('Original deletion does not bind an exact root leaf')
+    if not isinstance(scope,dict) or not isinstance(graph,dict):raise SafetyError('Original deletion lacks its exact source hierarchy')
+    if family:
+        from .native_reminder_family_lifecycle import members
+        members(before,item['id'])
+    elif subtree(graph,item['id'])!=[item['id']]:raise SafetyError('Original deletion does not bind an exact root leaf')
     check_item_graph(before,graph,item['id'])
     return original,{'plan_id':identity,'index':index,'plan_sha256':digest(plan),'result_sha256':digest(result),'item_sha256':digest(original),
                      'completion_evidence':'known_target_terminal_error_and_independent_expected_state' if terminal_readback else 'returned_native_id_and_verified_readback',
@@ -92,6 +101,8 @@ def recovery_leaf(adapter,source,identity,expected):
 
 
 def restoration_snapshot(adapter,item):
+    from .native_reminder_family_lifecycle import selected, restoration_snapshot as family_snapshot
+    if selected(item):return family_snapshot(adapter,item)
     original,proof=original_deletion(adapter,item);source=item['source_id'];identity=item['id'];destination=item['fields']['list_id'];scope=list_scope(adapter,source,destination);graph=adapter.reader.read('list_hierarchy',list_id=destination)
     if graph.get('source_id')!=source or any(node['id']==identity for node in graph['nodes']) or len(graph['nodes'])>=200:raise SafetyError('Restore destination membership is outside scope, already contains the ID or exceeds bounds')
     try:adapter.reader.read('get',id=identity)
@@ -102,6 +113,8 @@ def restoration_snapshot(adapter,item):
 
 
 def prepare_restore(adapter,change):
+    from .native_reminder_family_lifecycle import selected, prepare_restore as family_prepare
+    if isinstance(change,dict) and selected(change):return family_prepare(adapter,change)
     if not isinstance(change,dict) or set(change)!={'operation','source_id','id','fields'} or change.get('operation')!='restore_reminder':raise SafetyError('Use exact source, deleted reminder and its original deletion reference')
     advanced(change['source_id']);fields=change['fields']
     if not isinstance(fields,dict) or set(fields)-{'deletion_plan_id','deletion_index','list_id'} or not {'deletion_plan_id','list_id'}<=set(fields):raise SafetyError('Restore requires an owned deletion_plan_id, optional deletion_index and exact destination list_id')
@@ -116,6 +129,8 @@ def prepare_restore(adapter,change):
 
 
 def verify_delete(adapter,item,outcome,*,details=False):
+    from .native_reminder_family_lifecycle import selected, verify_delete as family_verify
+    if selected(item):return family_verify(adapter,item,outcome,details=details)
     if outcome.get('id')!=item['id'] or outcome.get('source_id')!=item['source_id']:return False
     before=item['before'];expected=deepcopy(before['source_graph']);expected['nodes']=[node for node in expected['nodes'] if node['id']!=item['id']]
     current_scope=list_scope(adapter,item['source_id'],item['list_id']);current_graph=adapter.reader.read('list_hierarchy',list_id=item['list_id'])
@@ -128,6 +143,8 @@ def verify_delete(adapter,item,outcome,*,details=False):
 
 
 def verify_restore(adapter,item,outcome,*,details=False):
+    from .native_reminder_family_lifecycle import selected, verify_restore as family_verify
+    if selected(item):return family_verify(adapter,item,outcome,details=details)
     if outcome.get('id')!=item['id'] or outcome.get('source_id')!=item['source_id'] or outcome.get('list_id')!=item['list_id']:return False
     original,proof=original_deletion(adapter,item);before=item['before']
     if proof!=before['deletion_proof'] or list_scope(adapter,item['source_id'],item['list_id'])!=before['destination_scope']:return False
@@ -186,6 +203,8 @@ def reconcile(engine,identity):
 def expected_record_matches(item,observed):
     """Pure binding checks for persisted readback evidence; no native access."""
     try:
+        from .native_reminder_family_lifecycle import selected, record_matches
+        if item.get('operation') in {'delete_reminder','restore_reminder'} and selected(item):return record_matches(item,observed)
         if not isinstance(observed,dict) or observed.get('id')!=item['id'] or observed.get('source_id')!=item['source_id']:return False
         if item['operation']=='reparent_reminder':
             from .native_reminder_parents import record_matches
@@ -226,7 +245,8 @@ def unchanged_observation(adapter,item):
     if source not in config.get('source_ids',[]) or config.get('advanced_backend')!='reminderkit':raise SafetyError('Unchanged lifecycle observation requires the selected source and ReminderKit backend')
     if item['operation']=='delete_reminder':
         current=deletion_snapshot(adapter,item)
-        return current==item['before'],'unchanged_root_leaf_and_bounded_source_graph'
+        family=item.get('fields',{}).get('include_descendants') is True
+        return current==item['before'],'unchanged_reviewed_family_and_bounded_source_graph' if family else 'unchanged_root_leaf_and_bounded_source_graph'
     if item['operation']=='restore_reminder':
         current=restoration_snapshot(adapter,item)
         return current==item['before'],'reviewed_recovery_observations_and_bounded_destination_graph'

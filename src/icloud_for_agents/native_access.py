@@ -28,8 +28,8 @@ def access_status(name):
         'permanently_delete_note':'No independently verified irreversible deletion route.',
         'move_note':'Requires explicitly selected read-only folder metadata and a compatible helper.',
     } if name=='notes' else {
-        'delete_reminder':'Requires the selected ReminderKit backend, compatible helper and a verified root leaf with provider recovery support.',
-        'restore_reminder':'Requires the selected ReminderKit backend, compatible helper and a completed owned root-leaf deletion ledger.',
+        'delete_reminder':'Requires selected ReminderKit, a compatible helper and verified provider recovery. Defaults to a root leaf; explicit include_descendants can review a bounded root/direct-child family.',
+        'restore_reminder':'Requires selected ReminderKit, a compatible helper and the completed owned deletion ledger; a family also needs explicit include_descendants and its original list.',
         'delete_list':'Complete contents and recoverable deletion effects are unverified.',
         'permanently_delete_reminder':'No independently verified irreversible deletion route.',
         'move_reminder':'Requires the explicitly selected ReminderKit backend, compatible helper and complete bounded list graphs.',

@@ -16,7 +16,7 @@ from .native_read import native_config
 FIELDS={
  'notes':{'copy_observation':{'title','body','format'},'create_note':{'title','body','format'},'append_note':{'body','format'},'prepend_note':{'body','format'},'replace_text':{'find','replacement','expected_matches'},
           'update_note':{'title','body','format'},'move_note':{'destination_folder_id'},'restore_note':{'destination_folder_id'},'delete_note':{'recoverable'},'create_folder':{'title'},'rename_folder':{'title'}},
- 'reminders':{'delete_reminder':{'recoverable'},'restore_reminder':{'deletion_plan_id','deletion_index','list_id'},'copy_observation':{'title','notes','priority','due','start','url','alarms'},'create_subtask':{'title'},'create_section':{'title'},'rename_section':{'title'},'create_reminder':{'title','notes','priority','due','start','url','alarms','location_alarms','recurrence'},'update_reminder':{'title','notes','priority','due','start','url','alarms','location_alarms'},
+ 'reminders':{'delete_reminder':{'recoverable','include_descendants'},'restore_reminder':{'deletion_plan_id','deletion_index','list_id','include_descendants'},'copy_observation':{'title','notes','priority','due','start','url','alarms'},'create_subtask':{'title'},'create_section':{'title'},'rename_section':{'title'},'create_reminder':{'title','notes','priority','due','start','url','alarms','location_alarms','recurrence'},'update_reminder':{'title','notes','priority','due','start','url','alarms','location_alarms'},
               'set_completed':{'completed'},'set_flagged':{'flagged'},'set_urgent':{'urgent'},'add_early':{'unit','count'},'clear_early':{'clear'},'remove_tag':{'tag_id'},'add_tag':{'tag_name'},'replace_tag':{'tag_id','tag_name'},'move_reminder':{'list_id'},'create_list':{'title'},'rename_list':{'title'},'set_list_color':{'color'},'reparent_reminder':{'parent_id','anchor_id','placement'},'reorder_group':{'anchor_id','placement'},'group_list':{'group_id'},'ungroup_list':{'anchor_id','placement'},'rename_group':{'title'},'create_group':{'title'},'reorder_reminder':{'anchor_id','placement'},'set_list_badge':{'badge'},'set_list_pinned':{'pinned'},'set_recurrence':{'recurrence','recurrence_scope'}}}
 
 
@@ -223,6 +223,8 @@ class NativeGrants:
             payload['effects']['move_scope']='Move a root together with all reviewed descendants within the selected source and exact private physical lists. Every descendant counts against batch and rolling object caps. Section migration, recurring reminders and subtask detachment are refused; display ordering and unexposed metadata remain unverified.'
         if self.name=='reminders' and any(rule['operation'] in {'delete_reminder','restore_reminder'} for rule in scope['rules']):
             payload['effects']['recovery_scope']='Only originally reviewed private nonrecurring root leaves without descendants or sections. Deletion is recoverable and never purges; restoration requires the completed owned deletion ledger and exact approved destination, preserves the native ID and can reactivate original alarms and due notifications. Unexposed recovery content remains unverified until restore readback. Delete and restore require separate explicit rules.'
+            if any(rule['operation'] in {'delete_reminder','restore_reminder'} and 'include_descendants' in rule['fields'] for rule in scope['rules']):
+                payload['effects']['recovery_scope']='Default lifecycle operations remain root-leaf-only. A rule explicitly admitting include_descendants can review one private nonrecurring root with up to nine direct children; every family member counts against batch and rolling quotas. Nested, shared, grocery and sectioned families refuse. Deletion never purges. Restoration requires the completed owned deletion ledger, explicit descendant inclusion and original list, and may change manual positions or reactivate alarms. Unexposed content is verified only after restore readback. Delete and restore require separate explicit rules.'
         if self.name=='reminders' and any(rule['operation']=='reparent_reminder' for rule in scope['rules']):
             payload['effects']['parent_scope']='Move one existing incomplete nonrecurring leaf within this private ordinary list. Exact destination IDs select root parents, or the list ID for root promotion. Parent, sibling anchor and explicit placement are bound in each plan. The leaf and both affected parents count against quotas; no descendants, sections, completion or content changes.'
         if self.name=='reminders' and any(rule['operation']=='reorder_reminder' for rule in scope['rules']):
@@ -375,6 +377,9 @@ class NativeGrants:
     def batch_count(self,items,*,legacy=False):
         count=0
         for item in items:
+            if self.name=='reminders' and item.get('operation') in {'delete_reminder','restore_reminder'} and item.get('fields',{}).get('include_descendants') is True:
+                from .native_reminder_family_lifecycle import charge
+                count+=charge(item);continue
             if self.name=='reminders' and item.get('operation')=='reparent_reminder':
                 from .native_reminder_parents import charge
                 count+=charge(item);continue

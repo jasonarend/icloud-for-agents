@@ -701,6 +701,65 @@ if action == "apply" {
         let restoring=operation=="restore_reminder",scope=before[restoring ? "destination_scope" : "source_scope"] as? [String:Any]
         guard let expectedList=scope?["list"] as? [String:Any],NSDictionary(dictionary:listRecord(list)).isEqual(to:expectedList),
               let nodes=before[restoring ? "destination_nodes" : "source_nodes"] as? [[String:Any]],nodes.count<=200 else {fail("snapshot_changed")}
+        if let include=fields["include_descendants"] {
+            guard let include=include as? NSNumber,CFGetTypeID(include)==CFBooleanGetTypeID(),include.boolValue else {fail("invalid_mutation")}
+            if restoring {
+                guard Set(fields.keys)==["list_id","include_descendants"],fields["list_id"] as? String==listID,
+                      let original=before["original_item"] as? [String:Any],original["id"] as? String==identifier,
+                      original["source_id"] as? String==source,original["list_id"] as? String==listID,
+                      original["has_recurrence"] as? Bool==false,original["public_metadata_complete"] as? Bool==true,
+                      let title=original["title"] as? String,title.count<=1000,
+                      let descendants=before["original_descendants"] as? [[String:Any]],!descendants.isEmpty,descendants.count<=9,
+                      let recovery=before["recovery"] as? [String:Any] else {fail("unsupported_edit_target")}
+                var family=[identifier]
+                for snapshot in descendants {
+                    guard let previous=snapshot["item"] as? [String:Any],let id=previous["id"] as? String,!family.contains(id),
+                          previous["source_id"] as? String==source,previous["list_id"] as? String==listID,
+                          previous["has_recurrence"] as? Bool==false,previous["public_metadata_complete"] as? Bool==true,
+                          let native=snapshot["native_metadata"] as? [String:Any],native["parent_id"] as? String==identifier,
+                          native["is_subtask"] as? Bool==true,native["child_ids"] as? [String]==[],native["section"] is NSNull,
+                          native["section_status"] as? String=="provider_not_reported" else {fail("unsupported_edit_target")}
+                    family.append(id)
+                }
+                store.fetchReminders(matching:store.predicateForReminders(in:lists)) {all in
+                    guard let all=all,all.count<=100000,!all.contains(where:{family.contains($0.calendarItemIdentifier)}) else {fail("snapshot_changed")}
+                    let values=all.filter{$0.calendar.calendarIdentifier==listID}
+                    guard values.count+family.count<=200,values.count==nodes.count,Set(values.map{$0.calendarItemIdentifier})==Set(nodes.compactMap{$0["id"] as? String}),
+                          let payload=try? JSONSerialization.data(withJSONObject:["source_id":source,"id":identifier,"list_id":listID,"title":title,"destination_nodes":nodes,"expected_recovery":recovery,"family_ids":family]),
+                          let response=(try? JSONSerialization.jsonObject(with:ICloudRemindersRestoreRootLeaf(payload,{NativeMutationGate.beginMutation()}))) as? [String:Any] else {fail("snapshot_changed")}
+                    if response["error"] != nil {fail((response["mutation_dispatched"] as? Bool)==true ? "mutation_failed_or_uncertain" : "unsupported_edit_target")}
+                    guard let output=response["result"] as? [String:Any] else {fail("mutation_failed_or_uncertain")};respond(["protocol_version":1,"result":output])
+                }
+            } else {
+                guard Set(fields.keys)==["recoverable","include_descendants"],let recoverable=fields["recoverable"] as? NSNumber,CFGetTypeID(recoverable)==CFBooleanGetTypeID(),recoverable.boolValue,
+                      let previous=before["item"] as? [String:Any],let native=before["native_metadata"] as? [String:Any],let urgent=before["urgent"],
+                      let descendants=before["descendants"] as? [[String:Any]],!descendants.isEmpty,descendants.count<=9,
+                      native["is_subtask"] as? Bool==false,native["parent_id"] is NSNull else {fail("unsupported_edit_target")}
+                let snapshots:[[String:Any]]=[["item":previous,"native_metadata":native,"urgent":urgent]]+descendants
+                store.fetchReminders(matching:store.predicateForReminders(in:[list])) {values in
+                    guard let values=values,values.count<=200,values.count==nodes.count,Set(values.map{$0.calendarItemIdentifier})==Set(nodes.compactMap{$0["id"] as? String}) else {fail("snapshot_changed")}
+                    var family=[String]()
+                    for snapshot in snapshots {
+                        guard let previous=snapshot["item"] as? [String:Any],let id=previous["id"] as? String,!family.contains(id),
+                              previous["source_id"] as? String==source,previous["list_id"] as? String==listID,
+                              let reminder=values.first(where:{$0.calendarItemIdentifier==id}),!reminder.hasRecurrenceRules,NSDictionary(dictionary:object(reminder)).isEqual(to:previous),
+                              let native=snapshot["native_metadata"] as? [String:Any],native["section"] is NSNull,native["section_status"] as? String=="provider_not_reported",nativeSnapshotMatches(reminder,native),
+                              let expectedUrgent=snapshot["urgent"] as? NSNumber,CFGetTypeID(expectedUrgent)==CFBooleanGetTypeID(),
+                              let identity=try? JSONSerialization.data(withJSONObject:["id":id,"source_id":source,"list_id":listID]),
+                              let urgent=(try? JSONSerialization.jsonObject(with:ICloudRemindersReadUrgent(identity))) as? [String:Any],let metadata=urgent["native_metadata"] as? [String:Any],
+                              let currentUrgent=metadata["urgent"] as? NSNumber,CFGetTypeID(currentUrgent)==CFBooleanGetTypeID(),currentUrgent.boolValue==expectedUrgent.boolValue else {fail("snapshot_changed")}
+                        if id != identifier {guard native["parent_id"] as? String==identifier,native["is_subtask"] as? Bool==true,native["child_ids"] as? [String]==[] else {fail("unsupported_edit_target")}}
+                        family.append(id)
+                    }
+                    guard family.first==identifier,Set(native["child_ids"] as? [String] ?? [])==Set(family.dropFirst()),
+                          let payload=try? JSONSerialization.data(withJSONObject:["source_id":source,"id":identifier,"list_id":listID,"source_nodes":nodes,"family_ids":family]),
+                          let response=(try? JSONSerialization.jsonObject(with:ICloudRemindersRemoveRootLeaf(payload,{NativeMutationGate.beginMutation()}))) as? [String:Any] else {fail("snapshot_changed")}
+                    if response["error"] != nil {fail((response["mutation_dispatched"] as? Bool)==true ? "mutation_failed_or_uncertain" : "unsupported_edit_target")}
+                    guard let output=response["result"] as? [String:Any] else {fail("mutation_failed_or_uncertain")};respond(["protocol_version":1,"result":output])
+                }
+            }
+            RunLoop.current.run(until:Date(timeIntervalSinceNow:30));fail("mutation_failed_or_uncertain")
+        }
         if restoring {
             guard Set(fields.keys)==["list_id"],fields["list_id"] as? String==listID,let original=before["original_item"] as? [String:Any],original["id"] as? String==identifier,original["source_id"] as? String==source,
                   original["has_recurrence"] as? Bool==false,original["public_metadata_complete"] as? Bool==true,let title=original["title"] as? String,title.count<=1000,

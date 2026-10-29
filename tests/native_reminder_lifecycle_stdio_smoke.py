@@ -5,7 +5,7 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'src'))
 from test_native_reminder_moves import SOURCE,ORIGIN,DEST,ROOT as ID
 
-def run(policy):
+def run(policy,family=False):
     with tempfile.TemporaryDirectory(prefix='native-once-protocol-') as directory:
         home=Path(directory);audit=home/'audit.json';runtime=home/'runtime'
         env={'HOME':str(home),'PATH':os.defpath,'PYTHONPATH':str(ROOT/'src')+os.pathsep+str(ROOT/'tests'),
@@ -14,6 +14,7 @@ def run(policy):
             'ICLOUD_ENABLE_MAIL':'0','ICLOUD_ENABLE_CALENDAR':'0','ICLOUD_ENABLE_CONTACTS':'0','ICLOUD_ENABLE_NOTES':'0','ICLOUD_ENABLE_REMINDERS':'1',
             'ICLOUD_NATIVE_CONFIG':json.dumps({n:{'access_mode':'read-only','source_ids':[SOURCE],'advanced_backend':'reminderkit'} for n in ('reminders',)}),
             'ICLOUD_RUNTIME_ROOT':str(runtime)}
+        if family:env['BRIDGE_TEST_FAMILY_LIFECYCLE']='1'
         with (home/'stderr.log').open('wb') as stderr:
             process=subprocess.Popen([sys.executable,str(ROOT/'tests/native_reminder_lifecycle_stdio_server.py')],cwd=home,env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=stderr);sequence=0
             def rpc(method,params):
@@ -39,8 +40,8 @@ def run(policy):
                         # Isolated synthetic independent owner fixture only.
                         receipt=runtime/(plan['plan_id']+'.approved');fd=os.open(receipt,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
                         with os.fdopen(fd,'w') as stream:json.dump({'plan_id':plan['plan_id'],'sha256':plan['sha256']},stream)
-                def delete():return {'operation':'delete_reminder','source_id':SOURCE,'id':ID,'fields':{'recoverable':True}}
-                def restore(plan):return {'operation':'restore_reminder','source_id':SOURCE,'id':ID,'fields':{'deletion_plan_id':plan,'list_id':ORIGIN}}
+                def delete():return {'operation':'delete_reminder','source_id':SOURCE,'id':ID,'fields':dict({'recoverable':True},**({'include_descendants':True} if family else {}))}
+                def restore(plan):return {'operation':'restore_reminder','source_id':SOURCE,'id':ID,'fields':dict({'deletion_plan_id':plan,'list_id':ORIGIN},**({'include_descendants':True} if family else {}))}
                 def execute(plan):
                     if policy=='local-receipt':assert call('reminders_execute_approved',{'plan_id':plan['plan_id']}).get('isError')
                     approve(plan);assert data(call('reminders_execute_approved',{'plan_id':plan['plan_id']}))['status']=='applied'
@@ -52,6 +53,9 @@ def run(policy):
                     {'operation':'delete_reminder','source_id':SOURCE,'container_id':ORIGIN,'fields':['recoverable'],'destinations':[]},
                     {'operation':'restore_reminder','source_id':SOURCE,'container_id':ORIGIN,'fields':['deletion_plan_id','list_id'],'destinations':[ORIGIN]}],
                     'max_batch':1,'max_24h':4,'expires':None}
+                if family:
+                    for rule in scope['rules']:rule['fields'].append('include_descendants')
+                    scope.update(max_batch=2,max_24h=8)
                 grant=data(call('reminders_prepare_grant',{'scope':scope}));approve(grant)
                 assert data(call('reminders_activate_grant',{'grant_id':grant['plan_id']}))['grant_active'] is True
                 deletion=data(call('reminders_prepare_with_grant',{'grant_id':grant['plan_id'],'changes':[delete()]}))
@@ -68,7 +72,7 @@ def run(policy):
                 except subprocess.TimeoutExpired:process.terminate();process.wait(timeout=5)
                 process.stdout.close()
         assert process.returncode==0,(home/'stderr.log').read_text();assert json.loads(audit.read_text())==[]
-        return {'status':'passed','transport':'real stdio JSON-RPC','synthetic_providers_only':True,'policy':policy,'services':['reminders'],'settings_remained_read_only':True,'owned_reminder_delete_restore_once_grants_and_revocation_verified':True,'network_helper_attempts':[]}
+        return {'status':'passed','transport':'real stdio JSON-RPC','synthetic_providers_only':True,'policy':policy,'family':family,'services':['reminders'],'settings_remained_read_only':True,'owned_reminder_delete_restore_once_grants_and_revocation_verified':True,'network_helper_attempts':[]}
 
 if __name__=='__main__':
-    results=[run(policy) for policy in ('trusted-client','local-receipt')];path=ROOT/'build/reports/NATIVE-REMINDER-LIFECYCLE-STDIO.json';path.parent.mkdir(parents=True,exist_ok=True);path.write_text(json.dumps(results,indent=2)+'\n');print(json.dumps(results,indent=2))
+    results=[run(policy,family) for family in (False,True) for policy in ('trusted-client','local-receipt')];path=ROOT/'build/reports/NATIVE-REMINDER-LIFECYCLE-STDIO.json';path.parent.mkdir(parents=True,exist_ok=True);path.write_text(json.dumps(results,indent=2)+'\n');print(json.dumps(results,indent=2))

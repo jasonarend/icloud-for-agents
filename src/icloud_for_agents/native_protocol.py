@@ -64,10 +64,15 @@ def mutation_request(service,item):
                 change['before']={key:before[key] for key in ('item','native_metadata','urgent','source_scope')}
                 change['before']['source_nodes']=structure(before['source_graph'])
                 change['before']['recovery']=before['recovery']
+                if item['fields'].get('include_descendants') is True:
+                    change['before']['descendants']=[{key:part[key] for key in ('item','native_metadata','urgent')} for part in before['descendants']]
             else:
                 change['fields']={'list_id':item['fields']['list_id']}
                 change['before']={'original_item':before['original']['item'],'destination_scope':before['destination_scope'],
                                   'destination_nodes':structure(before['destination_graph']),'recovery':before['recovery']}
+                if item['fields'].get('include_descendants') is True:
+                    change['fields']['include_descendants']=True
+                    change['before']['original_descendants']=[{key:part[key] for key in ('item','native_metadata','urgent')} for part in before['original']['descendants']]
         if operation=='move_reminder' and 'source_graph' in item['before']:
             from .native_reminder_moves import structure
             before=item['before'];change['hierarchy_guard']='verified_list_graphs'
