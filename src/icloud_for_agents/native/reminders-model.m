@@ -118,6 +118,27 @@ NSData *ICloudRemindersListSmartLists(NSData *data){
     }@catch(NSException *exception){return EncodeFlag(FlagFailure(@"private_read_exception"));}
 }
 
+// Read a bounded custom filter as UTF-8 data; the server parses it without execution.
+NSData *ICloudRemindersSmartListDefinition(NSData *data){
+    @try {
+        id request=[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
+        if(![request isKindOfClass:NSDictionary.class] || [request count]!=2)return EncodeFlag(FlagFailure(@"invalid_public_identity"));
+        for(NSString *key in @[@"source_id",@"id"]){id value=request[key];if(![value isKindOfClass:NSString.class] || ![[NSUUID alloc]initWithUUIDString:value])return EncodeFlag(FlagFailure(@"invalid_public_identity"));}
+        if(!FlagReadInterface())return EncodeFlag(FlagFailure(@"unsupported_interface"));
+        Class viewClass=NSClassFromString(@"REMSmartListsDataView"),storeClass=NSClassFromString(@"REMStore"),ids=NSClassFromString(@"REMObjectID");
+        if(!MethodMatches(viewClass,@"initWithStore:",@"@@:@",NO) || !MethodMatches(viewClass,@"fetchCustomSmartListWithObjectID:error:",@"@@:@^@",NO))return EncodeFlag(FlagFailure(@"unsupported_smart_list_metadata"));
+        id store=[storeClass new],view=((id(*)(id,SEL,id))objc_msgSend)([viewClass alloc],NSSelectorFromString(@"initWithStore:"),store);
+        id oid=((id(*)(id,SEL,id))objc_msgSend)((id)ids,NSSelectorFromString(@"objectIDWithURL:"),[NSURL URLWithString:[@"x-apple-reminderkit://REMCDSmartList/" stringByAppendingString:request[@"id"]]]);
+        if(!store || !view || !oid)return EncodeFlag(FlagFailure(@"private_store_unavailable"));
+        NSError *error=nil;id list=((id(*)(id,SEL,id,NSError**))objc_msgSend)(view,NSSelectorFromString(@"fetchCustomSmartListWithObjectID:error:"),oid,&error),storage=ObjectValue(list,@"storage"),title=ObjectValue(storage,@"name");
+        if(error || !UUIDEqual(ObjectUUID(list,@"REMCDSmartList"),request[@"id"]) || !StorageMatchesAccount(storage,request[@"source_id"]) || !UUIDEqual(ObjectUUID(storage,@"REMCDSmartList"),request[@"id"]) || ![title isKindOfClass:NSString.class] || [title length]>1000 || [title lengthOfBytesUsingEncoding:NSUTF8StringEncoding]>4000)return EncodeFlag(FlagFailure(@"native_identity_mismatch"));
+        id filter=ObjectValue(storage,@"filterData");
+        if(![filter isKindOfClass:NSData.class] || [filter length]<1 || [filter length]>65536)return EncodeFlag(FlagFailure(@"unsupported_smart_list_metadata"));
+        NSString *text=[[NSString alloc]initWithData:filter encoding:NSUTF8StringEncoding];if(!text)return EncodeFlag(FlagFailure(@"unsupported_smart_list_metadata"));
+        return EncodeFlag(@{@"protocol_version":@1,@"source_id":request[@"source_id"],@"id":request[@"id"],@"title":title,@"definition_json":text,@"data_mutated":@NO,@"backend":@"reminderkit-smart-definition-v1"});
+    }@catch(NSException *exception){return EncodeFlag(FlagFailure(@"private_read_exception"));}
+}
+
 // Observe sections of one exact, selected-account template without materializing it as a live list.
 NSData *ICloudRemindersTemplateSections(NSData *data){
     @try {

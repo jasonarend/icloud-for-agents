@@ -47,6 +47,9 @@ def run(policy):
                     assert call('notes_native_query',bad).get('isError')
                 file_args={'id':FILE_ITEM,'attachment_id':FILE_ATTACHMENT}
                 native_file=data(call('reminders_export_attachment',file_args));assert native_file['size']==len(FILE_RAW) and native_file['original_file'] is False and native_file['download_attempted'] is False
+                smart=data(call('reminders_smart_list_definition',{'source_id':FILE_SOURCE,'id':'22222222-2222-4222-8222-222222222222'}))
+                assert smart['definition']=={'unknown_filter':True} and smart['membership_evaluated'] is False and smart['instructions_trusted'] is False
+                assert call('reminders_smart_list_definition',{'source_id':FILE_SOURCE,'id':'builtin'}).get('isError')
                 for bad in (dict(file_args,max_bytes=1),dict(file_args,id='foreign'),dict(file_args,path='/tmp/not-allowed')):
                     assert call('reminders_export_attachment',bad).get('isError')
                 inventory=data(call('notes_native_assets',args));assert len(inventory['assets'])==1 and inventory['assets'][0]['id']==ASSET and inventory['native_asset_inventory_complete'] is False

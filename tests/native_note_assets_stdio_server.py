@@ -44,5 +44,12 @@ def reminder_bytes(source,leaf,size,maximum):
  if (source,leaf,size)!=(FILE_SOURCE,FILE_LEAF,len(FILE_RAW)) or size>maximum:raise SafetyError('Synthetic exact file identity or bound mismatch')
  return FILE_RAW
 files.NativeReader=lambda name:FileReader();files._bytes=reminder_bytes
+from icloud_for_agents import native_reminder_smart_lists as smart
+from test_native_reminder_smart_lists import ID as SMART_ID
+class SmartReader:
+ def read(self,action,**fields):
+  if action!='smart_list_definition' or fields!={'source_id':FILE_SOURCE,'id':SMART_ID}:raise SafetyError('Synthetic Smart List exact scope mismatch')
+  return {'protocol_version':1,'source_id':FILE_SOURCE,'id':SMART_ID,'title':'Synthetic Smart List','definition_json':'{"unknown_filter":true}','data_mutated':False,'backend':'reminderkit-smart-definition-v1'}
+smart.NativeReader=lambda name:SmartReader()
 from icloud_for_agents.server import main
 main()
