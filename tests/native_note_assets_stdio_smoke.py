@@ -40,6 +40,11 @@ def run(policy):
                 assert call('notes_smart_folder_definition',{'folder_id':'foreign'}).get('isError')
                 tags=data(call('notes_native_tags',args));assert tags['tags'][0]['native_token']=='SYNTHETIC' and tags['native_tag_inventory_complete'] is False
                 assert call('notes_native_tags',dict(args,id='foreign')).get('isError')
+                queried=data(call('notes_native_query',{'folder_id':FOLDER,'pinned':False,'tag_token':'SYNTHETIC'}))
+                assert queried['items'][0]['id']==NOTE and queried['items'][0]['matched_native_tag_count']==1 and queried['content_returned'] is False
+                assert data(call('notes_native_query',{'folder_id':FOLDER,'tag_token':'synthetic'}))['items']==[]
+                for bad in ({'folder_id':FOLDER},{'folder_id':'foreign','pinned':True},{'folder_id':FOLDER,'pinned':True,'limit':11}):
+                    assert call('notes_native_query',bad).get('isError')
                 file_args={'id':FILE_ITEM,'attachment_id':FILE_ATTACHMENT}
                 native_file=data(call('reminders_export_attachment',file_args));assert native_file['size']==len(FILE_RAW) and native_file['original_file'] is False and native_file['download_attempted'] is False
                 for bad in (dict(file_args,max_bytes=1),dict(file_args,id='foreign'),dict(file_args,path='/tmp/not-allowed')):

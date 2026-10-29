@@ -31,6 +31,15 @@ def tag_state(folder,identity):
  value,_=state(folder,identity)
  return value,[{'id':f'x-coredata://{UUID}/ICInlineAttachment/p40','revision':2,'display_text':'#Synthetic','native_token':'SYNTHETIC'}]
 tags._tags=tag_state;tags.NativeReader=lambda name:Reader()
+from icloud_for_agents import native_note_filters as filters
+class QueryReader(Reader):
+ def read(self,action,**fields):
+  if action=='search':
+   if fields['folder_id']!=FOLDER:raise SafetyError('Synthetic exact query folder mismatch')
+   return {'items':[{'id':NOTE,'source_id':SOURCE,'folder_id':FOLDER,'title':'Synthetic title','locked':False}],
+           'unavailable':[],'done':True,'next_offset':1,'scanned':1}
+  return super().read(action,**fields)
+filters.NativeReader=lambda name:QueryReader()
 def reminder_bytes(source,leaf,size,maximum):
  if (source,leaf,size)!=(FILE_SOURCE,FILE_LEAF,len(FILE_RAW)) or size>maximum:raise SafetyError('Synthetic exact file identity or bound mismatch')
  return FILE_RAW

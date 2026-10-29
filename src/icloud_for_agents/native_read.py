@@ -1415,6 +1415,13 @@ def register_read_tools(mcp):
 
         @mcp.tool(annotations=annotations)
         @guard
+        def notes_native_query(folder_id:str,pinned:bool|None=None,tag_token:str|None=None,limit:int=5,offset:int=0)->dict:
+            """Scan <=10 titles in one exact physical folder using optional notes-store-readonly access. Filter by native pinned state and/or the exact native_token from notes_native_tags, combined with AND. Tag matching reads unlocked note content for guards and covers positive direct native occurrences only. Unavailable notes are reported; follow next_offset even for empty result pages. No Smart Folder evaluation, body return or changes."""
+            from .native_note_filters import query
+            return query(folder_id,pinned=pinned,tag_token=tag_token,limit=limit,offset=offset)
+
+        @mcp.tool(annotations=annotations)
+        @guard
         def notes_native_assets(folder_id:str,id:str)->dict:
             """Read <=100 live direct native attachment metadata rows in one selected note, including paper PDFs omitted by scripting. Optional notes-store-readonly access; no complete native-object inventory or file-availability claim."""
             from .native_note_assets import inventory
