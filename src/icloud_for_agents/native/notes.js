@@ -39,11 +39,11 @@ function readRequest() {
     const text = ObjC.unwrap($.NSString.alloc.initWithDataEncoding(data, $.NSUTF8StringEncoding));
     if (text.length > 65536) throw Error('invalid_request');
     const req = JSON.parse(text);
-    if (req.protocol_version !== 1 || !['sources','folders','default_folder','folder_get','folder_inventory','query','get','text_page','search','attachments','diagnose_note','contains'].includes(req.action)) throw Error('unsupported_action');
+    if (req.protocol_version !== 1 || !['sources','folders','default_folder','folder_get','folder_inventory','query','get','text_page','search','attachments','attachment_export','diagnose_note','contains'].includes(req.action)) throw Error('unsupported_action');
     return req;
 }
 function run() { const req=readRequest(); return readNotes(Application('com.apple.Notes'), req); }
-function readNotes(app, req) {
+function readNotes(app, req, exportPath) {
     const accounts = app.accounts();
     if (req.action === 'sources') return JSON.stringify({protocol_version:1, sources: accounts.map(a => ({id:a.id(), title:a.name()}))});
     if (!Array.isArray(req.source_ids) || req.source_ids.length === 0) throw Error('source_scope_required');
@@ -223,7 +223,7 @@ function readNotes(app, req) {
     }
     const ids = folder.object.notes.id();
     if(req.action==='contains')return JSON.stringify({protocol_version:1,exists:ids.includes(req.id) && folder.object.notes.byId(req.id).container().id()===req.folder_id,source_id:folder.source,folder_id:req.folder_id});
-    if (req.action === 'get' || req.action==='text_page' || req.action==='attachments' || req.action==='diagnose_note') {
+    if (req.action === 'get' || req.action==='text_page' || req.action==='attachments' || req.action==='attachment_export' || req.action==='diagnose_note') {
         if (!ids.includes(req.id)) throw Error('not_found_in_scope');
         const n = folder.object.notes.byId(req.id);
         if(n.container().id()!==req.folder_id)throw Error('not_found_in_scope');
@@ -232,9 +232,20 @@ function readNotes(app, req) {
         try { locked = n.passwordProtected(); } catch (_) { throw Error('lock_status_unavailable'); }
         if(typeof locked!=='boolean')throw Error('lock_status_unavailable');
         if (locked) {
+            if(req.action==='attachment_export')throw Error('locked_note');
             if(req.action==='text_page')return JSON.stringify({protocol_version:1,id:req.id,source_id:folder.source,folder_id:req.folder_id,locked:true,content_available:false,data_mutated:false});
             if(req.action==='attachments')return JSON.stringify(Object.assign({protocol_version:1,attachments:[],source_id:folder.source,folder_id:req.folder_id,note_id:req.id,locked:true,content_available:false,done:true,excluded_locked_note:true},req.include_attachment_metadata===true?{metadata_requested:true}:{}));
             return JSON.stringify({protocol_version:1,item:{id:req.id,source_id:folder.source,folder_id:req.folder_id,locked:true,content_available:false}});
+        }
+        if(req.action==='attachment_export') {
+            if(typeof exportPath!=='string' || !exportPath.length || typeof req.attachment_id!=='string' || !req.attachment_id.length || req.attachment_id.length>1000 || !Number.isInteger(req.max_bytes) || req.max_bytes<1 || req.max_bytes>1048576)throw Error('invalid_export');
+            const all=n.attachments();if(!Array.isArray(all) || all.length>1000)throw Error('attachment_limit');
+            const exact=all.filter(a=>a.id()===req.attachment_id);if(exact.length!==1)throw Error('not_found_in_scope');
+            const a=exact[0],name=a.name(),cid=a.contentIdentifier(),modified=n.modificationDate(),before=modified?modified.toISOString():null;
+            app.save(a,{in:Path(exportPath)});
+            const after=n.modificationDate(),afterDate=after?after.toISOString():null;
+            if(n.container().id()!==req.folder_id || n.passwordProtected()!==false || before!==afterDate || a.id()!==req.attachment_id || a.contentIdentifier()!==cid)throw Error('snapshot_changed');
+            return JSON.stringify({protocol_version:1,source_id:folder.source,folder_id:req.folder_id,note_id:req.id,attachment_id:req.attachment_id,name:typeof name==='string'?name.slice(0,1000):null,content_identifier:cid,modified:before,data_mutated:false,representation:'Notes_scripting_native_file',complete_backup:false});
         }
         if(req.action==='text_page') {
             if(!Number.isInteger(req.limit) || req.limit<1 || req.limit>10000 || !Number.isInteger(req.offset) || req.offset<0 || req.offset>5000000 || (req.expected_modified!==undefined && (typeof req.expected_modified!=='string' || !req.expected_modified.length || req.expected_modified.length>100)))throw Error('invalid_page');

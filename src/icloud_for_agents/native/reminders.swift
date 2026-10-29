@@ -176,6 +176,17 @@ func notesModelRoleMatches(_ role:[String:Any], folder:String, source:String)->B
           let ancestors=role["ancestor_count"] as? Int, (0..<32).contains(ancestors) else {return false}
     return true
 }
+// Read only a regular owner-owned single-link file created in our private export
+// directory. No caller path or provider symlink is followed; output is bounded.
+func notesExportBytes(_ url:URL,_ maximum:Int)->Data? {
+    let fd=open(url.path,O_RDONLY|O_NOFOLLOW|O_NONBLOCK|O_CLOEXEC)
+    guard fd>=0 else {return nil};defer {close(fd)}
+    var before=stat();guard fstat(fd,&before)==0,(before.st_mode & S_IFMT)==S_IFREG,before.st_uid==getuid(),before.st_nlink==1,before.st_size>=0,before.st_size<=maximum else {return nil}
+    let handle=FileHandle(fileDescriptor:fd,closeOnDealloc:false)
+    guard let bytes=try? handle.read(upToCount:maximum+1),bytes.count==before.st_size else {return nil}
+    var after=stat();guard fstat(fd,&after)==0,after.st_size==before.st_size,after.st_mtimespec.tv_sec==before.st_mtimespec.tv_sec,after.st_mtimespec.tv_nsec==before.st_mtimespec.tv_nsec,after.st_nlink==1 else {return nil}
+    return bytes
+}
 let data = requestData()
 guard data.count <= 262144, let req = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
       req["protocol_version"] as? Int == 1, let action = req["action"] as? String else { fail("invalid_request") }
@@ -184,7 +195,7 @@ requestAction=action
 guard let service=req["service"] as? String, ["notes","reminders"].contains(service) else { fail("unsupported_service") }
 requestService=service
 if service == "notes" {
-    guard ["status", "store_status", "request_access", "sources", "folders", "default_folder", "folder_get", "folder_inventory", "model_folder_role", "query", "get", "text_page", "search", "attachments", "diagnose_note", "contains", "apply", "diagnose_read_access"].contains(action) else { fail("unsupported_action") }
+    guard ["status", "store_status", "request_access", "sources", "folders", "default_folder", "folder_get", "folder_inventory", "model_folder_role", "query", "get", "text_page", "search", "attachments", "attachment_export", "diagnose_note", "contains", "apply", "diagnose_read_access"].contains(action) else { fail("unsupported_action") }
     if action == "store_status" {
         let output=ICloudNotesStoreStatus()
         guard let value=(try? JSONSerialization.jsonObject(with:output)) as? [String:Any] else {fail("notes_store_status_unavailable")}
@@ -301,7 +312,24 @@ if service == "notes" {
     let encoded = data.base64EncodedString()
     let entry = action == "apply" ? "applyNotes" : "readNotes"
     let gate = action == "apply" ? ",function(){return Boolean($.NSClassFromString('ICloudAgentsMutationGate').beginMutation);}" : ""
-    let bridge = "\nfunction run() { return " + entry + "(Application('com.apple.Notes'), JSON.parse(ObjC.unwrap($.NSString.alloc.initWithDataEncoding($.NSData.alloc.initWithBase64EncodedStringOptions('" + encoded + "',0), $.NSUTF8StringEncoding)))" + gate + "); }"
+    var exportDirectory:URL?=nil
+    var exportFile:URL?=nil
+    var exportArgument=""
+    if action=="attachment_export" {
+        let required:Set<String>=["protocol_version","service","action","source_ids","folder_id","id","attachment_id","max_bytes"]
+        guard Set(req.keys).subtracting(["request_id"])==required,let sources=req["source_ids"] as? [String],!sources.isEmpty,
+              ["folder_id","id","attachment_id"].allSatisfy({guard let value=req[$0] as? String else{return false};return !value.isEmpty && value.count<=1000}),
+              let maximum=req["max_bytes"] as? NSNumber,CFGetTypeID(maximum) != CFBooleanGetTypeID(),maximum.doubleValue==Double(maximum.intValue),(1...1048576).contains(maximum.intValue) else {fail("invalid_request")}
+        let directory=FileManager.default.temporaryDirectory.appendingPathComponent("icloud-notes-export-"+UUID().uuidString,isDirectory:true)
+        do {try FileManager.default.createDirectory(at:directory,withIntermediateDirectories:false,attributes:[.posixPermissions:0o700])}catch {fail("notes_export_unavailable")}
+        exportDirectory=directory;exportFile=directory.appendingPathComponent("asset")
+        guard let encodedPath=try? JSONSerialization.data(withJSONObject:exportFile!.path,options:.fragmentsAllowed),let literal=String(data:encodedPath,encoding:.utf8) else {try? FileManager.default.removeItem(at:directory);fail("notes_export_unavailable")}
+        exportArgument=","+literal
+    }
+    let ordinaryBridge = "\nfunction run() { return " + entry + "(Application('com.apple.Notes'), JSON.parse(ObjC.unwrap($.NSString.alloc.initWithDataEncoding($.NSData.alloc.initWithBase64EncodedStringOptions('" + encoded + "',0), $.NSUTF8StringEncoding)))" + gate + "); }"
+    let bridge=action=="attachment_export" ? ordinaryBridge.replacingOccurrences(of:"); }",with:exportArgument+"); }") : ordinaryBridge
+    let scratch=exportDirectory,file=exportFile
+
     // Keep the application run loop available while OSAKit sends Apple events.
     // A stalled script must not leave an indefinitely running helper behind.
     _ = NSApplication.shared
@@ -318,20 +346,28 @@ if service == "notes" {
                 respond(["protocol_version":1,"error":"notes_model_role_refused","category":"unverified_folder_role","mutation_dispatched":false])
             }
         }
-        guard let script = notesScript(source + bridge) else { fail("notes_bridge_unavailable") }
+        guard let script = notesScript(source + bridge) else {if let scratch{try? FileManager.default.removeItem(at:scratch)};fail("notes_bridge_unavailable") }
         var diagnostic: NSDictionary?
         guard let output = script.executeAndReturnError(&diagnostic)?.stringValue,
               let value = (try? JSONSerialization.jsonObject(with: Data(output.utf8))) as? [String: Any] else {
             let code = diagnostic?[OSAScriptErrorNumberKey] as? Int ?? -1
+            if let scratch{try? FileManager.default.removeItem(at:scratch)}
             if code == -1743 || code == -1744 { fail("permission_required") }
             var failure:[String:Any]=["protocol_version":1,"error":"notes_operation_failed","error_code":code]
             if action=="apply" {failure["mutation_dispatched"]=NativeMutationGate.cancel()}
             respond(failure)
         }
-        var result=value;result["nonprompting_event_count"]=notesEventSendCount
+        var result=value
+        if action=="attachment_export" {
+            guard let scratch,let file,let maximum=req["max_bytes"] as? Int,let bytes=notesExportBytes(file,maximum),value["data_mutated"] as? Bool==false,value["note_id"] as? String==req["id"] as? String,value["attachment_id"] as? String==req["attachment_id"] as? String else {if let scratch{try? FileManager.default.removeItem(at:scratch)};fail("notes_export_unavailable")}
+            result["encoding"]="base64";result["data"]=bytes.base64EncodedString();result["size"]=bytes.count;result["sha256"]=SHA256.hash(data:bytes).map{String(format:"%02x",$0)}.joined()
+            try? FileManager.default.removeItem(at:scratch)
+        }
+        result["nonprompting_event_count"]=notesEventSendCount
         respond(result)
     }
     RunLoop.current.run(until: Date(timeIntervalSinceNow: 30))
+    if let scratch{try? FileManager.default.removeItem(at:scratch)}
     fail(action == "apply" ? "mutation_failed_or_uncertain" : "notes_read_timeout")
 }
 let status = EKEventStore.authorizationStatus(for: .reminder)

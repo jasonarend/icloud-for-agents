@@ -13,10 +13,13 @@ def run():
     with tempfile.TemporaryDirectory(prefix='native-dispatch-gate-') as directory:
         path=Path(directory);js=path/'fixture.js';js.write_text(FIXTURE+'\n'+(ROOT/'src/icloud_for_agents/native/notes-write.js').read_text())
         program='''import Foundation
+import CoreFoundation
 import OSAKit
 '''+gate+'''
 let action="apply"
 let data=FileHandle.standardInput.readDataToEndOfFile()
+let req=(try! JSONSerialization.jsonObject(with:data)) as! [String:Any]
+func fail(_ code:String)->Never {fatalError(code)}
 let source=try String(contentsOfFile:CommandLine.arguments[1],encoding:.utf8)
 _ = NativeMutationGate()
 if CommandLine.arguments[2]=="closed" {precondition(NativeMutationGate.cancel()==false)}

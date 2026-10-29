@@ -13,7 +13,7 @@ from .core import SafetyError, NativeOperationRefused, digest
 from .services import enabled
 
 
-READ_ACTIONS = {'notes': {'status', 'sources', 'folders', 'default_folder', 'folder_get', 'folder_inventory', 'folder_role', 'recovery_folder', 'model_folder_role', 'query', 'get', 'text_page', 'search', 'attachments', 'diagnose_note', 'contains'},
+READ_ACTIONS = {'notes': {'status', 'sources', 'folders', 'default_folder', 'folder_get', 'folder_inventory', 'folder_role', 'recovery_folder', 'model_folder_role', 'query', 'get', 'text_page', 'search', 'attachments','attachment_export', 'diagnose_note', 'contains'},
                 'reminders': {'status', 'sources', 'lists', 'default_list', 'list_sections', 'list_features', 'list_parent', 'list_hierarchy', 'list_order', 'group_inventory', 'group_lists', 'templates', 'template_sections', 'smart_lists', 'query', 'get','list_membership','recovery_lookup','recovery_tree','recovery_list'}}
 MAX_OUTPUT = 2_000_000
 
@@ -88,6 +88,11 @@ class NativeReader:
         sources = config.get('source_ids', [])
         if action not in {'status', 'sources'} and not sources:
             raise SafetyError('Select exact native source IDs before reading content')
+        if self.name=='notes' and action=='attachment_export':
+            from .native_note_attachments import validate_request
+            validate_request(fields)
+            if not config.get('helper_path'):raise SafetyError('Attachment export requires the configured native helper')
+            fields.setdefault('max_bytes',1048576)
         attachment_metadata=fields.pop('include_attachment_metadata',False)
         if type(attachment_metadata) is not bool or (attachment_metadata and (self.name!='notes' or action!='attachments')):raise SafetyError('Attachment metadata is supported only for Notes attachment reads')
         if self.name=='notes' and action=='attachments' and any(not isinstance(fields.get(key),str) or not 1<=len(fields[key])<=1000 for key in ('folder_id','id')):raise SafetyError('Attachment reads require an exact note and folder')
@@ -179,7 +184,8 @@ class NativeReader:
         match_scope=fields.pop('match_scope','all')
         if not isinstance(match_scope,str) or match_scope not in {'all','title','plaintext'} or (match_scope!='all' and (self.name!='notes' or action!='search')):
             raise SafetyError('Notes search scope must be all, title or plaintext')
-        if set(fields) - {'id', 'folder_id', 'list_id', 'group_id', 'limit', 'offset', 'completed', 'locked', 'shared', 'has_attachments', 'text', 'due_date', 'timezone', 'include_overdue', 'due_from', 'due_through', 'priorities', 'flagged', 'tag', 'urgent', 'has_current_assignment', 'has_native_attachments', 'source_id', 'modified_from', 'modified_before', 'created_from', 'created_before', 'expected_modified', 'completed_from', 'completed_before'}:
+        if {'attachment_id','max_bytes'}.intersection(fields) and (self.name!='notes' or action!='attachment_export'):raise SafetyError('Attachment export fields require the exact export action')
+        if set(fields) - {'attachment_id','max_bytes','id', 'folder_id', 'list_id', 'group_id', 'limit', 'offset', 'completed', 'locked', 'shared', 'has_attachments', 'text', 'due_date', 'timezone', 'include_overdue', 'due_from', 'due_through', 'priorities', 'flagged', 'tag', 'urgent', 'has_current_assignment', 'has_native_attachments', 'source_id', 'modified_from', 'modified_before', 'created_from', 'created_before', 'expected_modified', 'completed_from', 'completed_before'}:
             raise SafetyError('Unknown native read fields')
         locked_filter=fields.get('locked')
         if locked_filter is not None and (self.name!='notes' or action!='search' or type(locked_filter) is not bool):
@@ -313,6 +319,10 @@ class NativeReader:
                 raise SafetyError('Configured helper did not verify scoped Notes folders')
             result={'protocol_version':1,'folders':[{k:row[k] for k in ('id','title','source_id','parent_id')} for row in rows],
                     'done':result['done'],'next_offset':result['next_offset'],'pagination_consistency':'live_offset_may_shift'}
+        if self.name=='notes' and action=='attachment_export':
+            from .native_note_attachments import validate_export
+            if native_config('notes')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode:raise SafetyError('Notes access changed during attachment export')
+            return validate_export({k:v for k,v in result.items() if k not in {'nonprompting_event_count','request_id'}},fields,sources)
         if self.name=='notes' and action=='get':
             item=result.get('item') if isinstance(result,dict) else None
             if (native_config('notes')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode
@@ -1371,6 +1381,12 @@ def register_read_tools(mcp):
                          created_from: str | None = None, created_before: str | None = None, has_attachments: bool | None = None) -> dict:
             """Search titles, bounded plaintext and exported table text; select plaintext to omit separate table HTML reads, or title to avoid body reads. An empty title-only query lists scoped notes; locked, shared and has_attachments filter observed app metadata without unlocking or downloading files. Creation and modification bounds use UTC YYYY-MM-DDTHH:MM:SSZ, inclusive from and exclusive before. Reduce limit to scan fewer notes per page if a search is slow; follow next_offset even after empty pages."""
             return NativeReader('notes').read('search', text=text, folder_id=folder_id, limit=limit, offset=offset, modified_from=modified_from, modified_before=modified_before,match_scope=match_scope,locked=locked,shared=shared,created_from=created_from,created_before=created_before,has_attachments=has_attachments)
+
+        @mcp.tool(annotations=annotations)
+        @guard
+        def notes_export_attachment(folder_id:str,id:str,attachment_id:str,max_bytes:int=1048576)->dict:
+            """Export one exact unlocked note attachment as bounded base64 bytes with SHA-256. Native-file representation only; no arbitrary paths or complete-backup claim. May download an iCloud asset through Notes."""
+            return NativeReader('notes').read('attachment_export',folder_id=folder_id,id=id,attachment_id=attachment_id,max_bytes=max_bytes)
 
         @mcp.tool(annotations=annotations)
         @guard
