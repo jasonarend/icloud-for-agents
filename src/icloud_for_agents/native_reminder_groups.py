@@ -46,12 +46,14 @@ def prepare_create(adapter,change):
 
 def expected_inventory(item):
     from copy import deepcopy
+    if item['operation']=='rename_group':
+        value=deepcopy(item['before']['inventory']);value['groups']=[dict(g,title=item['fields']['title']) if g['id']==item['id'] else g for g in value['groups']];return value
     value=deepcopy(item['before']);value['groups']=sorted(value['groups']+[{'id':item['id'],'title':item['fields']['title']}],key=lambda row:row['id']);value['account_order'].append(item['id']);return value
 
 
 def expected_observation(adapter,item):
     current=inventory(adapter,item['source_id']);children=adapter.reader.read('group_lists',source_id=item['source_id'],group_id=item['id'],limit=100,offset=0)
-    value={'state':'group_created','id':item['id'],'source_id':item['source_id'],'inventory':current,'children':children}
+    value={'state':'group_renamed' if item['operation']=='rename_group' else 'group_created','id':item['id'],'source_id':item['source_id'],'inventory':current,'children':children}
     if not record_matches(item,value):raise SafetyError('New empty root group and preserved account inventory do not verify')
     return value
 
@@ -59,6 +61,8 @@ def expected_observation(adapter,item):
 def record_matches(item,observed):
     try:
         children=observed['children']
+        if item['operation']=='rename_group':
+            return observed.get('state')=='group_renamed' and observed.get('id')==item['id'] and observed.get('source_id')==item['source_id'] and observed.get('inventory')==expected_inventory(item) and children==item['before']['children']
         return (observed.get('state')=='group_created' and observed.get('id')==item['id'] and observed.get('source_id')==item['source_id']
                 and observed.get('inventory')==expected_inventory(item) and children.get('source_id')==item['source_id'] and children.get('group_id')==item['id']
                 and children.get('lists')==[] and children.get('done') is True and children.get('next_offset')==0 and children.get('data_mutated') is False
@@ -69,3 +73,35 @@ def record_matches(item,observed):
 def verify_create(adapter,item,outcome):
     if outcome.get('id')!=item['id'] or outcome.get('source_id')!=item['source_id']:return False
     expected_observation(adapter,item);return True
+
+
+def rename_snapshot(adapter,item):
+    before=inventory(adapter,item['source_id']);selected=[g for g in before['groups'] if g['id']==item['id']]
+    if len(selected)!=1:raise SafetyError('Select one exact private root group in this source')
+    children=adapter.reader.read('group_lists',source_id=item['source_id'],group_id=item['id'],limit=100,offset=0)
+    if children.get('source_id')!=item['source_id'] or children.get('group_id')!=item['id'] or children.get('done') is not True or len(children.get('lists',[]))>100:raise SafetyError('A bounded group child-list observation is required')
+    return {'inventory':before,'children':children}
+
+
+def prepare_rename(adapter,change):
+    from .native_once import planning_access
+    if (not isinstance(change,dict) or set(change)!={'operation','source_id','group_id','fields'} or change.get('operation')!='rename_group'
+            or change['source_id'] not in planning_access('reminders')['source_ids'] or not isinstance(change['fields'],dict) or set(change['fields'])!={'title'}):raise SafetyError('Rename one exact private root group using source_id, group_id and fields.title')
+    try:
+        title=change['fields']['title']
+        if not valid_id(change['group_id']) or not isinstance(title,str) or not title.strip() or len(title)>1000 or len(title.encode())>4000 or any(ord(c)<32 for c in title):raise ValueError()
+    except (ValueError,UnicodeError):raise SafetyError('Use an exact group UUID and bounded nonempty title without control characters') from None
+    item={'operation':'rename_group','source_id':change['source_id'],'id':change['group_id'],'fields':{'title':title}}
+    item['before']=rename_snapshot(adapter,item)
+    if any(g['title']==title for g in item['before']['inventory']['groups']):raise SafetyError('Group already has this title or another root group uses it')
+    item.update(fidelity_verified=True,effects={'group':'Change only this exact private root group title; retain the same native ID.',
+        'preservation':'Account order, other observed groups and the bounded child-list view must remain unchanged. No list or task membership, sharing, content or notification change is requested.',
+        'coverage':'Provider child-list observations do not prove complete native hierarchy or cloud synchronization.'})
+    return item
+
+
+def verify_rename(adapter,item,outcome):
+    if outcome.get('id')!=item['id'] or outcome.get('source_id')!=item['source_id']:return False
+    from copy import deepcopy
+    expected=deepcopy(item['before']);expected['inventory']['groups']=[dict(g,title=item['fields']['title']) if g['id']==item['id'] else g for g in expected['inventory']['groups']]
+    return rename_snapshot(adapter,item)==expected

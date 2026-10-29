@@ -86,3 +86,44 @@ class GroupTests(unittest.TestCase):
             for fields in ({'source_id':LIST},{'source_id':SOURCE,'limit':1},{'source_id':SOURCE,'id':LIST}):
                 with self.assertRaises(SafetyError):NativeReader('reminders').read('group_inventory',**fields)
             dispatch.assert_not_called()
+
+    def renamed_fixture(self):
+        p=self.engine.prepare_once([self.change()]);self.engine.execute(p['plan_id']);return p['review']['payload']['changes'][0]['id']
+    def rename(self,identity,title='Synthetic renamed group'):return {'operation':'rename_group','source_id':SOURCE,'group_id':identity,'fields':{'title':title}}
+    def test_once_rename_roundtrip_preserves_account_order_and_same_group_id(self):
+        identity=self.renamed_fixture();before=copy.deepcopy(self.adapter.reader.inventory)
+        for title in ('Synthetic renamed group','Synthetic root group'):
+            p=self.engine.prepare_once([self.rename(identity,title)]);self.assertEqual(self.engine.execute(p['plan_id'])['status'],'applied')
+        self.assertEqual(before,self.adapter.reader.inventory)
+    def test_rename_refuses_noop_foreign_id_and_child_view_drift(self):
+        identity=self.renamed_fixture()
+        for change in (self.rename(identity,'Synthetic root group'),self.rename(SOURCE),dict(self.rename(identity),source_id=LIST)):
+            with self.assertRaises(SafetyError):self.engine.prepare_once([change])
+        p=self.engine.prepare_once([self.rename(identity)]);self.adapter.reader.children[identity]=[{'id':LIST,'title':'Concurrent list','is_group':False}]
+        with self.assertRaises(SafetyError):self.engine.execute(p['plan_id'])
+        self.assertFalse(self.store.path(p['plan_id'],'.started').exists())
+    def test_rename_grant_stable_across_own_changes_and_revocation(self):
+        identity=self.renamed_fixture();m=NativeGrants(self.engine);g=m.prepare({'scenario':'Synthetic group titles','rules':[{'operation':'rename_group','source_id':SOURCE,'container_id':identity,'fields':['title'],'destinations':[]}],'max_batch':1,'max_24h':2,'expires':None})['plan_id'];m.activate(g)
+        for title in ('Synthetic renamed group','Synthetic root group'):
+            p=self.engine.prepare_with_grant(g,[self.rename(identity,title)]);self.assertEqual(self.engine.execute(p['plan_id'])['status'],'applied');self.assertEqual(m.status(g)['status'],'active')
+        p=self.engine.prepare_with_grant(g,[self.rename(identity)]);m.revoke(g)
+        with self.assertRaises(SafetyError):self.engine.execute(p['plan_id'])
+    def test_terminal_error_after_rename_preserves_original_failure_and_observes_expected_group(self):
+        from icloud_for_agents.native_reminder_exchange import begin,finish
+        identity=self.renamed_fixture();apply=self.adapter.apply
+        def uncertain(item):
+            apply(item);finish(begin(mutation_request('reminders',item)),{'protocol_version':1,'error':'mutation_failed_or_uncertain','mutation_dispatched':True});raise SafetyError('Synthetic post-save error')
+        with patch.object(self.adapter,'apply',side_effect=uncertain):
+            p=self.engine.prepare_once([self.rename(identity)]);self.engine.execute(p['plan_id'])
+        original=self.store.path(p['plan_id'],'.result').read_bytes();self.assertEqual(self.engine.reconcile_known_changes(p['plan_id'])['status'],'applied_after_readback_reconciliation');self.engine.assert_settled();self.assertEqual(original,self.store.path(p['plan_id'],'.result').read_bytes())
+    def test_unchanged_rename_terminal_error_compares_bounded_child_view_before_acceptance(self):
+        from icloud_for_agents.native_reminder_exchange import begin,finish
+        from icloud_for_agents.native_reminder_recovery import ReminderObservationRecovery
+        identity=self.renamed_fixture()
+        def unchanged(item):
+            finish(begin(mutation_request('reminders',item)),{'protocol_version':1,'error':'mutation_failed_or_uncertain','mutation_dispatched':True});raise SafetyError('Synthetic unchanged group rename')
+        with patch.object(self.adapter,'apply',side_effect=unchanged):
+            p=self.engine.prepare_once([self.rename(identity)]);self.engine.execute(p['plan_id'])
+        recovery=ReminderObservationRecovery(self.engine.account,self.store,self.adapter);review=recovery.prepare(p['plan_id']);self.adapter.reader.children[identity]=[{'id':LIST,'title':'Concurrent member','is_group':False}]
+        with self.assertRaises(SafetyError):recovery.execute(review['plan_id'])
+        self.adapter.reader.children[identity]=[];self.assertEqual(recovery.execute(review['plan_id'])['recovery_state'],'observed_unchanged_reminder_accepted_after_review');self.engine.assert_settled()

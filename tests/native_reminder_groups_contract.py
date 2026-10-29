@@ -30,7 +30,9 @@ static BOOL extraGroupKey=NO,wrongGroupDefaults=NO,wrongGroupOrder=NO,extraGroup
 @property FixtureListStorage *storage;
 @property NSSet *changedKeys;
 @end
-@implementation FixtureGroupChange @end
+@implementation FixtureGroupChange
+-(void)setValue:(id)value forUndefinedKey:(NSString*)key{NSCAssert([key isEqual:@"name"],@"only exact name field");[(id)self.storage setValue:value forKey:@"name"];self.changedKeys=[NSSet setWithArray:extraGroupKey?@[@"name",@"sortingStyle"]:@[@"name"]];}
+@end
 static NSSet *InitialGroupKeys(void){return [NSSet setWithArray:@[@"reminderIDsMergeableOrdering",@"showingLargeAttachments",@"reminderIDsToUndelete",@"objectID",@"isGroup",@"reminderIDsMergeableOrderingData",@"shouldUpdateSectionsOrdering",@"minimumSupportedVersion",@"shouldAutoCategorizeItems",@"shouldSupportGroceryShoppingSession",@"childSmartListIDsToUndelete",@"daIsImmutable",@"parentAccountID",@"remindersICSDisplayOrderChanged",@"name",@"shouldCategorizeGroceryItems",@"childListIDsToUndelete",@"reminderIDsOrderingHints",@"sharingStatus",@"accountID",@"daDisplayOrder",@"shouldSuggestConversionToGroceryList",@"sectionIDsToUndelete",@"daIsNotificationsCollection",@"daIsReadOnly",@"sortingStyle",@"daIsEventOnlyContainer",@"isPlaceholder"]];}
 '''
 STORAGE=r'''
@@ -48,7 +50,10 @@ STORAGE=r'''
 SAVE=r'''
 @implementation FixtureSave
 -(id)initWithStore:(id)store{return [super init];}
--(id)updateAccount:(id)account{FixtureAccountChange *c=[FixtureAccountChange new];c.storage=[FixtureAccountStorage new];c.storage.listIDsMergeableOrdering=[FixtureMergeOrder new];c.storage.listIDsMergeableOrdering.orderedSet=groupOrder;c.groupContext=[FixtureGroups new];self.groupAccount=c;return c;}
+-(id)updateAccount:(id)account{FixtureAccountChange *c=[FixtureAccountChange new];c.storage=[FixtureAccountStorage new];c.storage.listIDsMergeableOrdering=[FixtureMergeOrder new];c.storage.listIDsMergeableOrdering.orderedSet=groupOrder;c.groupContext=[FixtureGroups new];c.changedKeys=[NSSet set];self.groupAccount=c;return c;}
+-(id)updateList:(FixtureList*)list{
+ [self updateAccount:list.account];FixtureGroupChange *g=[FixtureGroupChange new];g.storage=[FixtureListStorage new];g.storage.name=list.storage.name;g.storage.isGroup=list.storage.isGroup;g.storage.objectID=list.remObjectID;g.storage.accountID=list.storage.accountID;g.storage.parentAccountID=list.storage.parentAccountID;g.storage.parentListID=list.storage.parentListID;g.changedKeys=[NSSet set];self.createdGroup=g;return g;
+}
 -(id)addGroupWithName:(NSString*)name toAccountGroupContextChangeItem:(id)context groupObjectID:(FixtureID*)identity{
  FixtureGroupChange *g=[FixtureGroupChange new];g.storage=[FixtureListStorage new];g.changedKeys=InitialGroupKeys();if(extraGroupKey){NSMutableSet *keys=[g.changedKeys mutableCopy];[keys addObject:@"notes"];g.changedKeys=keys;}
  g.storage.name=name;g.storage.isGroup=YES;g.storage.objectID=identity;g.storage.accountID=fixture.account.remObjectID;g.storage.parentAccountID=fixture.account.remObjectID;g.storage.sortingStyle=@"manual";g.storage.reminderIDsMergeableOrdering=[NSOrderedSet orderedSet];g.storage.reminderIDsOrderingHints=@{};g.storage.reminderIDsToUndelete=[NSSet set];g.storage.childListIDsToUndelete=[NSSet set];g.storage.childSmartListIDsToUndelete=[NSSet set];g.storage.sectionIDsToUndelete=[NSSet set];
@@ -84,6 +89,11 @@ int main(){@autoreleasepool{
  saveFails=YES;NSCAssert([call(YES)[@"mutation_dispatched"]isEqual:@YES] && flagSaves==2,@"failed save remains uncertain");saveFails=NO;
  FixtureList *group=[FixtureList new];group.remObjectID=Identity(@"REMCDList",groupID);group.account=fixture.account;group.storage=[FixtureListStorage new];group.storage.isGroup=YES;group.storage.accountID=fixture.account.remObjectID;group.storage.parentAccountID=fixture.account.remObjectID;group.storage.name=@"Synthetic existing group";groupValues=@[group];groupOrder=[NSOrderedSet orderedSetWithArray:@[list,groupID]];
  NSCAssert([read()[@"groups"]count]==1,@"populated selected root inventory");group.storage.parentListID=Identity(@"REMCDList",list);NSCAssert(read()[@"error"],@"nested unsupported group refused");group.storage.parentListID=nil;
+ NSDictionary *(^rename)(BOOL)=^NSDictionary*(BOOL allow){NSDictionary *r=@{@"source_id":source,@"group_id":groupID,@"title":@"Synthetic renamed group",@"before":read()};return [NSJSONSerialization JSONObjectWithData:ICloudRemindersRenameRootGroup([NSJSONSerialization dataWithJSONObject:r options:0 error:NULL],^{gates++;return allow;}) options:0 error:NULL];};moveLists=@[group];int saves=flagSaves;
+ NSCAssert([rename(NO)[@"category"]isEqual:@"native_dispatch_cancelled"] && flagSaves==saves,@"rename closed gate never saves");NSCAssert(rename(YES)[@"result"] && flagSaves==saves+1,@"exact group name saved once");before=gates;
+ extraGroupKey=YES;NSCAssert(rename(YES)[@"error"] && gates==before,@"unreviewed rename field refused");extraGroupKey=NO;
+ extraGroupTask=YES;NSCAssert(rename(YES)[@"error"] && gates==before,@"rename cannot mutate reminders");extraGroupTask=NO;
+ saveFails=YES;NSCAssert([rename(YES)[@"mutation_dispatched"]isEqual:@YES],@"rename failed save is uncertain");saveFails=NO;
  group.isShared=YES;NSCAssert(read()[@"error"],@"shared group refused");group.isShared=NO;group.storage.accountID=Identity(@"REMCDAccount",list);NSCAssert(read()[@"error"],@"foreign storage refused");
 }}
 '''

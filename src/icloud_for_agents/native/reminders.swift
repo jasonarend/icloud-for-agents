@@ -623,15 +623,15 @@ func reminderRecurrence(_ value:Any,due:DateComponents?)->EKRecurrenceRule? {
     return rule
 }
 if action == "apply" {
-    if let change=req["change"] as? [String:Any],let operation=change["operation"] as? String,["create_group","reorder_reminder","delete_reminder","restore_reminder","set_list_badge","set_list_pinned","set_flagged","remove_tag","add_tag","replace_tag","set_urgent","add_early","clear_early","create_subtask","create_section","rename_section","move_reminder"].contains(operation) {
+    if let change=req["change"] as? [String:Any],let operation=change["operation"] as? String,["create_group","rename_group","reorder_reminder","delete_reminder","restore_reminder","set_list_badge","set_list_pinned","set_flagged","remove_tag","add_tag","replace_tag","set_urgent","add_early","clear_early","create_subtask","create_section","rename_section","move_reminder"].contains(operation) {
         privateReminderGateArmed=true;NativeMutationGate.armDeadline()
     }
-    if let item=req["change"] as? [String:Any],item["operation"] as? String=="create_group" {
+    if let item=req["change"] as? [String:Any],let operation=item["operation"] as? String,["create_group","rename_group"].contains(operation) {
         guard let source=item["source_id"] as? String,sourceIDs.contains(source),let identifier=item["id"] as? String,
               let fields=item["fields"] as? [String:Any],Set(fields.keys)==["title"],let title=fields["title"] as? String,!title.isEmpty,title.count<=1000,title.utf8.count<=4000,
-              let before=item["before"] as? [String:Any],before["source_id"] as? String==source,
-              let payload=try? JSONSerialization.data(withJSONObject:["source_id":source,"group_id":identifier,"title":title,"before":before]),
-              let result=(try? JSONSerialization.jsonObject(with:ICloudRemindersCreateRootGroup(payload,{NativeMutationGate.beginMutation()}))) as? [String:Any] else {fail("invalid_mutation")}
+              let before=item["before"] as? [String:Any],let inventory=(operation=="rename_group" ? before["inventory"] as? [String:Any] : before),inventory["source_id"] as? String==source,
+              let payload=try? JSONSerialization.data(withJSONObject:["source_id":source,"group_id":identifier,"title":title,"before":inventory]),
+              let result=(try? JSONSerialization.jsonObject(with:operation=="create_group" ? ICloudRemindersCreateRootGroup(payload,{NativeMutationGate.beginMutation()}) : ICloudRemindersRenameRootGroup(payload,{NativeMutationGate.beginMutation()}))) as? [String:Any] else {fail("invalid_mutation")}
         if result["error"] != nil {fail((result["mutation_dispatched"] as? Bool)==true ? "mutation_failed_or_uncertain" : "unsupported_edit_target")}
         guard let output=result["result"] as? [String:Any] else {fail("mutation_failed_or_uncertain")};respond(["protocol_version":1,"result":output])
     }

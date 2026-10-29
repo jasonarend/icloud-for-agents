@@ -7,7 +7,7 @@ from .core import SafetyError, digest
 
 OBSERVABLE_CHANGES = {'update_reminder', 'set_completed', 'set_recurrence', 'set_flagged',
                       'remove_tag', 'add_tag', 'replace_tag', 'set_urgent', 'add_early',
-                      'clear_early', 'move_reminder', 'create_subtask', 'delete_reminder', 'restore_reminder', 'reorder_reminder', 'create_group'}
+                      'clear_early', 'move_reminder', 'create_subtask', 'delete_reminder', 'restore_reminder', 'reorder_reminder', 'create_group', 'rename_group'}
 
 
 def inspect_uncertain_reminder(engine, plan_id):
@@ -31,13 +31,13 @@ def inspect_uncertain_reminder(engine, plan_id):
     if not isinstance(item, dict):
         raise SafetyError('The original reminder snapshot is unavailable')
     before = item.get('before')
-    if item.get('operation')=='create_group':
-        from .native_reminder_groups import inventory
-        observed=inventory(engine.adapter,item['source_id'])
+    if item.get('operation') in {'create_group','rename_group'}:
+        from .native_reminder_groups import inventory,rename_snapshot
+        observed=rename_snapshot(engine.adapter,item) if item['operation']=='rename_group' else inventory(engine.adapter,item['source_id'])
         if engine.context(True)!=context:raise SafetyError('Reminder access changed during group observation')
         from .native_reminder_exchange import inspect
         return {'plan_id':plan_id,'reminder_id':item['id'],'source_id':item['source_id'],'observed_snapshot_matches_before':observed==before,
-                'snapshot_coverage':'exact_private_root_group_inventory_and_account_order','observation_consistency':'separate_live_reads_may_change',
+                'snapshot_coverage':'exact_root_group_inventory_account_order_and_reviewed_child_list_view' if item['operation']=='rename_group' else 'exact_private_root_group_inventory_and_account_order','observation_consistency':'separate_live_reads_may_change',
                 'original_uncertainty_retained':True,'causal_dispatch_proven':False,'data_mutated':False,'do_not_retry':True,**inspect(engine.store,plan)}
     lifecycle=item.get('operation') in {'delete_reminder','restore_reminder'}
     if lifecycle:

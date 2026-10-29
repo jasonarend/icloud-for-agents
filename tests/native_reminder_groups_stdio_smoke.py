@@ -56,6 +56,17 @@ def run(policy):
                 pending=data(call('reminders_prepare_with_grant',{'grant_id':grant['plan_id'],'changes':[change('Synthetic pending')]}))
                 assert data(call('reminders_revoke_grant',{'grant_id':grant['plan_id']}))['status']=='revoked'
                 assert call('reminders_execute_approved',{'plan_id':pending['plan_id']}).get('isError')
+                group_id=plan['review']['payload']['changes'][0]['id']
+                def rename(title):return {'operation':'rename_group','source_id':SOURCE,'group_id':group_id,'fields':{'title':title}}
+                renamed=data(call('reminders_prepare_once',{'changes':[rename('Synthetic renamed once')]}))
+                if policy=='local-receipt':assert call('reminders_execute_approved',{'plan_id':renamed['plan_id']}).get('isError')
+                approve(renamed);assert data(call('reminders_execute_approved',{'plan_id':renamed['plan_id']}))['status']=='applied'
+                scope['rules']=[{'operation':'rename_group','source_id':SOURCE,'container_id':group_id,'fields':['title'],'destinations':[]}]
+                rename_grant=data(call('reminders_prepare_grant',{'scope':scope}));approve(rename_grant);assert data(call('reminders_activate_grant',{'grant_id':rename_grant['plan_id']}))['grant_active'] is True
+                for title in ('Synthetic renamed with scope','Synthetic once'):
+                    batch=data(call('reminders_prepare_with_grant',{'grant_id':rename_grant['plan_id'],'changes':[rename(title)]}));assert data(call('reminders_execute_approved',{'plan_id':batch['plan_id']}))['status']=='applied'
+                pending=data(call('reminders_prepare_with_grant',{'grant_id':rename_grant['plan_id'],'changes':[rename('Synthetic pending rename')]}))
+                assert data(call('reminders_revoke_grant',{'grant_id':rename_grant['plan_id']}))['status']=='revoked';assert call('reminders_execute_approved',{'plan_id':pending['plan_id']}).get('isError')
             finally:
                 process.stdin.close()
                 try:process.wait(timeout=10)
