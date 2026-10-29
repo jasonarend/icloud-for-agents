@@ -65,3 +65,5 @@ NSData *ICloudRemindersCreateGroceryCategory(NSData *data,BOOL (^enterMutation)(
 NSData *ICloudRemindersSetGroceryCategory(NSData *data,BOOL (^enterMutation)(void));
 
 NSData *ICloudRemindersRenameGroceryCategory(NSData *data,BOOL (^enterMutation)(void));
+
+NSData *ICloudRemindersAddTextFile(NSData *data,BOOL (^enterMutation)(void));

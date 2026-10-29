@@ -153,7 +153,7 @@ def alarm_effects(alarms,due):
 
 
 class RemindersCreateAdapter:
-    operations={'rename_grocery_category','create_grocery_category','set_grocery_categorization','create_template','create_smart_list','set_smart_list_sources','rename_template','rename_smart_list','set_grocery_category','set_section','reparent_reminder','reorder_group','group_list','ungroup_list','rename_group','create_group','reorder_reminder','set_list_badge','delete_reminder','restore_reminder','set_list_pinned','create_list','create_reminder','create_section','rename_section','update_reminder','set_completed','move_reminder','rename_list','set_recurrence','set_list_color','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','add_early','clear_early','create_subtask'}
+    operations={'add_file_attachment','rename_grocery_category','create_grocery_category','set_grocery_categorization','create_template','create_smart_list','set_smart_list_sources','rename_template','rename_smart_list','set_grocery_category','set_section','reparent_reminder','reorder_group','group_list','ungroup_list','rename_group','create_group','reorder_reminder','set_list_badge','delete_reminder','restore_reminder','set_list_pinned','create_list','create_reminder','create_section','rename_section','update_reminder','set_completed','move_reminder','rename_list','set_recurrence','set_list_color','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','add_early','clear_early','create_subtask'}
     def __init__(self):self.reader=NativeReader('reminders')
     def bind_owner_context(self,account,store):self._plan_owner=account;self._plan_store=store
     @property
@@ -412,6 +412,9 @@ class RemindersCreateAdapter:
         return item
 
     def prepare(self,change):
+        if isinstance(change,dict) and change.get('operation')=='add_file_attachment':
+            from .native_reminder_file_create import prepare
+            return prepare(self,change)
         if isinstance(change,dict) and change.get('operation')=='rename_grocery_category':
             from .native_grocery_category_rename import prepare
             return prepare(self,change)
@@ -553,6 +556,9 @@ class RemindersCreateAdapter:
         return metadata['urgent']
 
     def snapshot(self,item):
+        if item['operation']=='add_file_attachment':
+            from .native_reminder_file_create import snapshot
+            return snapshot(self,item)
         if item['operation']=='rename_grocery_category':
             from .native_grocery_category_rename import snapshot
             return snapshot(self,item)
@@ -657,6 +663,9 @@ class RemindersCreateAdapter:
         return actual==expected and self.urgent_snapshot(parent) is item['before']['urgent']
 
     def verify(self,item,outcome):
+        if item['operation']=='add_file_attachment':
+            from .native_reminder_file_create import verify
+            return verify(self,item,outcome)
         if item['operation']=='rename_grocery_category':
             from .native_grocery_category_rename import verify
             return verify(self,item,outcome)

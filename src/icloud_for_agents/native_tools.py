@@ -298,6 +298,18 @@ def register_change_tools(mcp):
             It preserves group identity, mixed child view and other account entries.
             rename_group uses source_id, group_id and fields.title for one
             private root group; observed child lists and account order are preserved.
+            add_file_attachment uses exact source_id/id and fields.uti set to
+            public.plain-text plus canonical fields.data_base64 (1..16384 UTF-8
+            bytes, no NUL) and explicit fields.allow_mcp_only true: Reminders does
+            not display this stored text file in its list/details UI. MCP reads
+            and exports can access it. No paths or filenames. Server-assigned ID.
+            Requires ReminderKit, a private ordinary unsectioned list of at most
+            twenty incomplete nonrecurring root leaves, and an initially empty
+            target attachment inventory. Preview includes decoded text and digest.
+            The gate precedes SDK temporary files; subsequent failures stay
+            uncertain. Readback verifies stored bytes and preserved source state.
+            Scenario rules select the exact list container and all three input fields;
+            quota charges two objects (reminder plus attachment), never effects.
             set_grocery_categorization uses exact source_id/list_id and
             fields.enabled Boolean on an empty private nongroup list without
             sections or shopping-session state. It changes only that native flag;
