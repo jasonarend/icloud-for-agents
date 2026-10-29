@@ -268,6 +268,8 @@ def register_change_tools(mcp):
             create_list uses source_id and fields.title; create_reminder also
             requires list_id. update_reminder/set_completed use
             exact source_id and id. rename_list uses source_id/list_id/title.
+            set_list_pinned uses source_id/list_id and fields.pinned (Boolean),
+            with the explicitly selected ReminderKit backend.
             set_list_color uses source_id/list_id and fields.color (#RRGGBB or
             explicit sRGB red/green/blue channels from 0 to 1 with alpha=1).
             Supplied fields for create/update: title, notes, priority (0/1/5/9),

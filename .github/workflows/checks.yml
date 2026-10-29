@@ -61,6 +61,7 @@ jobs:
           .venv/bin/python tests/native_location_alarm_stdio_smoke.py
           .venv/bin/python tests/native_folder_rename_stdio_smoke.py
           .venv/bin/python tests/native_list_colors_stdio_smoke.py
+          .venv/bin/python tests/native_list_pins_stdio_smoke.py
           .venv/bin/python tests/native_script_contract.py
           .venv/bin/python tests/native_write_contract.py
           .venv/bin/python tests/native_folder_inventory_contract.py
@@ -84,6 +85,7 @@ jobs:
           .venv/bin/python tests/native_reminder_subtree_contract.py
           .venv/bin/python tests/native_subtask_insert_contract.py
           .venv/bin/python tests/native_list_colors_contract.py
+          .venv/bin/python tests/native_list_pins_contract.py
           .venv/bin/python tests/native_reminder_dates_contract.py
           .venv/bin/python tests/native_service_isolation_contract.py
           .venv/bin/python tests/native_permission_contract.py

@@ -153,7 +153,7 @@ def alarm_effects(alarms,due):
 
 
 class RemindersCreateAdapter:
-    operations={'create_list','create_reminder','create_section','rename_section','update_reminder','set_completed','move_reminder','rename_list','set_recurrence','set_list_color','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','add_early','clear_early','create_subtask'}
+    operations={'set_list_pinned','create_list','create_reminder','create_section','rename_section','update_reminder','set_completed','move_reminder','rename_list','set_recurrence','set_list_color','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','add_early','clear_early','create_subtask'}
     def __init__(self):self.reader=NativeReader('reminders')
     @property
     def backend_id(self):
@@ -411,6 +411,9 @@ class RemindersCreateAdapter:
         return item
 
     def prepare(self,change):
+        if isinstance(change,dict) and change.get('operation')=='set_list_pinned':
+            from .native_list_pins import prepare
+            return prepare(self,change)
         if isinstance(change,dict) and change.get('operation')=='move_reminder':
             from .native_reminder_moves import prepare
             return prepare(self,change)
@@ -495,6 +498,9 @@ class RemindersCreateAdapter:
         return metadata['urgent']
 
     def snapshot(self,item):
+        if item['operation']=='set_list_pinned':
+            from .native_list_pins import snapshot
+            return snapshot(self,item)
         if item['operation']=='move_reminder':
             from .native_reminder_moves import snapshot
             return snapshot(self,item)
@@ -542,6 +548,9 @@ class RemindersCreateAdapter:
         return actual==expected and self.urgent_snapshot(parent) is item['before']['urgent']
 
     def verify(self,item,outcome):
+        if item['operation']=='set_list_pinned':
+            from .native_list_pins import verify
+            return verify(self,item,outcome)
         if item['operation']=='move_reminder' and 'source_graph' in item.get('before',{}):
             from .native_reminder_moves import verify
             return verify(self,item,outcome)

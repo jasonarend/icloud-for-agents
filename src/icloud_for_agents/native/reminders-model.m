@@ -1219,3 +1219,41 @@ NSData *ICloudRemindersMoveSubtree(NSData *data,BOOL (^enterMutation)(void)){
         return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":rootID,@"source_id":source,@"list_id":destination,@"moved_ids":sorted,@"saved_locally":@YES}});
     }@catch(NSException *exception){return EncodeFlag(@{@"protocol_version":@1,@"error":dispatched?@"mutation_failed_or_uncertain":@"private_metadata_unavailable",@"mutation_dispatched":@(dispatched)});}
 }
+
+// Pin one ordinary private list. The request cannot select native setters.
+NSData *ICloudRemindersSetListPinned(NSData *data,BOOL (^enterMutation)(void)){
+    __block BOOL dispatched=NO;
+    @try {
+        id request=[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
+        if(![request isKindOfClass:NSDictionary.class] || [request count]!=4 || !enterMutation
+                || ![request[@"pinned"] isKindOfClass:NSNumber.class] || CFGetTypeID((__bridge CFTypeRef)request[@"pinned"])!=CFBooleanGetTypeID()
+                || ![request[@"expected_features"] isKindOfClass:NSDictionary.class])return EncodeFlag(FlagFailure(@"invalid_public_identity"));
+        NSDictionary *identity=@{@"source_id":request[@"source_id"]?:[NSNull null],@"list_id":request[@"list_id"]?:[NSNull null],@"include_pinned":@YES};
+        NSData *identityData=[NSJSONSerialization dataWithJSONObject:identity options:0 error:NULL];
+        id observed=[NSJSONSerialization JSONObjectWithData:ICloudRemindersReadListFeatures(identityData) options:0 error:NULL];
+        if(![observed isEqual:request[@"expected_features"]] || ![observed[@"pinned"] isKindOfClass:NSNumber.class]
+                || CFGetTypeID((__bridge CFTypeRef)observed[@"pinned"])!=CFBooleanGetTypeID() || [observed[@"pinned"] isEqual:request[@"pinned"]])return EncodeFlag(FlagFailure(@"snapshot_changed"));
+        for(NSString *key in @[@"shared",@"shared_to_me",@"is_group",@"grocery_categorization",@"grocery_shopping_session"])if(![observed[key] isEqual:@NO])return EncodeFlag(FlagFailure(@"unsupported_pin_write"));
+        Class ids=NSClassFromString(@"REMObjectID"),storeClass=NSClassFromString(@"REMStore"),saveClass=NSClassFromString(@"REMSaveRequest");
+        if(!MethodMatches(saveClass,@"initWithStore:",@"@@:@",NO) || !MethodMatches(saveClass,@"updateList:",@"@@:@",NO) || !MethodMatches(saveClass,@"saveSynchronouslyWithError:",@"B@:^@",NO))return EncodeFlag(FlagFailure(@"unsupported_pin_write"));
+        id store=[storeClass new],objectID=((id(*)(id,SEL,id))objc_msgSend)((id)ids,NSSelectorFromString(@"objectIDWithURL:"),[NSURL URLWithString:[@"x-apple-reminderkit://REMCDList/" stringByAppendingString:request[@"list_id"]]]);NSError *error=nil;
+        id list=((id(*)(id,SEL,id,NSError **))objc_msgSend)(store,NSSelectorFromString(@"fetchListWithObjectID:error:"),objectID,&error);
+        if(error || !UUIDEqual(ObjectUUID(list,@"REMCDList"),request[@"list_id"]) || !UUIDEqual(ObjectUUID(ObjectValue(list,@"account"),@"REMCDAccount"),request[@"source_id"]) || !StorageMatchesAccount(ObjectValue(list,@"storage"),request[@"source_id"]))return EncodeFlag(FlagFailure(@"native_identity_mismatch"));
+        if(!MethodMatches([list class],@"isPinned",@"B@:",NO) || ((BOOL(*)(id,SEL))objc_msgSend)(list,NSSelectorFromString(@"isPinned"))!=[observed[@"pinned"] boolValue])return EncodeFlag(FlagFailure(@"snapshot_changed"));
+        for(NSString *name in @[@"isShared",@"isSharedToMe"])if(!MethodMatches([list class],name,@"B@:",NO) || ((BOOL(*)(id,SEL))objc_msgSend)(list,NSSelectorFromString(name)))return EncodeFlag(FlagFailure(@"unsupported_pin_write"));
+        id storage=ObjectValue(list,@"storage");
+        for(NSString *name in @[@"shouldCategorizeGroceryItems",@"shouldSupportGroceryShoppingSession",@"isGroup"])if(!MethodMatches([storage class],name,@"B@:",NO) || ((BOOL(*)(id,SEL))objc_msgSend)(storage,NSSelectorFromString(name)))return EncodeFlag(FlagFailure(@"unsupported_pin_write"));
+        id save=((id(*)(id,SEL,id))objc_msgSend)([saveClass alloc],NSSelectorFromString(@"initWithStore:"),store),change=((id(*)(id,SEL,id))objc_msgSend)(save,NSSelectorFromString(@"updateList:"),list);
+        if(!change || !MethodMatches([change class],@"setIsPinned:",@"v@:B",NO) || !MethodMatches([change class],@"isPinned",@"B@:",NO))return EncodeFlag(FlagFailure(@"unsupported_pin_write"));
+        BOOL pinned=[request[@"pinned"] boolValue];((void(*)(id,SEL,BOOL))objc_msgSend)(change,NSSelectorFromString(@"setIsPinned:"),pinned);
+        id keys=ObjectValue(change,@"changedKeys"),lists=ObjectValue(save,@"trackedListChangeItems"),reminders=ObjectValue(save,@"trackedReminderChangeItems");
+        if(((BOOL(*)(id,SEL))objc_msgSend)(change,NSSelectorFromString(@"isPinned"))!=pinned || ![keys isKindOfClass:NSSet.class] || ![keys isEqual:[NSSet setWithObject:@"pinnedDate"]]
+                || ![lists isKindOfClass:NSDictionary.class] || [lists count]!=1 || ![reminders isKindOfClass:NSDictionary.class] || [reminders count]!=0)return EncodeFlag(FlagFailure(@"unsupported_pin_write"));
+        id key=[[lists allKeys] firstObject],uuid=ObjectValue(key,@"uuid");
+        if(![ObjectValue(key,@"entityName") isEqual:@"REMCDList"] || ![uuid isKindOfClass:NSUUID.class] || !UUIDEqual([uuid UUIDString],request[@"list_id"]) || ObjectValue(lists[key],@"valueWithoutPerformingCopy")!=change)return EncodeFlag(FlagFailure(@"unsupported_pin_write"));
+        if(!enterMutation())return EncodeFlag(FlagFailure(@"native_dispatch_cancelled"));
+        dispatched=YES;error=nil;BOOL saved=((BOOL(*)(id,SEL,NSError **))objc_msgSend)(save,NSSelectorFromString(@"saveSynchronouslyWithError:"),&error);
+        if(!saved || error)return EncodeFlag(@{@"protocol_version":@1,@"error":@"mutation_failed_or_uncertain",@"mutation_dispatched":@YES});
+        return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":request[@"list_id"],@"source_id":request[@"source_id"],@"pinned":@(pinned),@"saved_locally":@YES}});
+    }@catch(NSException *exception){return EncodeFlag(@{@"protocol_version":@1,@"error":dispatched?@"mutation_failed_or_uncertain":@"private_metadata_unavailable",@"mutation_dispatched":@(dispatched)});}
+}
