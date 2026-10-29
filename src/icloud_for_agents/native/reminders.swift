@@ -355,7 +355,7 @@ if action == "request_access" {
     RunLoop.current.run(until: Date(timeIntervalSinceNow: 60))
     fail("permission_timeout")
 }
-let actions = ["status", "sources", "lists", "default_list", "list_sections", "list_features", "list_parent", "list_hierarchy", "list_order", "group_lists", "templates", "template_sections", "smart_lists", "query", "get", "list_membership", "recovery_lookup", "recovery_tree", "recovery_list", "apply"]
+let actions = ["status", "sources", "lists", "default_list", "list_sections", "list_features", "list_parent", "list_hierarchy", "list_order", "group_inventory", "group_lists", "templates", "template_sections", "smart_lists", "query", "get", "list_membership", "recovery_lookup", "recovery_tree", "recovery_list", "apply"]
 guard actions.contains(action) else { fail("unsupported_action") }
 if action == "status" {
     respond(["protocol_version": 1, "service": "reminders", "access": permission,
@@ -451,6 +451,10 @@ func membershipRecord(_ values:[EKReminder],_ list:EKCalendar)->[String:Any] {
             "sha256":SHA256.hash(data:data).map {String(format:"%02x",$0)}.joined()]
 }
 if action == "default_list" {respond(defaultListRecord(store.defaultCalendarForNewReminders(),lists))}
+if action == "group_inventory" {
+    guard let source=req["source_id"] as? String,sourceIDs.contains(source),let payload=try? JSONSerialization.data(withJSONObject:["source_id":source]),let result=(try? JSONSerialization.jsonObject(with:ICloudRemindersGroupInventory(payload))) as? [String:Any] else {fail("invalid_request")}
+    respond(result)
+}
 if action == "list_hierarchy" || action == "list_order" {
     guard let id=req["list_id"] as? String,let list=lists.first(where:{$0.calendarIdentifier==id}),
           let payload=try? JSONSerialization.data(withJSONObject:["source_id":list.source.sourceIdentifier,"list_id":id]),
@@ -619,8 +623,17 @@ func reminderRecurrence(_ value:Any,due:DateComponents?)->EKRecurrenceRule? {
     return rule
 }
 if action == "apply" {
-    if let change=req["change"] as? [String:Any],let operation=change["operation"] as? String,["reorder_reminder","delete_reminder","restore_reminder","set_list_badge","set_list_pinned","set_flagged","remove_tag","add_tag","replace_tag","set_urgent","add_early","clear_early","create_subtask","create_section","rename_section","move_reminder"].contains(operation) {
+    if let change=req["change"] as? [String:Any],let operation=change["operation"] as? String,["create_group","reorder_reminder","delete_reminder","restore_reminder","set_list_badge","set_list_pinned","set_flagged","remove_tag","add_tag","replace_tag","set_urgent","add_early","clear_early","create_subtask","create_section","rename_section","move_reminder"].contains(operation) {
         privateReminderGateArmed=true;NativeMutationGate.armDeadline()
+    }
+    if let item=req["change"] as? [String:Any],item["operation"] as? String=="create_group" {
+        guard let source=item["source_id"] as? String,sourceIDs.contains(source),let identifier=item["id"] as? String,
+              let fields=item["fields"] as? [String:Any],Set(fields.keys)==["title"],let title=fields["title"] as? String,!title.isEmpty,title.count<=1000,title.utf8.count<=4000,
+              let before=item["before"] as? [String:Any],before["source_id"] as? String==source,
+              let payload=try? JSONSerialization.data(withJSONObject:["source_id":source,"group_id":identifier,"title":title,"before":before]),
+              let result=(try? JSONSerialization.jsonObject(with:ICloudRemindersCreateRootGroup(payload,{NativeMutationGate.beginMutation()}))) as? [String:Any] else {fail("invalid_mutation")}
+        if result["error"] != nil {fail((result["mutation_dispatched"] as? Bool)==true ? "mutation_failed_or_uncertain" : "unsupported_edit_target")}
+        guard let output=result["result"] as? [String:Any] else {fail("mutation_failed_or_uncertain")};respond(["protocol_version":1,"result":output])
     }
     if let item=req["change"] as? [String:Any],let operation=item["operation"] as? String,["delete_reminder","restore_reminder"].contains(operation) {
         guard let source=item["source_id"] as? String,sourceIDs.contains(source),let identifier=item["id"] as? String,let listID=item["list_id"] as? String,

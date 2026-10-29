@@ -153,7 +153,7 @@ def alarm_effects(alarms,due):
 
 
 class RemindersCreateAdapter:
-    operations={'reorder_reminder','set_list_badge','delete_reminder','restore_reminder','set_list_pinned','create_list','create_reminder','create_section','rename_section','update_reminder','set_completed','move_reminder','rename_list','set_recurrence','set_list_color','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','add_early','clear_early','create_subtask'}
+    operations={'create_group','reorder_reminder','set_list_badge','delete_reminder','restore_reminder','set_list_pinned','create_list','create_reminder','create_section','rename_section','update_reminder','set_completed','move_reminder','rename_list','set_recurrence','set_list_color','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','add_early','clear_early','create_subtask'}
     def __init__(self):self.reader=NativeReader('reminders')
     def bind_owner_context(self,account,store):self._plan_owner=account;self._plan_store=store
     @property
@@ -415,6 +415,9 @@ class RemindersCreateAdapter:
         if isinstance(change,dict) and change.get('operation') in {'delete_reminder','restore_reminder'}:
             from .native_reminder_lifecycle import prepare_delete,prepare_restore
             return prepare_delete(self,change) if change['operation']=='delete_reminder' else prepare_restore(self,change)
+        if isinstance(change,dict) and change.get('operation')=='create_group':
+            from .native_reminder_groups import prepare_create
+            return prepare_create(self,change)
         if isinstance(change,dict) and change.get('operation')=='reorder_reminder':
             from .native_reminder_order import prepare
             return prepare(self,change)
@@ -511,6 +514,9 @@ class RemindersCreateAdapter:
         if item['operation'] in {'delete_reminder','restore_reminder'}:
             from .native_reminder_lifecycle import deletion_snapshot,restoration_snapshot
             return deletion_snapshot(self,item) if item['operation']=='delete_reminder' else restoration_snapshot(self,item)
+        if item['operation']=='create_group':
+            from .native_reminder_groups import inventory
+            return inventory(self,item['source_id'])
         if item['operation']=='reorder_reminder':
             from .native_reminder_order import snapshot
             return snapshot(self,item)
@@ -570,6 +576,9 @@ class RemindersCreateAdapter:
         if item['operation'] in {'delete_reminder','restore_reminder'}:
             from .native_reminder_lifecycle import verify_delete,verify_restore
             return verify_delete(self,item,outcome) if item['operation']=='delete_reminder' else verify_restore(self,item,outcome)
+        if item['operation']=='create_group':
+            from .native_reminder_groups import verify_create
+            return verify_create(self,item,outcome)
         if item['operation']=='reorder_reminder':
             from .native_reminder_order import verify
             return verify(self,item,outcome)

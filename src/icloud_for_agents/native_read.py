@@ -14,7 +14,7 @@ from .services import enabled
 
 
 READ_ACTIONS = {'notes': {'status', 'sources', 'folders', 'default_folder', 'folder_get', 'folder_inventory', 'folder_role', 'recovery_folder', 'model_folder_role', 'query', 'get', 'text_page', 'search', 'attachments', 'diagnose_note', 'contains'},
-                'reminders': {'status', 'sources', 'lists', 'default_list', 'list_sections', 'list_features', 'list_parent', 'list_hierarchy', 'list_order', 'group_lists', 'templates', 'template_sections', 'smart_lists', 'query', 'get','list_membership','recovery_lookup','recovery_tree','recovery_list'}}
+                'reminders': {'status', 'sources', 'lists', 'default_list', 'list_sections', 'list_features', 'list_parent', 'list_hierarchy', 'list_order', 'group_inventory', 'group_lists', 'templates', 'template_sections', 'smart_lists', 'query', 'get','list_membership','recovery_lookup','recovery_tree','recovery_list'}}
 MAX_OUTPUT = 2_000_000
 
 
@@ -126,12 +126,13 @@ class NativeReader:
                 if self.name!='reminders' or action!='query' or not isinstance(tag,str) or not tag or len(tag.encode('utf-8'))>512 or any(ord(c)<32 for c in tag):raise ValueError()
             except (ValueError,UnicodeEncodeError):raise SafetyError('Tag filtering requires one exact bounded native tag name') from None
             if config.get('advanced_backend')!='reminderkit' or not config.get('helper_path'):raise SafetyError('Tag filtering requires the explicitly selected ReminderKit backend and signed helper')
-        if 'source_id' in fields and action not in {'recovery_lookup','recovery_tree','recovery_list','recovery_folder','templates','template_sections','smart_lists','group_lists','model_folder_role','default_folder'}:raise SafetyError('Source selector is only supported for exact role or recovery lookup')
+        if 'source_id' in fields and action not in {'group_inventory','recovery_lookup','recovery_tree','recovery_list','recovery_folder','templates','template_sections','smart_lists','group_lists','model_folder_role','default_folder'}:raise SafetyError('Source selector is only supported for exact role or recovery lookup')
         if action in {'list_sections','list_features','list_parent','list_hierarchy','list_order'}:
             if self.name!='reminders' or set(fields)!={'list_id'} or not isinstance(fields.get('list_id'),str) or not fields['list_id']:
                 raise SafetyError('Native list inspection requires one exact list ID')
             if config.get('advanced_backend')!='reminderkit' or not config.get('helper_path'):
                 raise SafetyError('Native list inspection requires the explicitly selected ReminderKit backend and signed helper')
+        if action=='group_inventory' and (self.name!='reminders' or set(fields)!={'source_id'} or fields.get('source_id') not in sources or config.get('advanced_backend')!='reminderkit' or not config.get('helper_path')):raise SafetyError('Group inventory requires one exact selected source and ReminderKit helper')
         if action=='default_folder' and (self.name!='notes' or set(fields)!={'source_id'} or fields.get('source_id') not in sources):
             raise SafetyError('Default Notes folder lookup requires one exact selected source')
         if action=='model_folder_role':
@@ -331,6 +332,10 @@ class NativeReader:
                 raise SafetyError('Configured helper did not verify the scoped Notes title page')
             result={'protocol_version':1,'items':[{k:row[k] for k in ('id','title','source_id','folder_id')} for row in rows],
                     'done':result['done'],'next_offset':result['next_offset'],'pagination_consistency':'live_offset_may_shift'}
+        if action=='group_inventory':
+            from .native_reminder_groups import validate_inventory
+            if native_config('reminders')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode:raise SafetyError('Reminder access changed during group inventory')
+            result=validate_inventory(result,fields['source_id'])
         if self.name=='reminders' and action in {'list_hierarchy','list_order'}:
             if native_config('reminders')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode:raise SafetyError('Reminder access changed during hierarchy read')
             from .native_reminder_list_graph import validate_list_graph
@@ -1145,6 +1150,12 @@ def register_read_tools(mcp):
         def reminders_inspect_group_hierarchy(source_id: str, group_id: str, max_nodes: int=20, max_depth: int=3) -> dict:
             """Inspect bounded provider-reported group edges; hierarchy and ordering are incomplete and separate reads can drift."""
             return inspect_group_hierarchy(NativeReader('reminders'),source_id,group_id,max_nodes,max_depth)
+
+        @mcp.tool(annotations=annotations)
+        @guard
+        def reminders_group_inventory(source_id:str)->dict:
+            """Read up to 100 private root groups and 1000 source-account ordering IDs. Refuse unsupported hierarchy; no task content, group mutation or cloud-sync guarantee."""
+            return NativeReader('reminders').read('group_inventory',source_id=source_id)
 
         @mcp.tool(annotations=annotations)
         @guard

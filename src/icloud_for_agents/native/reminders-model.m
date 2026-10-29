@@ -1430,3 +1430,66 @@ NSData *ICloudRemindersReorderRoot(NSData *data,BOOL (^enterMutation)(void)){
         if(!saved || error)return EncodeFlag(@{@"protocol_version":@1,@"error":@"mutation_failed_or_uncertain",@"mutation_dispatched":@YES});return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":identifier,@"source_id":source,@"list_id":listID,@"saved_locally":@YES}});
     }@catch(NSException *e){return EncodeFlag(@{@"protocol_version":@1,@"error":dispatched?@"mutation_failed_or_uncertain":@"private_metadata_unavailable",@"mutation_dispatched":@(dispatched)});}
 }
+
+// Root group inventory and source-account manual order; no body or task changes.
+static id SelectedGroupAccount(NSString *source,id __strong *storeOut,NSDictionary **failure){
+    if(![source isKindOfClass:NSString.class] || ![[NSUUID alloc]initWithUUIDString:source] || !FlagReadInterface())return SelectedFailure(failure,@"unsupported_group_interface");
+    Class cls=NSClassFromString(@"REMStore");if(!MethodMatches(cls,@"fetchAccountsWithError:",@"@@:^@",NO))return SelectedFailure(failure,@"unsupported_group_interface");
+    id store=[cls new];NSError *error=nil;id values=((id(*)(id,SEL,NSError**))objc_msgSend)(store,NSSelectorFromString(@"fetchAccountsWithError:"),&error);
+    if(error || ![values isKindOfClass:NSArray.class] || [values count]>100)return SelectedFailure(failure,@"private_read_denied_or_unavailable");
+    id selected=nil;for(id value in values)if(UUIDEqual(ObjectUUID(value,@"REMCDAccount"),source)){if(selected)return SelectedFailure(failure,@"native_identity_mismatch");selected=value;}
+    if(!selected)return SelectedFailure(failure,@"native_identity_mismatch");if(storeOut)*storeOut=store;return selected;
+}
+static NSArray *GroupAccountOrder(id value){
+    if(![value isKindOfClass:NSOrderedSet.class] || [value count]>1000)return nil;NSMutableArray *result=[NSMutableArray array];NSMutableSet *seen=[NSMutableSet set];
+    for(id identifier in value){if(![identifier isKindOfClass:NSString.class] || ![[NSUUID alloc]initWithUUIDString:identifier] || [seen containsObject:[identifier uppercaseString]])return nil;[seen addObject:[identifier uppercaseString]];[result addObject:[identifier uppercaseString]];}return result;
+}
+NSData *ICloudRemindersGroupInventory(NSData *data){
+    @try{
+        NSDictionary *request=[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];if(![request isKindOfClass:NSDictionary.class] || request.count!=1)return EncodeFlag(FlagFailure(@"invalid_public_identity"));
+        NSString *source=request[@"source_id"];NSDictionary *failure=nil;id account=SelectedGroupAccount(source,NULL,&failure);if(!account)return EncodeFlag(failure);
+        NSArray *order=GroupAccountOrder(ObjectValue(account,@"listIDsOrdering"));id context=ObjectValue(account,@"groupContext");if(!order || !MethodMatches([context class],@"fetchGroupsWithError:",@"@@:^@",NO))return EncodeFlag(FlagFailure(@"unsupported_group_inventory"));
+        NSError *error=nil;id groups=((id(*)(id,SEL,NSError**))objc_msgSend)(context,NSSelectorFromString(@"fetchGroupsWithError:"),&error);if(error || ![groups isKindOfClass:NSArray.class] || [groups count]>100)return EncodeFlag(FlagFailure(@"unsupported_group_inventory"));
+        NSMutableArray *records=[NSMutableArray array];NSMutableSet *seen=[NSMutableSet set];
+        for(id group in groups){NSString *identifier=ObjectUUID(group,@"REMCDList");id storage=ObjectValue(group,@"storage"),title=ObjectValue(storage,@"name"),parent=ObjectValue(storage,@"parentAccountID");
+            if(!identifier || [seen containsObject:identifier] || ![order containsObject:identifier] || !UUIDEqual(ObjectUUID(ObjectValue(group,@"account"),@"REMCDAccount"),source) || !StorageMatchesAccount(storage,source)
+                    || ![ObjectValue(parent,@"entityName")isEqual:@"REMCDAccount"] || ![ObjectValue(parent,@"uuid")isKindOfClass:NSUUID.class] || !UUIDEqual([ObjectValue(parent,@"uuid")UUIDString],source) || ObjectValue(storage,@"parentListID")
+                    || !MethodMatches([storage class],@"isGroup",@"B@:",NO) || !((BOOL(*)(id,SEL))objc_msgSend)(storage,NSSelectorFromString(@"isGroup")) || ![title isKindOfClass:NSString.class] || ![title length] || [title length]>1000 || [title lengthOfBytesUsingEncoding:NSUTF8StringEncoding]>4000)return EncodeFlag(FlagFailure(@"unsupported_group_inventory"));
+            for(NSString *key in @[@"isShared",@"isSharedToMe"])if(!MethodMatches([group class],key,@"B@:",NO) || ((BOOL(*)(id,SEL))objc_msgSend)(group,NSSelectorFromString(key)))return EncodeFlag(FlagFailure(@"unsupported_group_inventory"));
+            [seen addObject:identifier];[records addObject:@{@"id":identifier,@"title":title}];
+        }
+        [records sortUsingComparator:^NSComparisonResult(NSDictionary *a,NSDictionary *b){return [a[@"id"]compare:b[@"id"]];}];
+        return EncodeFlag(@{@"protocol_version":@1,@"source_id":source,@"groups":records,@"account_order":order,@"data_mutated":@NO,@"backend":@"reminderkit-root-group-inventory-v1"});
+    }@catch(NSException *e){return EncodeFlag(FlagFailure(@"private_read_exception"));}
+}
+
+static BOOL TrackedGroupObject(id save,NSString *property,NSString *entity,NSString *identifier,id expected){
+    id values=ObjectValue(save,property);if(![values isKindOfClass:NSDictionary.class] || [values count]!=1)return NO;
+    id key=[[values allKeys]firstObject],uuid=ObjectValue(key,@"uuid");return [ObjectValue(key,@"entityName")isEqual:entity] && [uuid isKindOfClass:NSUUID.class] && UUIDEqual([uuid UUIDString],identifier) && ObjectValue(values[key],@"valueWithoutPerformingCopy")==expected;
+}
+NSData *ICloudRemindersCreateRootGroup(NSData *data,BOOL (^enterMutation)(void)){
+    __block BOOL dispatched=NO;
+    @try{
+        NSDictionary *request=[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];if(![request isKindOfClass:NSDictionary.class] || request.count!=4 || !enterMutation || ![request[@"group_id"]isKindOfClass:NSString.class] || ![[NSUUID alloc]initWithUUIDString:request[@"group_id"]] || ![request[@"title"]isKindOfClass:NSString.class] || ![request[@"title"]length] || [request[@"title"]length]>1000 || [request[@"title"]lengthOfBytesUsingEncoding:NSUTF8StringEncoding]>4000)return EncodeFlag(FlagFailure(@"invalid_public_identity"));
+        NSString *source=request[@"source_id"],*identifier=request[@"group_id"];NSData *scope=[NSJSONSerialization dataWithJSONObject:@{@"source_id":source?:NSNull.null} options:0 error:NULL];NSDictionary *observed=[NSJSONSerialization JSONObjectWithData:ICloudRemindersGroupInventory(scope) options:0 error:NULL];
+        if(observed[@"error"] || ![observed isEqual:request[@"before"]] || [observed[@"groups"]count]>=100 || [observed[@"account_order"]count]>=1000 || [observed[@"account_order"]containsObject:identifier])return EncodeFlag(FlagFailure(@"snapshot_changed"));for(NSDictionary *group in observed[@"groups"])if([group[@"title"]isEqual:request[@"title"]])return EncodeFlag(FlagFailure(@"duplicate_group"));
+        NSDictionary *failure=nil;id store=nil,account=SelectedGroupAccount(source,&store,&failure);if(!account)return EncodeFlag(failure);
+        Class cls=NSClassFromString(@"REMSaveRequest");if(!MethodMatches(cls,@"initWithStore:",@"@@:@",NO) || !MethodMatches(cls,@"updateAccount:",@"@@:@",NO) || !MethodMatches(cls,@"addGroupWithName:toAccountGroupContextChangeItem:groupObjectID:",@"@@:@@@",NO) || !MethodMatches(cls,@"saveSynchronouslyWithError:",@"B@:^@",NO))return EncodeFlag(FlagFailure(@"unsupported_group_write"));
+        id save=((id(*)(id,SEL,id))objc_msgSend)([cls alloc],NSSelectorFromString(@"initWithStore:"),store),accountChange=((id(*)(id,SEL,id))objc_msgSend)(save,NSSelectorFromString(@"updateAccount:"),account),context=ObjectValue(accountChange,@"groupContext"),groupID=((id(*)(id,SEL,id))objc_msgSend)((id)NSClassFromString(@"REMObjectID"),NSSelectorFromString(@"objectIDWithURL:"),[NSURL URLWithString:[@"x-apple-reminderkit://REMCDList/" stringByAppendingString:identifier]]);
+        if(!context || !groupID)return EncodeFlag(FlagFailure(@"unsupported_group_write"));id group=((id(*)(id,SEL,id,id,id))objc_msgSend)(save,NSSelectorFromString(@"addGroupWithName:toAccountGroupContextChangeItem:groupObjectID:"),request[@"title"],context,groupID),storage=ObjectValue(group,@"storage");
+        NSArray *expectedKeys=@[@"reminderIDsMergeableOrdering",@"showingLargeAttachments",@"reminderIDsToUndelete",@"objectID",@"isGroup",@"reminderIDsMergeableOrderingData",@"shouldUpdateSectionsOrdering",@"minimumSupportedVersion",@"shouldAutoCategorizeItems",@"shouldSupportGroceryShoppingSession",@"childSmartListIDsToUndelete",@"daIsImmutable",@"parentAccountID",@"remindersICSDisplayOrderChanged",@"name",@"shouldCategorizeGroceryItems",@"childListIDsToUndelete",@"reminderIDsOrderingHints",@"sharingStatus",@"accountID",@"daDisplayOrder",@"shouldSuggestConversionToGroceryList",@"sectionIDsToUndelete",@"daIsNotificationsCollection",@"daIsReadOnly",@"sortingStyle",@"daIsEventOnlyContainer",@"isPlaceholder"];
+        id keys=ObjectValue(group,@"changedKeys"),accountKeys=ObjectValue(accountChange,@"changedKeys"),storedID=ObjectValue(storage,@"objectID"),parent=ObjectValue(storage,@"parentAccountID");
+        if(![keys isKindOfClass:NSSet.class] || ![keys isEqual:[NSSet setWithArray:expectedKeys]] || ![accountKeys isKindOfClass:NSSet.class] || ![accountKeys isEqual:[NSSet setWithObject:@"listIDsMergeableOrdering"]]
+                || !StorageMatchesAccount(storage,source) || ![ObjectValue(storedID,@"entityName")isEqual:@"REMCDList"] || ![ObjectValue(storedID,@"uuid")isKindOfClass:NSUUID.class] || !UUIDEqual([ObjectValue(storedID,@"uuid")UUIDString],identifier)
+                || ![ObjectValue(parent,@"entityName")isEqual:@"REMCDAccount"] || ![ObjectValue(parent,@"uuid")isKindOfClass:NSUUID.class] || !UUIDEqual([ObjectValue(parent,@"uuid")UUIDString],source) || ObjectValue(storage,@"parentListID") || ![ObjectValue(storage,@"name")isEqual:request[@"title"]]
+                || ![[storage valueForKey:@"isGroup"]isEqual:@YES] || ![ObjectValue(storage,@"sortingStyle")isEqual:@"manual"] || ObjectValue(storage,@"reminderIDsMergeableOrderingData"))return EncodeFlag(FlagFailure(@"unsupported_group_write"));
+        for(NSString *key in @[@"daDisplayOrder",@"sharingStatus",@"minimumSupportedVersion",@"showingLargeAttachments",@"shouldUpdateSectionsOrdering",@"shouldAutoCategorizeItems",@"shouldSupportGroceryShoppingSession",@"daIsImmutable",@"remindersICSDisplayOrderChanged",@"shouldCategorizeGroceryItems",@"shouldSuggestConversionToGroceryList",@"daIsNotificationsCollection",@"daIsReadOnly",@"daIsEventOnlyContainer",@"isPlaceholder"]){id value=[storage valueForKey:key];if(![value isKindOfClass:NSNumber.class] || ![value isEqual:@0])return EncodeFlag(FlagFailure(@"unsupported_group_write"));}
+        for(NSString *key in @[@"reminderIDsToUndelete",@"childListIDsToUndelete",@"childSmartListIDsToUndelete",@"sectionIDsToUndelete"]){id value=ObjectValue(storage,key);if(![value isKindOfClass:NSSet.class] || [value count])return EncodeFlag(FlagFailure(@"unsupported_group_write"));}
+        id emptyOrder=ObjectValue(storage,@"reminderIDsMergeableOrdering"),hints=ObjectValue(storage,@"reminderIDsOrderingHints");if(![emptyOrder isKindOfClass:NSOrderedSet.class] || [emptyOrder count] || ![hints isKindOfClass:NSDictionary.class] || [hints count])return EncodeFlag(FlagFailure(@"unsupported_group_write"));
+        NSMutableArray *expected=[observed[@"account_order"]mutableCopy];[expected addObject:identifier];NSArray *staged=GroupAccountOrder(ObjectValue(ObjectValue(ObjectValue(accountChange,@"storage"),@"listIDsMergeableOrdering"),@"orderedSet"));
+        if(![staged isEqual:expected] || !TrackedGroupObject(save,@"trackedAccountChangeItems",@"REMCDAccount",source,accountChange) || !TrackedGroupObject(save,@"trackedListChangeItems",@"REMCDList",identifier,group))return EncodeFlag(FlagFailure(@"unsupported_group_write"));
+        for(NSString *key in @[@"trackedReminderChangeItems",@"trackedListSectionChangeItems",@"trackedSmartListChangeItems",@"trackedSmartListSectionChangeItems",@"trackedTemplateChangeItems",@"trackedTemplateSectionChangeItems"]){id value=ObjectValue(save,key);if(![value isKindOfClass:NSDictionary.class] || [value count])return EncodeFlag(FlagFailure(@"unsupported_group_write"));}
+        if(!enterMutation())return EncodeFlag(FlagFailure(@"native_dispatch_cancelled"));dispatched=YES;NSError *error=nil;BOOL saved=((BOOL(*)(id,SEL,NSError**))objc_msgSend)(save,NSSelectorFromString(@"saveSynchronouslyWithError:"),&error);
+        if(!saved || error)return EncodeFlag(@{@"protocol_version":@1,@"error":@"mutation_failed_or_uncertain",@"mutation_dispatched":@YES});return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":identifier,@"source_id":source,@"saved_locally":@YES}});
+    }@catch(NSException *e){return EncodeFlag(@{@"protocol_version":@1,@"error":dispatched?@"mutation_failed_or_uncertain":@"private_metadata_unavailable",@"mutation_dispatched":@(dispatched)});}
+}
