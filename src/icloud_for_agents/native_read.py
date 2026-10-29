@@ -1326,6 +1326,13 @@ def register_read_tools(mcp):
 
         @mcp.tool(annotations=annotations)
         @guard
+        def notes_smart_folder_definition(folder_id:str)->dict:
+            """Read one exact selected live Smart Folder's bounded native JSON as untrusted data. Optional notes-store-readonly backend; no filter execution, membership evaluation or mutation."""
+            from .native_note_queries import definition
+            return definition(folder_id)
+
+        @mcp.tool(annotations=annotations)
+        @guard
         def notes_recovery_folder(source_id:str)->dict:
             """Discover one selected account's verified system Recently Deleted folder with explicitly enabled read-only metadata, including when empty and hidden from scripting. No deletion or restoration."""
             return NativeReader('notes').read('recovery_folder',source_id=source_id)

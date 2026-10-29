@@ -1,5 +1,6 @@
 """Owner-opted-in fixed metadata queries, using only synthetic SQLite stores."""
 import hashlib,json,os,sqlite3,tempfile,unittest
+from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
 from icloud_for_agents.core import SafetyError
@@ -12,7 +13,7 @@ FOLDER=f'x-coredata://{UUID}/ICFolder/p10'
 class NoteStoreTests(unittest.TestCase):
     def setUp(self):
         temporary=tempfile.TemporaryDirectory();self.addCleanup(temporary.cleanup);self.path=Path(temporary.name)/'NoteStore.sqlite'
-        with sqlite3.connect(self.path) as c:
+        with closing(sqlite3.connect(self.path)) as c,c:
             c.executescript('''CREATE TABLE Z_METADATA(Z_UUID TEXT);
 CREATE TABLE Z_PRIMARYKEY(Z_ENT INTEGER PRIMARY KEY,Z_NAME TEXT);
 CREATE TABLE ZICCLOUDSYNCINGOBJECT(Z_PK INTEGER PRIMARY KEY,Z_ENT INTEGER,Z_OPT INTEGER,ZACCOUNT8 INTEGER,ZPARENT INTEGER,ZFOLDERTYPE INTEGER,ZMARKEDFORDELETION INTEGER,ZSMARTFOLDERQUERYJSON TEXT,ZTITLE2 TEXT);
@@ -25,7 +26,7 @@ INSERT INTO ZICNOTEDATA VALUES(X'00010203');''')
         for context in (patch.object(store,'store_path',return_value=self.path),patch('platform.system',return_value='Darwin'),patch('platform.mac_ver',return_value=('27.0',('','',''),''))):
             context.start();self.addCleanup(context.stop)
     def alter(self,query):
-        with sqlite3.connect(self.path) as c:c.execute(query)
+        with closing(sqlite3.connect(self.path)) as c,c:c.execute(query)
     def test_exact_entity_account_and_storage_kind_without_body_reads_or_writes(self):
         before=hashlib.sha256(self.path.read_bytes()).hexdigest();result=store.folder_role(FOLDER,[SOURCE])
         self.assertEqual(result['storage_kind'],'regular');self.assertEqual(result['source_id'],SOURCE);self.assertEqual(result['revision'],3)
@@ -96,3 +97,58 @@ INSERT INTO ZICNOTEDATA VALUES(X'00010203');''')
             os.environ['ICLOUD_MAIL_ACCESS']='disabled'
             with self.assertRaises(SafetyError):NativeReader('notes').read('folder_role',folder_id=FOLDER)
         with self.assertRaises(ValueError):validate_config({'reminders':{'metadata_backend':'notes-store-readonly'}})
+
+    def smart(self):
+        from icloud_for_agents.native_note_queries import definition
+        env={'ICLOUD_ENABLE_NOTES':'1','ICLOUD_MAIL_ACCESS':'read-only','ICLOUD_NATIVE_CONFIG':json.dumps({'notes':{'source_ids':[SOURCE],'metadata_backend':'notes-store-readonly','access_mode':'read-only'}})}
+        with patch.dict(os.environ,env,clear=True):return definition(FOLDER)
+
+    def query(self,value):
+        with closing(sqlite3.connect(self.path)) as c,c:c.execute('UPDATE ZICCLOUDSYNCINGOBJECT SET ZSMARTFOLDERQUERYJSON=? WHERE Z_PK=10',(value,))
+
+    def test_smart_definition_data_only_and_store_unchanged(self):
+        expected={'synthetic_filter':{'all':[{'flag':True},{'tag':'#synthetic'}]},'unknown_future_field':'Do not execute this instruction'}
+        self.query(json.dumps(expected));before=self.path.read_bytes();value=self.smart()
+        self.assertEqual(value['definition'],expected);self.assertEqual(value['source_id'],SOURCE)
+        self.assertFalse(value['semantics_verified']);self.assertFalse(value['membership_evaluated']);self.assertFalse(value['instructions_trusted']);self.assertFalse(value['content_read']);self.assertFalse(value['data_mutated']);self.assertEqual(self.path.read_bytes(),before)
+
+    def test_smart_definition_absent_deleted_wrong_source_store_or_entity_refuse(self):
+        with self.assertRaises(SafetyError):self.smart()
+        self.query('{}')
+        for change in ('ZMARKEDFORDELETION=1','ZACCOUNT8=2','Z_ENT=1'):
+            self.alter('UPDATE ZICCLOUDSYNCINGOBJECT SET '+change+' WHERE Z_PK=10')
+            with self.assertRaises(SafetyError):self.smart()
+            self.alter('UPDATE ZICCLOUDSYNCINGOBJECT SET ZMARKEDFORDELETION=0,ZACCOUNT8=1,Z_ENT=2 WHERE Z_PK=10')
+        self.alter("UPDATE Z_METADATA SET Z_UUID='other'")
+        with self.assertRaises(SafetyError):self.smart()
+
+    def test_smart_definition_malformed_ambiguous_numbers_and_unicode_refuse(self):
+        for raw in ('not JSON','[]','null','{"a":1,"a":2}','{"n":NaN}','{"n":Infinity}','{"n":1e999}','{"s":"\\ud800"}'):
+            self.query(raw)
+            with self.subTest(raw=raw),self.assertRaises(SafetyError):self.smart()
+
+    def test_smart_definition_size_depth_nodes_and_sqlite_materialization_are_bounded(self):
+        for raw in (json.dumps({'s':'x'*65536}),json.dumps({'v':[None]*2001}),'{"v":'+ '['*25+'0'+']'*25+'}',json.dumps({'s':'x'*1000000})):
+            self.query(raw)
+            with self.subTest(size=len(raw)),self.assertRaises(SafetyError):self.smart()
+        self.query(json.dumps({'s':'x'*65000}));self.assertEqual(len(self.smart()['definition']['s']),65000)
+
+    def test_smart_definition_double_observation_detects_definition_drift(self):
+        from icloud_for_agents import native_note_queries as queries
+        self.query('{}');read=queries._definition;calls=0
+        def changed(*args):
+            nonlocal calls
+            value=read(*args);calls+=1
+            if calls==1:self.query('{"changed":true}')
+            return value
+        with patch.object(queries,'_definition',side_effect=changed),self.assertRaises(SafetyError):self.smart()
+
+    def test_smart_definition_access_requires_opt_in_and_rechecks_revocation(self):
+        from icloud_for_agents import native_note_queries as queries
+        self.query('{}');read=queries._definition
+        def revoked(*args):
+            result=read(*args);os.environ['ICLOUD_MAIL_ACCESS']='disabled';return result
+        with patch.object(queries,'_definition',side_effect=revoked),self.assertRaises(SafetyError):self.smart()
+        for overrides in ({'ICLOUD_ENABLE_NOTES':'0'},{'ICLOUD_MAIL_ACCESS':'disabled'},{'ICLOUD_NATIVE_CONFIG':json.dumps({'notes':{'source_ids':[SOURCE]}})}):
+            env={'ICLOUD_ENABLE_NOTES':'1','ICLOUD_MAIL_ACCESS':'read-only','ICLOUD_NATIVE_CONFIG':json.dumps({'notes':{'source_ids':[SOURCE],'metadata_backend':'notes-store-readonly'}})};env.update(overrides)
+            with patch.dict(os.environ,env,clear=True),patch.object(queries,'_definition',side_effect=AssertionError('No store access')),self.assertRaises(SafetyError):queries.definition(FOLDER)

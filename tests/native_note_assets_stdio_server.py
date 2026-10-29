@@ -6,6 +6,7 @@ def audit(event,args):
  if event in {'socket.connect','socket.connect_ex','socket.bind','socket.getaddrinfo','subprocess.Popen'}:blocked.append(event);raise AssertionError('No network/helper in native-asset protocol fixtures')
 sys.addaudithook(audit);atexit.register(lambda:Path(os.environ['BRIDGE_TEST_AUDIT']).write_text(json.dumps(blocked)))
 from icloud_for_agents import credentials,native_note_assets as assets
+from icloud_for_agents import native_note_queries as queries
 from icloud_for_agents.core import SafetyError
 from test_native_note_assets import UUID,SOURCE,FOLDER,NOTE,ASSET_STORAGE,ACCOUNT_STORAGE,GENERATION,RAW,Reader
 credentials.credentials=lambda:(_ for _ in ()).throw(AssertionError('No credentials'))
@@ -19,5 +20,9 @@ def pdf(account,asset,generation,maximum):
  if len(RAW)>maximum:raise SafetyError('Synthetic generated PDF exceeds bound')
  return RAW
 assets._state=state;assets._pdf_bytes=pdf;assets.NativeReader=lambda name:Reader()
+def definition(folder,source_ids):
+ if folder!=FOLDER or source_ids!=[SOURCE]:raise SafetyError('Synthetic exact Smart Folder scope mismatch')
+ return {'source_id':SOURCE,'revision':1,'native_folder_type':0},{'synthetic_unknown_filter':True}
+queries._definition=definition
 from icloud_for_agents.server import main
 main()
