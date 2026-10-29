@@ -371,7 +371,7 @@ def register_change_tools(mcp):
         @mcp.tool(annotations=READ)
         @guard
         def reminders_reconcile_lifecycle(plan_id:str)->dict:
-            """Independently verify a known native lifecycle state after a retained terminal error. Preserve the original failure and never replay a deletion or restore."""
+            """Independently verify a supported known native lifecycle, organization or custom-view rename state after a retained terminal error. Preserve the original failure and never replay the mutation."""
             from .native_reminder_lifecycle import reconcile
             check_plan_scope('reminders',plan_id)
             return reconcile(editor('reminders'),plan_id)

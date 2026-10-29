@@ -168,7 +168,7 @@ def reconcile(engine,identity):
     with engine.serialized():
         plan=engine.store.read(engine.store.path(identity,'.json'));result=engine.store.read(engine.store.path(identity,'.result'));payload=plan.get('payload',{});items=payload.get('changes',[]);started=engine.store.read(engine.store.path(identity,'.started'))
         if (plan.get('kind')!='reminders_change' or payload.get('account')!=engine.account or not isinstance(items,list) or len(items)!=1
-                or items[0].get('operation') not in {'delete_reminder','restore_reminder','reorder_reminder','create_group','rename_group','group_list','ungroup_list','reorder_group','reparent_reminder'} or result.get('status')!='failed_or_uncertain'
+                or items[0].get('operation') not in {'rename_smart_list','delete_reminder','restore_reminder','reorder_reminder','create_group','rename_group','group_list','ungroup_list','reorder_group','reparent_reminder'} or result.get('status')!='failed_or_uncertain'
                 or result.get('phase')!='mutation' or result.get('attempted')!=[] or result.get('completed')!=[]
                 or started.get('sha256')!=digest(plan) or started.get('account')!=engine.account
                 or payload.get('context',{}).get('source_ids')!=context['source_ids'] or payload.get('context',{}).get('backend')!=context['backend']):
@@ -176,7 +176,10 @@ def reconcile(engine,identity):
         terminal=inspect(engine.store,plan);request=engine.store.read(engine.store.path(identity,'.native-reminder-request-0'));response=engine.store.read(engine.store.path(identity,'.native-reminder-response-0'))
         if terminal.get('terminal_response')!='recorded' or terminal.get('helper_reported_mutation_dispatched') is False or response.get('response_kind')!='error':raise SafetyError('Retained request-bound terminal error required; missing evidence is never reconstructed')
         item=items[0];outcome={'id':item['id'],'source_id':item['source_id'],'list_id':item.get('list_id')}
-        if item['operation']=='reparent_reminder':
+        if item['operation']=='rename_smart_list':
+            from .native_reminder_smart_rename import expected_observation
+            observed=expected_observation(engine.adapter,item)
+        elif item['operation']=='reparent_reminder':
             from .native_reminder_parents import expected_observation
             observed=expected_observation(engine.adapter,item)
         elif item['operation']=='reorder_group':
@@ -206,6 +209,9 @@ def expected_record_matches(item,observed):
         from .native_reminder_family_lifecycle import selected, record_matches
         if item.get('operation') in {'delete_reminder','restore_reminder'} and selected(item):return record_matches(item,observed)
         if not isinstance(observed,dict) or observed.get('id')!=item['id'] or observed.get('source_id')!=item['source_id']:return False
+        if item['operation']=='rename_smart_list':
+            from .native_reminder_smart_rename import record_matches
+            return record_matches(item,observed)
         if item['operation']=='reparent_reminder':
             from .native_reminder_parents import record_matches
             return record_matches(item,observed)

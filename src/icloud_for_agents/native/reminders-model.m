@@ -139,6 +139,35 @@ NSData *ICloudRemindersSmartListDefinition(NSData *data){
     }@catch(NSException *exception){return EncodeFlag(FlagFailure(@"private_read_exception"));}
 }
 
+// One exact custom view label; never save a filter or Reminder change.
+NSData *ICloudRemindersRenameSmartList(NSData *data,BOOL (^enterMutation)(void)){
+    __block BOOL dispatched=NO;
+    @try {
+        id request=[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
+        if(![request isKindOfClass:NSDictionary.class] || [request count]!=4 || !enterMutation || ![request[@"title"] isKindOfClass:NSString.class] || ![request[@"title"] length] || [request[@"title"] length]>1000 || [request[@"title"] lengthOfBytesUsingEncoding:NSUTF8StringEncoding]>4000 || [request[@"title"] rangeOfCharacterFromSet:NSCharacterSet.controlCharacterSet].location!=NSNotFound)return EncodeFlag(FlagFailure(@"invalid_public_identity"));
+        NSDictionary *identity=@{@"source_id":request[@"source_id"]?:NSNull.null,@"id":request[@"id"]?:NSNull.null};NSData *identityData=EncodeFlag(identity);
+        id observed=[NSJSONSerialization JSONObjectWithData:ICloudRemindersSmartListDefinition(identityData) options:0 error:NULL],before=request[@"before"];
+        if(![before isKindOfClass:NSDictionary.class] || observed[@"error"] || ![observed isEqual:before] || [before[@"title"] isEqual:request[@"title"]])return EncodeFlag(FlagFailure(@"snapshot_changed"));
+        Class saveClass=NSClassFromString(@"REMSaveRequest"),viewClass=NSClassFromString(@"REMSmartListsDataView");
+        if(!MethodMatches(saveClass,@"initWithStore:",@"@@:@",NO) || !MethodMatches(saveClass,@"updateSmartList:",@"@@:@",NO) || !MethodMatches(saveClass,@"saveSynchronouslyWithError:",@"B@:^@",NO))return EncodeFlag(FlagFailure(@"unsupported_smart_list_write"));
+        id store=[NSClassFromString(@"REMStore") new],view=((id(*)(id,SEL,id))objc_msgSend)([viewClass alloc],NSSelectorFromString(@"initWithStore:"),store),oid=((id(*)(id,SEL,id))objc_msgSend)((id)NSClassFromString(@"REMObjectID"),NSSelectorFromString(@"objectIDWithURL:"),[NSURL URLWithString:[@"x-apple-reminderkit://REMCDSmartList/" stringByAppendingString:request[@"id"]]]);
+        NSError *error=nil;id list=((id(*)(id,SEL,id,NSError**))objc_msgSend)(view,NSSelectorFromString(@"fetchCustomSmartListWithObjectID:error:"),oid,&error),storage=ObjectValue(list,@"storage");
+        NSData *filter=[before[@"definition_json"] dataUsingEncoding:NSUTF8StringEncoding];
+        if(error || !UUIDEqual(ObjectUUID(list,@"REMCDSmartList"),request[@"id"]) || !UUIDEqual(ObjectUUID(storage,@"REMCDSmartList"),request[@"id"]) || !StorageMatchesAccount(storage,request[@"source_id"]) || ![ObjectValue(storage,@"name") isEqual:before[@"title"]] || ![ObjectValue(storage,@"filterData") isEqual:filter])return EncodeFlag(FlagFailure(@"snapshot_changed"));
+        id save=((id(*)(id,SEL,id))objc_msgSend)([saveClass alloc],NSSelectorFromString(@"initWithStore:"),store),change=((id(*)(id,SEL,id))objc_msgSend)(save,NSSelectorFromString(@"updateSmartList:"),list),changedStorage=ObjectValue(change,@"storage");
+        if(!change || ![change respondsToSelector:NSSelectorFromString(@"setName:")] || !MethodMatches([changedStorage class],@"setName:",@"v@:@",NO))return EncodeFlag(FlagFailure(@"unsupported_smart_list_write"));
+        ((void(*)(id,SEL,id))objc_msgSend)(change,NSSelectorFromString(@"setName:"),request[@"title"]);
+        id changedKeys=ObjectValue(change,@"changedKeys"),tracked=ObjectValue(save,@"trackedSmartListChangeItems");
+        if(![ObjectValue(changedStorage,@"name") isEqual:request[@"title"]] || ![ObjectValue(changedStorage,@"filterData") isEqual:filter] || !StorageMatchesAccount(changedStorage,request[@"source_id"]) || !UUIDEqual(ObjectUUID(changedStorage,@"REMCDSmartList"),request[@"id"]) || ![changedKeys isKindOfClass:NSSet.class] || ![changedKeys isEqual:[NSSet setWithObject:@"name"]] || ![tracked isKindOfClass:NSDictionary.class] || [tracked count]!=1)return EncodeFlag(FlagFailure(@"unsupported_smart_list_write"));
+        id key=[[tracked allKeys]firstObject],uuid=ObjectValue(key,@"uuid");if(![ObjectValue(key,@"entityName") isEqual:@"REMCDSmartList"] || ![uuid isKindOfClass:NSUUID.class] || !UUIDEqual([uuid UUIDString],request[@"id"]) || ObjectValue(tracked[key],@"valueWithoutPerformingCopy")!=change)return EncodeFlag(FlagFailure(@"unsupported_smart_list_write"));
+        for(NSString *name in @[@"trackedAccountChangeItems",@"trackedListChangeItems",@"trackedListSectionChangeItems",@"trackedReminderChangeItems",@"trackedSmartListSectionChangeItems",@"trackedTemplateChangeItems",@"trackedTemplateSectionChangeItems"]){id entries=ObjectValue(save,name);if(![entries isKindOfClass:NSDictionary.class] || [entries count])return EncodeFlag(FlagFailure(@"unsupported_smart_list_write"));}
+        if(!enterMutation())return EncodeFlag(FlagFailure(@"native_dispatch_cancelled"));dispatched=YES;error=nil;
+        BOOL saved=((BOOL(*)(id,SEL,NSError**))objc_msgSend)(save,NSSelectorFromString(@"saveSynchronouslyWithError:"),&error);
+        if(!saved || error)return EncodeFlag(@{@"protocol_version":@1,@"error":@"mutation_failed_or_uncertain",@"mutation_dispatched":@YES});
+        return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":request[@"id"],@"source_id":request[@"source_id"],@"saved_locally":@YES}});
+    }@catch(NSException *exception){return EncodeFlag(@{@"protocol_version":@1,@"error":dispatched?@"mutation_failed_or_uncertain":@"private_metadata_unavailable",@"mutation_dispatched":@(dispatched)});}
+}
+
 // Observe sections of one exact, selected-account template without materializing it as a live list.
 NSData *ICloudRemindersTemplateSections(NSData *data){
     @try {

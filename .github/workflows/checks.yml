@@ -74,6 +74,8 @@ jobs:
           .venv/bin/python tests/native_group_order_stdio_smoke.py
           .venv/bin/python tests/native_reminder_parents_stdio_smoke.py
           .venv/bin/python tests/native_reminder_lifecycle_stdio_smoke.py
+          .venv/bin/python tests/native_smart_rename_stdio_smoke.py
+          .venv/bin/python tests/native_smart_rename_contract.py
           .venv/bin/python tests/native_note_attachment_export_contract.py
           .venv/bin/python tests/native_script_contract.py
           .venv/bin/python tests/native_write_contract.py

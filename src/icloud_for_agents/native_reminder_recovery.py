@@ -56,7 +56,7 @@ class ReminderObservationRecovery:
         with self.engine.serialized():
             plan,result,item=self.original(original_id)
             if self.store._native_reminder_recovery_completed(original_id):raise SafetyError('An observation has already been accepted for this Reminder')
-            if item.get('operation') in {'create_subtask','delete_reminder','restore_reminder','reorder_reminder','create_group','rename_group','group_list','ungroup_list','reorder_group','reparent_reminder'} and legacy:raise SafetyError('Subtask and lifecycle acceptance require retained terminal evidence')
+            if item.get('operation') in {'rename_smart_list','create_subtask','delete_reminder','restore_reminder','reorder_reminder','create_group','rename_group','group_list','ungroup_list','reorder_group','reparent_reminder'} and legacy:raise SafetyError('Subtask and lifecycle acceptance require retained terminal evidence')
             observed=self.observation(original_id,True) if legacy else self.observation(original_id,unknown=True) if accept_unknown_dispatch else self.observation(original_id)
             request=None if legacy else self.store.read(self.store.path(original_id,'.native-reminder-request-0'))
             response=None if legacy else self.store.read(self.store.path(original_id,'.native-reminder-response-0'))
