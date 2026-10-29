@@ -51,6 +51,7 @@ NSData *ICloudRemindersReorderRootGroup(NSData *data,BOOL (^enterMutation)(void)
 NSData *ICloudRemindersReparentLeaf(NSData *data,BOOL (^enterMutation)(void));
 NSData *ICloudRemindersCreateSmartList(NSData *data,BOOL (^enterMutation)(void));
 FOUNDATION_EXPORT NSData *ICloudRemindersTemplateMetadata(NSData *data);
+FOUNDATION_EXPORT NSData *ICloudRemindersRenameTemplate(NSData *data,BOOL (^enterMutation)(void));
 NS_ASSUME_NONNULL_END
 
 NSData *ICloudRemindersSetSection(NSData *data,BOOL (^enterMutation)(void));

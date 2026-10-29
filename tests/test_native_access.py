@@ -81,3 +81,12 @@ class NativeAccessTests(unittest.TestCase):
                 self.assertEqual(status['provider_capabilities'],'not_probed');self.assertEqual(status['os_permission'],'not_checked')
                 status['unavailable_feature_families'].clear()
                 self.assertIn(feature,access_status(name)['unavailable_feature_families'])
+
+    def test_template_rename_inventory_needs_both_optional_backends_without_granting_access(self):
+        for metadata,backend in itertools.product(('native','reminders-store-readonly'),('disabled','reminderkit')):
+            env={'ICLOUD_ENABLE_REMINDERS':'1','ICLOUD_NATIVE_CONFIG':json.dumps({'reminders':{'metadata_backend':metadata,'advanced_backend':backend}})}
+            with patch.dict(os.environ,env,clear=True):
+                status=access_status('reminders');available=metadata=='reminders-store-readonly'and backend=='reminderkit'
+                self.assertEqual('rename_template'in status['implemented_write_operations'],available)
+                self.assertEqual('rename_template'in status['unavailable_write_operations'],not available)
+                self.assertEqual(status['effective_access'],'read-only');self.assertFalse(status['operation_listing_is_authorization'])

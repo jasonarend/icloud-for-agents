@@ -87,6 +87,8 @@ jobs:
           .venv/bin/python tests/native_smart_create_contract.py
           .venv/bin/python tests/native_template_outline_stdio_smoke.py
           .venv/bin/python tests/native_template_metadata_stdio_smoke.py
+          .venv/bin/python tests/native_template_rename_stdio_smoke.py
+          .venv/bin/python tests/native_template_rename_contract.py
           .venv/bin/python tests/native_note_attachment_export_contract.py
           .venv/bin/python tests/native_script_contract.py
           .venv/bin/python tests/native_write_contract.py

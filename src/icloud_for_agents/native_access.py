@@ -26,7 +26,7 @@ UNAVAILABLE_FEATURES = {
         'section_order_and_deletion': 'Bounded create/rename/leaf membership moves are available; ordering save failed locally and deletion is unverified.',
         'deeper_parent_writes': 'Verified root/direct-child operations do not authorize deeper parent or subtree sibling ordering.',
         'broader_group_moves': 'Nested groups and custom Smart List moves have no verified writer.',
-        'template_writes': 'Saved template outlines are readable; creation, edit, deletion, instantiation and sharing are unverified.',
+        'template_writes': 'Saved template reads and bounded name-only renaming are available; content editing, creation, deletion, instantiation and sharing changes are unverified.',
         'arbitrary_smart_filters': 'Only the documented Lists-only AND creation/rename/source changes are supported; other criteria and deletion are unavailable.',
         'grocery_writes': 'Grocery role observations do not authorize category assignment, type conversion or manual overrides.',
         'collaboration': 'Assignment/participant identity, assign/unassign, invitations and shared-list writes are unverified.',
@@ -66,19 +66,21 @@ def access_status(name):
         'delete_list':'Complete contents and recoverable deletion effects are unverified.',
         'permanently_delete_reminder':'No independently verified irreversible deletion route.',
         'move_reminder':'Requires the explicitly selected ReminderKit backend, compatible helper and complete bounded list graphs.',
+        'rename_template':'Requires the selected ReminderKit backend, explicit read-only Reminders store selection, updated helper and an unlinked bounded saved template.',
         'clear_early':'Requires the explicitly selected ReminderKit backend and compatible helper.',
     })
     metadata_moves=name=='notes' and config.get('metadata_backend')=='notes-store-readonly'
     if metadata_moves:unsupported.pop('move_note');unsupported.pop('restore_note');unsupported.pop('delete_note')
     if name=='reminders' and config.get('advanced_backend')=='reminderkit':
         unsupported.pop('clear_early');unsupported.pop('move_reminder');unsupported.pop('delete_reminder');unsupported.pop('restore_reminder')
+        if config.get('metadata_backend')=='reminders-store-readonly':unsupported.pop('rename_template')
     return {'pending_native_requests':pending,'service': name, 'effective_access': effective, 'configured_access': mode,
             'runtime_access': global_mode, 'approval_policy': policy,
             'metadata_backend':config.get('metadata_backend','scripting' if name=='notes' else 'native'),
             'source_ids': config.get('source_ids', []),
             'scope_selected': bool(config.get('source_ids')),
             'os_permission': 'not_checked', 'writes_implemented': True,
-            'implemented_write_operations':(['create_note','create_folder','append_note','prepend_note','replace_text','update_note','rename_folder']+(['move_note','restore_note','delete_note'] if metadata_moves else []) if name=='notes' else ['create_list','create_reminder','update_reminder','set_completed','rename_list','set_list_color','set_recurrence']+((['set_section'] if config.get('metadata_backend')=='reminders-store-readonly' else [])+['create_smart_list','set_smart_list_sources','rename_smart_list','reparent_reminder','reorder_group','group_list','ungroup_list','rename_group','create_group','delete_reminder','restore_reminder','reorder_reminder','set_list_badge','set_list_pinned','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','add_early','clear_early','create_subtask','create_section','rename_section','move_reminder'] if config.get('advanced_backend')=='reminderkit' else [])),
+            'implemented_write_operations':(['create_note','create_folder','append_note','prepend_note','replace_text','update_note','rename_folder']+(['move_note','restore_note','delete_note'] if metadata_moves else []) if name=='notes' else ['create_list','create_reminder','update_reminder','set_completed','rename_list','set_list_color','set_recurrence']+((['set_section','rename_template'] if config.get('metadata_backend')=='reminders-store-readonly' else [])+['create_smart_list','set_smart_list_sources','rename_smart_list','reparent_reminder','reorder_group','group_list','ungroup_list','rename_group','create_group','delete_reminder','restore_reminder','reorder_reminder','set_list_badge','set_list_pinned','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','add_early','clear_early','create_subtask','create_section','rename_section','move_reminder'] if config.get('advanced_backend')=='reminderkit' else [])),
             'implemented_recovery_operations':(['accept_observed_creation','repair_title_only_candidate','accept_observed_known_move_state','accept_observed_unchanged_edit'] if name=='notes' else ['known_update_correction']),
             'standing_grants_implemented': True,'one_time_elevation_implemented':True,
             'read_actions': sorted(READ_ACTIONS[name]),

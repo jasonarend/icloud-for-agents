@@ -16,7 +16,7 @@ from .native_read import native_config
 FIELDS={
  'notes':{'copy_observation':{'title','body','format'},'create_note':{'title','body','format'},'append_note':{'body','format'},'prepend_note':{'body','format'},'replace_text':{'find','replacement','expected_matches'},
           'update_note':{'title','body','format'},'move_note':{'destination_folder_id'},'restore_note':{'destination_folder_id'},'delete_note':{'recoverable'},'create_folder':{'title'},'rename_folder':{'title'}},
- 'reminders':{'set_section':{'section_id'},'create_smart_list':{'title','list_ids'},'set_smart_list_sources':{'list_ids'},'rename_smart_list':{'title'},'delete_reminder':{'recoverable','include_descendants'},'restore_reminder':{'deletion_plan_id','deletion_index','list_id','include_descendants'},'copy_observation':{'title','notes','priority','due','start','url','alarms'},'create_subtask':{'title'},'create_section':{'title'},'rename_section':{'title'},'create_reminder':{'title','notes','priority','due','start','url','alarms','location_alarms','recurrence'},'update_reminder':{'title','notes','priority','due','start','url','alarms','location_alarms'},
+ 'reminders':{'set_section':{'section_id'},'create_smart_list':{'title','list_ids'},'set_smart_list_sources':{'list_ids'},'rename_template':{'title'},'rename_smart_list':{'title'},'delete_reminder':{'recoverable','include_descendants'},'restore_reminder':{'deletion_plan_id','deletion_index','list_id','include_descendants'},'copy_observation':{'title','notes','priority','due','start','url','alarms'},'create_subtask':{'title'},'create_section':{'title'},'rename_section':{'title'},'create_reminder':{'title','notes','priority','due','start','url','alarms','location_alarms','recurrence'},'update_reminder':{'title','notes','priority','due','start','url','alarms','location_alarms'},
               'set_completed':{'completed'},'set_flagged':{'flagged'},'set_urgent':{'urgent'},'add_early':{'unit','count'},'clear_early':{'clear'},'remove_tag':{'tag_id'},'add_tag':{'tag_name'},'replace_tag':{'tag_id','tag_name'},'move_reminder':{'list_id'},'create_list':{'title'},'rename_list':{'title'},'set_list_color':{'color'},'reparent_reminder':{'parent_id','anchor_id','placement'},'reorder_group':{'anchor_id','placement'},'group_list':{'group_id','allow_nonempty'},'ungroup_list':{'anchor_id','placement'},'rename_group':{'title'},'create_group':{'title'},'reorder_reminder':{'anchor_id','placement'},'set_list_badge':{'badge'},'set_list_pinned':{'pinned'},'set_recurrence':{'recurrence','recurrence_scope'}}}
 
 
@@ -94,6 +94,10 @@ class NativeGrants:
                 inventory(self.engine.adapter,rule['source_id'])
                 result.append({'source':self.container(rule['source_id'],rule['container_id']),
                                'destinations':[list_scope(self.engine.adapter,rule['source_id'],target) for target in rule['destinations']]});continue
+            if self.name=='reminders' and rule['operation']=='rename_template':
+                from .native_template_rename import snapshot
+                value=snapshot(self.engine.adapter,{'source_id':rule['source_id'],'id':rule['container_id']})
+                result.append({'source':{'id':value['metadata']['id'],'source_id':rule['source_id'],'role':'saved_template'},'destinations':[]});continue
             if self.name=='reminders' and rule['operation'] in {'rename_smart_list','set_smart_list_sources'}:
                 from .native_reminder_smart_lists import snapshot
                 value=snapshot(rule['source_id'],rule['container_id'],reader=self.engine.adapter.reader)
@@ -376,7 +380,7 @@ class NativeGrants:
         marker=item.get('standing_operation');scope_op=op if marker is None else marker
         if marker is not None and (marker!='copy_observation' or op!=('create_note' if self.name=='notes' else 'create_reminder')):
             raise SafetyError('Invalid observation copy grant operation')
-        container=(item['id'] if op in {'rename_group','reorder_group','rename_smart_list','set_smart_list_sources'} else item.get('before',{}).get('original',{}).get('item',{}).get('list_id') if op=='restore_reminder' else item.get('parent_folder_id',item['source_id']) if op=='create_folder' else item['source_id'] if op in {'create_list','create_group','create_smart_list'}
+        container=(item['id'] if op in {'rename_template','rename_group','reorder_group','rename_smart_list','set_smart_list_sources'} else item.get('before',{}).get('original',{}).get('item',{}).get('list_id') if op=='restore_reminder' else item.get('parent_folder_id',item['source_id']) if op=='create_folder' else item['source_id'] if op in {'create_list','create_group','create_smart_list'}
                    else item.get('folder_id') if self.name=='notes' else item.get('list_id') if op in {'create_reminder','create_section','rename_section','rename_list','set_list_color','set_list_badge','set_list_pinned','group_list','ungroup_list','set_section','reparent_reminder'}
                    else item.get('before',{}).get('item',{}).get('list_id'))
         fields=item.get('requested_fields')

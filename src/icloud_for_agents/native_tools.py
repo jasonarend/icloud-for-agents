@@ -293,6 +293,12 @@ def register_change_tools(mcp):
             It preserves group identity, mixed child view and other account entries.
             rename_group uses source_id, group_id and fields.title for one
             private root group; observed child lists and account order are preserved.
+            rename_template uses source_id/id and fields.title for one exact saved
+            template with no observed public link and at most twenty local saved-item
+            outlines. Requires optional ReminderKit plus explicit read-only store
+            access. Native storage stages only name; metadata, sections and outline
+            verify. No template content/sharing changes or list instantiation. Its
+            scenario rule uses the exact template ID as container_id and title only.
             create_smart_list uses source_id and fields.title/list_ids for a new
             Lists-only AND custom Smart List over one to ten exact private ordinary
             nongrocery physical lists. The server preassigns its ID and appends it

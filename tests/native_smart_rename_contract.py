@@ -123,7 +123,7 @@ def run():
         path = Path(directory);script = path / 'main.swift';binary = path / 'contract';script.write_text(program)
         result = subprocess.run(['/usr/bin/swiftc', str(script), '-o', str(binary)], capture_output=True, text=True, timeout=60)
         assert result.returncode == 0, result.stderr
-        for operation in ('create_smart_list', 'rename_smart_list', 'set_smart_list_sources'):
+        for operation in ('rename_template', 'create_smart_list', 'rename_smart_list', 'set_smart_list_sources'):
             subprocess.run([str(binary), operation], capture_output=True, text=True, check=True, timeout=5)
     return {'status': 'passed', 'apple_store_opened': False, 'closed_gate_and_single_save_verified': True,
             'scope_filter_key_drift_and_unrelated_change_refused': True, 'save_error_retains_uncertainty': True,
