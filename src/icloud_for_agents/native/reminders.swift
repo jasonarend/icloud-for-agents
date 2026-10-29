@@ -734,7 +734,7 @@ if action == "apply" {
     }
     if let item=req["change"] as? [String:Any],let operation=item["operation"] as? String,["group_list","ungroup_list"].contains(operation) {
         guard let source=item["source_id"] as? String,sourceIDs.contains(source),let identifier=item["list_id"] as? String,item["id"] as? String==identifier,
-              let fields=item["fields"] as? [String:Any],Set(fields.keys)==(operation=="group_list" ? ["group_id"] : ["anchor_id","placement"]),
+              let fields=item["fields"] as? [String:Any],(operation=="group_list" ? (Set(fields.keys)==["group_id"] || Set(fields.keys)==["group_id","allow_nonempty"]) : Set(fields.keys)==["anchor_id","placement"]),
               let before=item["before"] as? [String:Any],let scope=before["source_scope"] as? [String:Any],let expectedList=scope["list"] as? [String:Any],let members=before["membership"] as? [String:Any],
               let inventory=before["inventory"] as? [String:Any],inventory["source_id"] as? String==source,let parent=before["parent"] as? [String:Any],let groupMembers=before["group_members"] as? [String:Any],
               let list=lists.first(where:{$0.calendarIdentifier==identifier && $0.source.sourceIdentifier==source}),list.allowsContentModifications,NSDictionary(dictionary:listRecord(list)).isEqual(to:expectedList) else {fail("invalid_mutation")}

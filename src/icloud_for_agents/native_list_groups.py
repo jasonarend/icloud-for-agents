@@ -33,7 +33,8 @@ def prepare(adapter,change):
         raise SafetyError('Use exact source/list IDs and explicit group_list or ungroup_list fields')
     fields=change['fields'];grouping=change['operation']=='group_list'
     try:
-        if not valid_id(change['list_id']) or set(fields)!=({'group_id'} if grouping else {'anchor_id','placement'}):raise ValueError()
+        if not valid_id(change['list_id']) or (set(fields) not in ({'group_id'},{'group_id','allow_nonempty'}) if grouping else set(fields)!={'anchor_id','placement'}):raise ValueError()
+        if grouping and 'allow_nonempty' in fields and type(fields['allow_nonempty']) is not bool:raise ValueError()
         if not valid_id(fields['group_id'] if grouping else fields['anchor_id']) or (not grouping and fields['placement'] not in ('before','after')):raise ValueError()
         if change['list_id']==(fields['group_id'] if grouping else fields['anchor_id']):raise ValueError()
     except (ValueError,TypeError,AttributeError):raise SafetyError('Select distinct exact UUIDs and before/after for root restoration') from None
@@ -44,14 +45,16 @@ def prepare(adapter,change):
         item['origin_group_id']=parent['id']
     item['before']=snapshot(adapter,item);before=item['before'];parent=before['parent'].get('parent')
     if grouping:
-        if parent is not None or before['group_members']['lists']!=[]:raise SafetyError('Grouping currently requires a root physical list and an observed empty destination group')
+        members=before['group_members']['lists']
+        if parent is not None or len(members)>=100 or (members and fields.get('allow_nonempty') is not True):raise SafetyError('Select a root physical list; a populated destination requires explicit allow_nonempty true and fewer than100 observed members')
+        if any(v.get('id')==item['id'] or v.get('id') not in before['inventory']['account_order'] or v.get('is_group') is not False or v.get('kind') not in {'list','smart_list'} for v in members):raise SafetyError('Existing group members must be distinct physical/custom Smart Lists in the bound account order; nested groups refuse')
     else:
         rows=[v for v in before['group_members']['lists'] if v['id']==item['id']]
         if parent is None or parent.get('id')!=item['origin_group_id'] or len(rows)!=1 or rows[0].get('kind')!='list' or rows[0].get('is_group') is not False:raise SafetyError('Exact parent and provider-reported physical group membership must agree')
     order=before['inventory']['account_order']
     if order.count(item['id'])!=1 or (not grouping and order.count(fields['anchor_id'])!=1):raise SafetyError('The selected list must appear exactly once in native account order')
     item.update(fidelity_verified=True,effects={'list':'Group only this existing private ordinary physical list, or return it to the source root at the exact anchor. No cross-account movement or group creation.',
-        'scope':'Grouping requires an empty observed physical/custom Smart List destination; ungrouping removes only this exact physical child. Nested, shared, grocery and Smart List moves are excluded.',
+        'scope':'Grouping into a populated private root group requires explicit allow_nonempty true and a finished view of fewer than100 physical/custom Smart List members. Preserve every existing member; ungrouping removes only this exact physical child. Nested, shared, grocery and Smart List moves are excluded.',
         'tasks':'No reminder, section, template or Smart List is written. Complete bounded task-ID membership is checked; individual task content and unexposed representations are not re-exported.',
         'order':'Only the selected list entry changes position in native account order. Other entries retain relative order; app display sorting and cloud synchronization can differ.',
         'task_count':before['membership']['count'],'quota_objects':1})
@@ -62,7 +65,7 @@ def expected_snapshot(item):
     result=deepcopy(item['before']);identity=item['id'];fields=item['fields'];grouping=item['operation']=='group_list';order=[value for value in result['inventory']['account_order'] if value!=identity]
     if grouping:
         order.insert(0,identity);group=next(g for g in result['inventory']['groups'] if g['id']==fields['group_id']);result['parent']['parent']={'id':group['id'],'title':group['title']};result['parent']['parent_status']='provider_reported'
-        result['group_members']['lists']=[{'id':identity,'title':result['source_scope']['list']['title'],'is_group':False,'kind':'list'}]
+        result['group_members']['lists']=sorted(result['group_members']['lists']+[{'id':identity,'title':result['source_scope']['list']['title'],'is_group':False,'kind':'list'}],key=lambda row:row['id'])
     else:
         anchor=fields['anchor_id'];index=order.index(anchor)+(fields['placement']=='after');order.insert(index,identity);result['parent']['parent']=None;result['parent']['parent_status']='provider_not_reported';result['group_members']['lists']=[v for v in result['group_members']['lists'] if v['id']!=identity]
     result['inventory']['account_order']=order;result['group_members']['next_offset']=len(result['group_members']['lists']);return result

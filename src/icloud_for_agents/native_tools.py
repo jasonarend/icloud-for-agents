@@ -281,7 +281,10 @@ def register_change_tools(mcp):
             completed deletion, optional deletion_index (default 0), and exact
             destination fields.list_id. Restore can reactivate original alarms.
             group_list uses source_id/list_id and fields.group_id for one root
-            private physical list into an observed empty private root group.
+            private physical list into a private root group. A populated destination
+            additionally requires fields.allow_nonempty=true, fewer than100 observed
+            physical/custom Smart List members and a grant field scope that explicitly
+            allows allow_nonempty. Existing members and relative account order verify.
             ungroup_list uses source_id/list_id, fields.anchor_id and placement
             before/after to return that child to source root at an exact root
             list/group anchor. No tasks are written; their IDs are checked.

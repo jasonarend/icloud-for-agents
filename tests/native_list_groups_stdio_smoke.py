@@ -5,7 +5,7 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'src'))
 from test_native_list_groups import SOURCE,LIST,GROUP,ANCHOR
 
-def run(policy):
+def run(policy,populated=False):
     with tempfile.TemporaryDirectory(prefix='native-once-protocol-') as directory:
         home=Path(directory);audit=home/'audit.json';runtime=home/'runtime'
         env={'HOME':str(home),'PATH':os.defpath,'PYTHONPATH':str(ROOT/'src')+os.pathsep+str(ROOT/'tests'),
@@ -13,7 +13,7 @@ def run(policy):
             'ICLOUD_MAIL_ACCOUNT':'synthetic@example.com','ICLOUD_MAIL_ACCESS':'read-only','ICLOUD_APPROVAL_POLICY':policy,
             'ICLOUD_ENABLE_MAIL':'0','ICLOUD_ENABLE_CALENDAR':'0','ICLOUD_ENABLE_CONTACTS':'0','ICLOUD_ENABLE_NOTES':'0','ICLOUD_ENABLE_REMINDERS':'1',
             'ICLOUD_NATIVE_CONFIG':json.dumps({n:{'access_mode':'read-only','source_ids':[SOURCE],'advanced_backend':'reminderkit'} for n in ('reminders',)}),
-            'ICLOUD_RUNTIME_ROOT':str(runtime)}
+            'ICLOUD_RUNTIME_ROOT':str(runtime),'BRIDGE_TEST_POPULATED_GROUP':'1' if populated else '0'}
         with (home/'stderr.log').open('wb') as stderr:
             process=subprocess.Popen([sys.executable,str(ROOT/'tests/native_list_groups_stdio_server.py')],cwd=home,env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=stderr);sequence=0
             def rpc(method,params):
@@ -39,14 +39,14 @@ def run(policy):
                         # Isolated synthetic independent owner fixture only.
                         receipt=runtime/(plan['plan_id']+'.approved');fd=os.open(receipt,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
                         with os.fdopen(fd,'w') as stream:json.dump({'plan_id':plan['plan_id'],'sha256':plan['sha256']},stream)
-                def change(group=True):return {'operation':'group_list' if group else 'ungroup_list','source_id':SOURCE,'list_id':LIST,'fields':{'group_id':GROUP} if group else {'anchor_id':ANCHOR,'placement':'before'}}
+                def change(group=True):return {'operation':'group_list' if group else 'ungroup_list','source_id':SOURCE,'list_id':LIST,'fields':dict(group_id=GROUP,**({'allow_nonempty':True} if populated else {})) if group else {'anchor_id':ANCHOR,'placement':'before'}}
                 assert call('reminders_prepare_changes',{'changes':[change()]}).get('isError')
                 for group in (True,False):
                     plan=data(call('reminders_prepare_once',{'changes':[change(group)]}))
                     if policy=='local-receipt':assert call('reminders_execute_approved',{'plan_id':plan['plan_id']}).get('isError')
                     approve(plan);assert data(call('reminders_execute_approved',{'plan_id':plan['plan_id']}))['status']=='applied'
                     assert call('reminders_execute_approved',{'plan_id':plan['plan_id']}).get('isError')
-                scope={'scenario':'Synthetic exact grouping','rules':[{'operation':'group_list','source_id':SOURCE,'container_id':LIST,'fields':['group_id'],'destinations':[GROUP]},{'operation':'ungroup_list','source_id':SOURCE,'container_id':LIST,'fields':['anchor_id','placement'],'destinations':[ANCHOR]}],'max_batch':1,'max_24h':4,'expires':None}
+                scope={'scenario':'Synthetic exact grouping','rules':[{'operation':'group_list','source_id':SOURCE,'container_id':LIST,'fields':['group_id',*(['allow_nonempty'] if populated else [])],'destinations':[GROUP]},{'operation':'ungroup_list','source_id':SOURCE,'container_id':LIST,'fields':['anchor_id','placement'],'destinations':[ANCHOR]}],'max_batch':1,'max_24h':4,'expires':None}
                 grant=data(call('reminders_prepare_grant',{'scope':scope}));approve(grant)
                 assert data(call('reminders_activate_grant',{'grant_id':grant['plan_id']}))['grant_active'] is True
                 for group in (True,False):
@@ -63,7 +63,7 @@ def run(policy):
                 except subprocess.TimeoutExpired:process.terminate();process.wait(timeout=5)
                 process.stdout.close()
         assert process.returncode==0,(home/'stderr.log').read_text();assert json.loads(audit.read_text())==[]
-        return {'status':'passed','transport':'real stdio JSON-RPC','synthetic_providers_only':True,'policy':policy,'services':['reminders'],'settings_remained_read_only':True,'list_grouping_once_standing_stability_and_revocation_verified':True,'network_helper_attempts':[]}
+        return {'status':'passed','transport':'real stdio JSON-RPC','synthetic_providers_only':True,'policy':policy,'services':['reminders'],'settings_remained_read_only':True,'list_grouping_once_standing_stability_and_revocation_verified':True,'network_helper_attempts':[],'populated_destination':populated}
 
 if __name__=='__main__':
-    results=[run(policy) for policy in ('trusted-client','local-receipt')];path=ROOT/'build/reports/NATIVE-LIST-GROUPS-STDIO.json';path.parent.mkdir(parents=True,exist_ok=True);path.write_text(json.dumps(results,indent=2)+'\n');print(json.dumps(results,indent=2))
+    results=[run(policy,populated) for populated in (False,True) for policy in ('trusted-client','local-receipt')];path=ROOT/'build/reports/NATIVE-LIST-GROUPS-STDIO.json';path.parent.mkdir(parents=True,exist_ok=True);path.write_text(json.dumps(results,indent=2)+'\n');print(json.dumps(results,indent=2))
