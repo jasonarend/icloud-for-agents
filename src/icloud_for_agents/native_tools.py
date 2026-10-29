@@ -178,7 +178,10 @@ def register_change_tools(mcp):
             move_note (id, folder_id, destination_folder_id) moves between ordinary
             private folders. restore_note uses those fields to restore from the
             verified system Recently Deleted folder to an ordinary private folder.
-            Both require explicitly selected read-only store metadata.
+            delete_note requires fields.recoverable true and moves an existing
+            note into the verified system recovery folder; empty/inaccessible
+            recovery folders refuse before dispatch. These operations require
+            explicitly selected read-only store metadata.
             All require source_id and fields object.
             Literal replacement preserves the title; prepend follows the title.
             Existing native objects and unsupported body rewrites are refused.

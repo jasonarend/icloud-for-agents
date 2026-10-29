@@ -347,7 +347,7 @@ class PlanStore:
         from .native_move_recovery import CONTENT_KEYS
         from .native_protocol import mutation_request
         original=self.read(self.path(original_id,'.json'));result=self.read(self.path(original_id,'.result'));items=original.get('payload',{}).get('changes',[]);payload=recovery.get('payload',{});observed=payload.get('observed',{})
-        if (original.get('kind')!='notes_change' or len(items)!=1 or items[0].get('operation') not in {'move_note','restore_note'}
+        if (original.get('kind')!='notes_change' or len(items)!=1 or items[0].get('operation') not in {'move_note','restore_note','delete_note'}
                 or result.get('status')!='failed_or_uncertain' or result.get('phase') not in {'mutation','verification'}
                 or recovery.get('kind')!='notes_move_recovery' or payload.get('original_id')!=original_id
                 or payload.get('account')!=original['payload'].get('account') or payload.get('original_sha256')!=digest(original)
@@ -361,7 +361,7 @@ class PlanStore:
                 or observed.get('content_sha256')!=digest({k:item['before']['note'].get(k) for k in CONTENT_KEYS})
                 or observed.get('attachments_sha256')!=digest(item['before']['attachments'])
                 or payload.get('terminal_exchange',{}).get('request_sha256')!=digest(mutation_request('notes',item))):return False
-        if item['operation']=='restore_note':
+        if item['operation'] in {'restore_note','delete_note'}:
             from .native_notes_restore import stable_roles
             if (observed.get('persisted_location')!={'id':item['id'],'folder_id':location,'source_id':item['source_id'],'content_read':False,'database_writes':False}
                     or not isinstance(observed.get('recovery_roles'),list) or not isinstance(item.get('before',{}).get('roles'),list)

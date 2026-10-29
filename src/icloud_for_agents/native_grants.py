@@ -15,7 +15,7 @@ from .native_read import native_config
 
 FIELDS={
  'notes':{'copy_observation':{'title','body','format'},'create_note':{'title','body','format'},'append_note':{'body','format'},'prepend_note':{'body','format'},'replace_text':{'find','replacement','expected_matches'},
-          'update_note':{'title','body','format'},'move_note':{'destination_folder_id'},'restore_note':{'destination_folder_id'},'create_folder':{'title'},'rename_folder':{'title'}},
+          'update_note':{'title','body','format'},'move_note':{'destination_folder_id'},'restore_note':{'destination_folder_id'},'delete_note':{'recoverable'},'create_folder':{'title'},'rename_folder':{'title'}},
  'reminders':{'copy_observation':{'title','notes','priority','due','start','url','alarms'},'create_subtask':{'title'},'create_section':{'title'},'rename_section':{'title'},'create_reminder':{'title','notes','priority','due','start','url','alarms','location_alarms','recurrence'},'update_reminder':{'title','notes','priority','due','start','url','alarms','location_alarms'},
               'set_completed':{'completed'},'set_flagged':{'flagged'},'set_urgent':{'urgent'},'add_early':{'unit','count'},'clear_early':{'clear'},'remove_tag':{'tag_id'},'add_tag':{'tag_name'},'replace_tag':{'tag_id','tag_name'},'move_reminder':{'list_id'},'create_list':{'title'},'rename_list':{'title'},'set_list_color':{'color'},'set_list_pinned':{'pinned'},'set_recurrence':{'recurrence','recurrence_scope'}}}
 
@@ -88,6 +88,11 @@ class NativeGrants:
             root=rule['operation'] in {'create_folder','create_list'}
             if not root and rule['container_id']==rule['source_id']:raise SafetyError('An item operation needs a real container ID')
             if rule['operation']=='create_list' and rule['container_id']!=rule['source_id']:raise SafetyError('List creation targets its selected source root')
+            if self.name=='notes' and rule['operation']=='delete_note':
+                from .native_notes_delete import endpoints
+                from .native_notes_restore import stable_roles
+                source,target,roles=endpoints(self.engine.adapter,rule['source_id'],rule['container_id'],require_visible=False)
+                result.append({'source':dict(source,verified_trash_roles=stable_roles(roles)),'destinations':[target]});continue
             if self.name=='notes' and rule['operation']=='restore_note':
                 from .native_notes_restore import endpoints,stable_roles
                 destinations=[];roles={}
@@ -169,7 +174,9 @@ class NativeGrants:
                  'quotas':'Every affected native object counts, including moved descendants and uncertain or refused items; no automatic refund.'}}
         if self.name=='notes':payload['effects']['folder_role']=('The optional native model checks selected content folders and their ancestors before admission; separate provider reads are not atomic.' if native_config('notes').get('folder_write_backend')=='notes-shared' else 'Notes content authority is limited to the account default creation folder; its identity is rechecked before dispatch.')
         if self.name=='notes' and native_config('notes').get('folder_write_backend')!='notes-shared' and native_config('notes').get('metadata_backend')=='notes-store-readonly':
-            payload['effects']['folder_role']='Explicit read-only metadata verifies selected ordinary folders and private ancestors. Roles, account, titles and parents remain grant-bound; each batch rechecks full current revisions. No system Trash, smart, shared or deleted targets.'
+            payload['effects']['folder_role']='Explicit read-only metadata verifies selected ordinary folders and private ancestors. Roles, account, titles and parents remain grant-bound; each batch rechecks full current revisions. Smart, shared and marked-deleted targets are excluded; only explicit recovery operations admit the verified system recovery folder.'
+        if self.name=='notes' and any(rule['operation'] in {'delete_note','restore_note'} for rule in scope['rules']):
+            payload['effects']['recovery_scope']='Only explicitly selected delete_note or restore_note rules admit the uniquely verified selected-account system Recently Deleted folder. Deletion moves the existing object there and refuses empty or inaccessible recovery destinations; restoration requires an exact approved ordinary destination. No permanent deletion, empty Trash or placeholder creation.'
         if self.name=='notes' and any(rule['operation']=='move_note' for rule in scope['rules']):
             payload['effects']['move_scope']='Moves require explicitly selected read-only metadata, ordinary unshared source/destination ancestors and exact destination IDs. Roles and ancestry are rechecked at admission; every note retains its own content and attachment snapshot. No Recently Deleted, cross-account or shared moves.'
         if self.name=='reminders' and any(rule['operation']=='move_reminder' for rule in scope['rules']):

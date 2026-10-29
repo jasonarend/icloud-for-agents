@@ -8,7 +8,7 @@ operation uses, avoiding duplicate projections and review-only metadata in IPC.
 def mutation_request(service,item):
     if service not in {'notes','reminders'}:raise ValueError('Unknown native service')
     operation=item.get('operation')
-    if service=='notes' and operation in {'create_note','create_folder','append_note','prepend_note','replace_text','update_note','repair_note_body','move_note','restore_note','rename_folder'}:
+    if service=='notes' and operation in {'create_note','create_folder','append_note','prepend_note','replace_text','update_note','repair_note_body','move_note','restore_note','delete_note','rename_folder'}:
         content_roles=None
         change={key:item[key] for key in ('operation','source_id','folder_id','parent_folder_id','id') if key in item}
         if operation in {'create_note','append_note','prepend_note','replace_text','update_note','repair_note_body'} or (operation=='create_folder' and item.get('parent_folder_id')):
@@ -25,19 +25,20 @@ def mutation_request(service,item):
             elif isinstance(stored,list) and stored and any(role.get('folder_id')==target and role.get('source_id')==item['source_id'] for role in stored):
                 change['folder_guard']='verified_store_roles';content_roles=stored
             else:change['folder_guard']='unverified'
-        keys={'title'} if operation in {'create_folder','rename_folder'} else {'title','destination_folder_id'} if operation in {'move_note','restore_note'} else {'title','html'}
+        keys={'title'} if operation in {'create_folder','rename_folder'} else {'title','destination_folder_id'} if operation in {'move_note','restore_note','delete_note'} else {'title','html'}
+        if operation=='delete_note':keys.add('recoverable')
         change['fields']={key:item['fields'][key] for key in keys if key in item['fields']}
         if operation=='rename_folder':
             change['before']={'inventory':item['before']['inventory'],'role':next(r for r in item['before']['roles'] if r['folder_id']==item['id'])}
             change['writer_backend']=item['writer_backend']
             if item.get('legacy_title_restore') is True:change['legacy_title_restore']=True
-        if operation in {'append_note','prepend_note','replace_text','update_note','repair_note_body','move_note','restore_note'}:
+        if operation in {'append_note','prepend_note','replace_text','update_note','repair_note_body','move_note','restore_note','delete_note'}:
             before=item['before'];change['before']={'note':{key:before['note'][key] for key in ('title','html','modified')}}
-            if operation in {'move_note','restore_note'}:
+            if operation in {'move_note','restore_note','delete_note'}:
                 change['before']['attachments']=before['attachments']
                 roles=before.get('roles')
                 if isinstance(roles,list) and roles:
-                    change['folder_guard']='verified_recovery_roles' if operation=='restore_note' else 'verified_store_roles';change['before']['roles']=roles
+                    change['folder_guard']='verified_trash_destination' if operation=='delete_note' else 'verified_recovery_roles' if operation=='restore_note' else 'verified_store_roles';change['before']['roles']=roles
         if content_roles is not None:change.setdefault('before',{})['roles']=content_roles
     elif service=='reminders' and operation in {'create_list','create_reminder','create_section','rename_section','update_reminder','set_completed','move_reminder','rename_list','set_list_color','set_list_pinned','set_recurrence','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','add_early','clear_early','create_subtask'}:
         change={key:item[key] for key in ('operation','source_id','list_id','id','child_id','section_id','fields') if key in item}

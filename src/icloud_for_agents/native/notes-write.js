@@ -41,13 +41,14 @@ function applyNotes(app, req, beginMutation, nativePhase) {
     try {
     if (req.protocol_version!==1 || req.action!=='apply' || !Array.isArray(req.source_ids)) throw Error('invalid_request');
     const item=req.change;
-    if (!item || !['create_note','create_folder','repair_note_body','append_note','prepend_note','replace_text','update_note','move_note','restore_note','rename_folder'].includes(item.operation) || !req.source_ids.includes(item.source_id)) throw Error('unsupported_operation');
-    const restoring=item.operation==='restore_note',moving=restoring || item.operation==='move_note';
-    if(moving && (item.folder_guard!==(restoring?'verified_recovery_roles':'verified_store_roles') || !item.before || !Array.isArray(item.before.roles) || item.before.roles.length<1 || item.before.roles.length>64))throw Error('unverified_folder_role_move');
+    if (!item || !['create_note','create_folder','repair_note_body','append_note','prepend_note','replace_text','update_note','move_note','restore_note','delete_note','rename_folder'].includes(item.operation) || !req.source_ids.includes(item.source_id)) throw Error('unsupported_operation');
+    const restoring=item.operation==='restore_note',deleting=item.operation==='delete_note',moving=restoring || deleting || item.operation==='move_note';
+    if(moving && (item.folder_guard!==(deleting?'verified_trash_destination':restoring?'verified_recovery_roles':'verified_store_roles') || !item.before || !Array.isArray(item.before.roles) || item.before.roles.length<1 || item.before.roles.length>64))throw Error('unverified_folder_role_move');
     const accounts=app.accounts().filter(a=>a.id()===item.source_id);
     if(accounts.length!==1)throw Error('not_found_in_scope');
     const account=accounts[0];
     const fields=item.fields;
+    if(deleting && (!fields || fields.recoverable!==true))throw Error('invalid_recoverable_delete');
     if(!fields || typeof fields.title!=='string' || fields.title.length<1 || fields.title.length>1000)throw Error('invalid_fields');
     const folders=[],seen=new Set();
     function collect(identity) {
@@ -63,17 +64,17 @@ function applyNotes(app, req, beginMutation, nativePhase) {
     if(item.folder_id)collect(item.folder_id);
     if(item.parent_folder_id)collect(item.parent_folder_id);
     if(moving)collect(fields.destination_folder_id);
-    if(['verified_store_roles','verified_recovery_roles'].includes(item.folder_guard)) {
-        const roleError=restoring?'unverified_folder_role_restore':moving?'unverified_folder_role_move':'unverified_folder_role';
+    if(['verified_store_roles','verified_recovery_roles','verified_trash_destination'].includes(item.folder_guard)) {
+        const roleError=deleting?'unverified_folder_role_delete':restoring?'unverified_folder_role_restore':moving?'unverified_folder_role_move':'unverified_folder_role';
         const roles=item.before && item.before.roles;
         if(!Array.isArray(roles) || roles.length<1 || roles.length>64)throw Error(roleError);
         const roleIDs=new Set(roles.map(r=>r.folder_id));
         if(roleIDs.size!==roles.length || roles.length!==folders.length || folders.some(f=>{
             const role=roles.find(r=>r.folder_id===f.id());
-            if(!role || role.source_id!==item.source_id || role.storage_kind!==(restoring && role.folder_id===item.folder_id?'special_smart_or_deleted':'regular') || role.native_folder_type!==(restoring && role.folder_id===item.folder_id?1:0) || role.marked_for_deletion!==false || role.has_smart_query!==false || role.title!==f.name())return true;
+            if(!role || role.source_id!==item.source_id || role.storage_kind!==(((restoring && role.folder_id===item.folder_id) || (deleting && role.folder_id===fields.destination_folder_id))?'special_smart_or_deleted':'regular') || role.native_folder_type!==(((restoring && role.folder_id===item.folder_id) || (deleting && role.folder_id===fields.destination_folder_id))?1:0) || role.marked_for_deletion!==false || role.has_smart_query!==false || role.title!==f.name())return true;
             const parent=f.container().id();
             if(parent===item.source_id)return role.parent_pk!==null;
-            if(restoring && role.folder_id===item.folder_id)return true;
+            if((restoring && role.folder_id===item.folder_id) || (deleting && role.folder_id===fields.destination_folder_id))return true;
             const match=/\/ICFolder\/p([1-9][0-9]*)$/.exec(parent),pk=match?Number(match[1]):null;
             return !Number.isSafeInteger(pk) || role.parent_pk!==pk;
         }))throw Error(roleError);

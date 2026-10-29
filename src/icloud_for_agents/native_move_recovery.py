@@ -22,7 +22,7 @@ class NotesMoveRecovery:
         if (plan.get('kind')!='notes_change' or plan['payload'].get('account')!=self.account
                 or plan['payload'].get('context',{}).get('source_ids')!=context['source_ids']
                 or result.get('status')!='failed_or_uncertain' or result.get('phase') not in {'mutation','verification'}
-                or len(items)!=1 or items[0].get('operation') not in {'move_note','restore_note'} or items[0].get('id')!=items[0].get('before',{}).get('note',{}).get('id')
+                or len(items)!=1 or items[0].get('operation') not in {'move_note','restore_note','delete_note'} or items[0].get('id')!=items[0].get('before',{}).get('note',{}).get('id')
                 or items[0].get('source_id')!=items[0].get('before',{}).get('note',{}).get('source_id')
                 or items[0].get('folder_id')!=items[0].get('before',{}).get('note',{}).get('folder_id')
                 or result.get('completed')!=[] or not isinstance(result.get('attempted'),list) or len(result['attempted'])>1
@@ -37,8 +37,9 @@ class NotesMoveRecovery:
         return plan,result,items[0]
     def snapshot(self,item):
         source=item['folder_id'];destination=item['fields']['destination_folder_id'];identity=item['id']
-        if item['operation']=='restore_note':
-            from .native_notes_restore import observe
+        if item['operation'] in {'restore_note','delete_note'}:
+            if item['operation']=='restore_note':from .native_notes_restore import observe
+            else:from .native_notes_delete import observe
             observed,physical,roles=observe(self.adapter,item);note=observed['note'];actual=physical['folder_id'];before=item['before']['note']
             return {'note_id':identity,'source_id':item['source_id'],'source_folder_id':source,'destination_folder_id':destination,
                     'observed_folder_id':actual,'location':'source' if actual==source else 'destination','title':note['title'],

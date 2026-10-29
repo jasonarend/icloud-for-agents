@@ -285,7 +285,7 @@ class NativeChanges:
         return self.reconcile_known_changes(plan_id)
 
     def reconcile_known_changes(self,plan_id):
-        allowed=({'append_note','prepend_note','replace_text','update_note','move_note','restore_note','rename_folder'} if self.name=='notes' else {'update_reminder','set_completed','move_reminder','rename_list','set_list_color','set_list_pinned','set_recurrence','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','add_early','clear_early','rename_section'})
+        allowed=({'append_note','prepend_note','replace_text','update_note','move_note','restore_note','delete_note','rename_folder'} if self.name=='notes' else {'update_reminder','set_completed','move_reminder','rename_list','set_list_color','set_list_pinned','set_recurrence','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','add_early','clear_early','rename_section'})
         return self._reconcile_known(plan_id,allowed)
 
     def _reconcile_known(self,plan_id,allowed):
@@ -310,7 +310,7 @@ class NativeChanges:
                 entry=self.store.read(self.store.path(plan_id,'.attempt-'+str(index)))
                 if (entry!={'plan_sha256':digest(plan),'attempt':attempt} or attempt.get('index')!=index
                         or attempt.get('operation')!=item['operation']
-                        or (item['operation'] in {'append_note','prepend_note','replace_text','update_note','move_note','restore_note','rename_folder','update_reminder','set_completed','move_reminder','rename_list','set_list_color','set_list_pinned','set_recurrence','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','add_early','clear_early'} and attempt.get('result',{}).get('id')!=item.get('id'))
+                        or (item['operation'] in {'append_note','prepend_note','replace_text','update_note','move_note','restore_note','delete_note','rename_folder','update_reminder','set_completed','move_reminder','rename_list','set_list_color','set_list_pinned','set_recurrence','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','add_early','clear_early'} and attempt.get('result',{}).get('id')!=item.get('id'))
                         or (item['operation']=='rename_section' and attempt.get('result',{}).get('id')!=item.get('section_id'))
                         or not self.adapter.verify(item,attempt['result'])):
                     raise SafetyError('Known native object does not verify; uncertainty retained')

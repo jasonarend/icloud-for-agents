@@ -1,12 +1,13 @@
 """Restore an exact existing native note from verified system Recently Deleted."""
 from .core import SafetyError
-from .native_once import planning_access
+from .native_once import planning_access,selected_read_access
 from .native_read import native_config
 
 CONTENT_KEYS=('id','title','html','text','created','locked','shared','truncated')
 
 
 def endpoints(adapter,source,origin,destination,*,resolve_origin=True):
+    if source not in selected_read_access('notes')['source_ids']:raise SafetyError('Restoration source is outside selected Notes accounts')
     if native_config('notes').get('metadata_backend')!='notes-store-readonly':raise SafetyError('Restoration requires explicitly selected read-only Notes folder metadata')
     from .native_note_store import recovery_folder,folder_role,parse_identity
     recovery=recovery_folder(source)

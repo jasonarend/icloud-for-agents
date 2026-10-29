@@ -50,6 +50,7 @@ jobs:
           .venv/bin/python tests/native_grant_stdio_smoke.py
           .venv/bin/python tests/native_notes_content_stdio_smoke.py
           .venv/bin/python tests/native_notes_restore_stdio_smoke.py
+          .venv/bin/python tests/native_notes_delete_stdio_smoke.py
           .venv/bin/python tests/native_move_recovery_stdio_smoke.py
           .venv/bin/python tests/native_edit_recovery_stdio_smoke.py
           .venv/bin/python tests/native_reminder_observation_stdio.py
@@ -66,6 +67,7 @@ jobs:
           .venv/bin/python tests/native_script_contract.py
           .venv/bin/python tests/native_write_contract.py
           .venv/bin/python tests/native_notes_restore_contract.py
+          .venv/bin/python tests/native_notes_delete_contract.py
           .venv/bin/python tests/native_folder_inventory_contract.py
           .venv/bin/python tests/native_notes_model_contract.py
           .venv/bin/python tests/native_notes_folder_guard_contract.py
