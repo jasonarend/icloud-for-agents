@@ -483,6 +483,10 @@ if action == "list_sections" || action == "list_features" || action == "list_par
         guard action=="list_features",let value=pinned as? NSNumber,CFGetTypeID(value)==CFBooleanGetTypeID(),value.boolValue else {fail("invalid_request")}
         identity["include_pinned"]=true
     }
+    if let badge=req["include_badge"] {
+        guard action=="list_features",let value=badge as? NSNumber,CFGetTypeID(value)==CFBooleanGetTypeID(),value.boolValue else {fail("invalid_request")}
+        identity["include_badge"]=true
+    }
     guard let payload=try? JSONSerialization.data(withJSONObject:identity),
           let result=(try? JSONSerialization.jsonObject(with:action == "list_parent" ? ICloudRemindersReadListParent(payload) : action == "list_sections" ? ICloudRemindersListSections(payload) : ICloudRemindersReadListFeatures(payload))) as? [String:Any] else {fail("not_found_in_scope")}
     respond(result)
@@ -612,7 +616,7 @@ func reminderRecurrence(_ value:Any,due:DateComponents?)->EKRecurrenceRule? {
     return rule
 }
 if action == "apply" {
-    if let change=req["change"] as? [String:Any],let operation=change["operation"] as? String,["delete_reminder","restore_reminder","set_list_pinned","set_flagged","remove_tag","add_tag","replace_tag","set_urgent","add_early","clear_early","create_subtask","create_section","rename_section","move_reminder"].contains(operation) {
+    if let change=req["change"] as? [String:Any],let operation=change["operation"] as? String,["delete_reminder","restore_reminder","set_list_badge","set_list_pinned","set_flagged","remove_tag","add_tag","replace_tag","set_urgent","add_early","clear_early","create_subtask","create_section","rename_section","move_reminder"].contains(operation) {
         privateReminderGateArmed=true;NativeMutationGate.armDeadline()
     }
     if let item=req["change"] as? [String:Any],let operation=item["operation"] as? String,["delete_reminder","restore_reminder"].contains(operation) {
@@ -644,6 +648,23 @@ if action == "apply" {
                 if response["error"] != nil {fail((response["mutation_dispatched"] as? Bool)==true ? "mutation_failed_or_uncertain" : "unsupported_edit_target")}
                 guard let output=response["result"] as? [String:Any] else {fail("mutation_failed_or_uncertain")};respond(["protocol_version":1,"result":output])
             }
+        }
+        RunLoop.current.run(until:Date(timeIntervalSinceNow:30));fail("mutation_failed_or_uncertain")
+    }
+    if let item=req["change"] as? [String:Any],item["operation"] as? String == "set_list_badge" {
+        guard let source=item["source_id"] as? String,sourceIDs.contains(source),let listID=item["list_id"] as? String,item["id"] as? String==listID,
+              let fields=item["fields"] as? [String:Any],Set(fields.keys)==["badge"],let badge=fields["badge"] as? [String:Any],
+              let before=item["before"] as? [String:Any],let expectedList=before["list"] as? [String:Any],let expectedSiblings=before["siblings"] as? [[String:Any]],let expectedMembers=before["membership"] as? [String:Any],let features=before["list_features"] as? [String:Any],
+              let list=lists.first(where:{$0.calendarIdentifier==listID && $0.source.sourceIdentifier==source}),list.allowsContentModifications else {fail("invalid_mutation")}
+        let siblings=lists.filter{$0.source.sourceIdentifier==source && $0.calendarIdentifier != listID}.sorted{$0.calendarIdentifier<$1.calendarIdentifier}
+        guard NSDictionary(dictionary:listRecord(list)).isEqual(to:expectedList),NSArray(array:siblings.map(listRecord)).isEqual(to:expectedSiblings),
+              let payload=try? JSONSerialization.data(withJSONObject:["source_id":source,"list_id":listID,"badge":badge,"expected_features":features]) else {fail("snapshot_changed")}
+        store.fetchReminders(matching:store.predicateForReminders(in:[list])) {values in
+            guard let values=values,values.count<=100000,NSDictionary(dictionary:membershipRecord(values,list)).isEqual(to:expectedMembers),
+                  let response=(try? JSONSerialization.jsonObject(with:ICloudRemindersSetListBadge(payload,{NativeMutationGate.beginMutation()}))) as? [String:Any] else {fail("snapshot_changed")}
+            if response["error"] != nil {fail((response["mutation_dispatched"] as? Bool)==true ? "mutation_failed_or_uncertain" : "unsupported_edit_target")}
+            guard let output=response["result"] as? [String:Any] else {fail("mutation_failed_or_uncertain")}
+            respond(["protocol_version":1,"result":output])
         }
         RunLoop.current.run(until:Date(timeIntervalSinceNow:30));fail("mutation_failed_or_uncertain")
     }

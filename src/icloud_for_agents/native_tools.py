@@ -280,6 +280,9 @@ def register_change_tools(mcp):
             requires the same ID/source, fields.deletion_plan_id from this owner's
             completed deletion, optional deletion_index (default 0), and exact
             destination fields.list_id. Restore can reactivate original alarms.
+            set_list_badge uses source_id/list_id and fields.badge: kind default,
+            or kind emoji/symbol with a value. Native validation requires one
+            emoji or an available macOS system symbol. It changes only appearance.
             set_list_pinned uses source_id/list_id and fields.pinned (Boolean),
             with the explicitly selected ReminderKit backend.
             set_list_color uses source_id/list_id and fields.color (#RRGGBB or

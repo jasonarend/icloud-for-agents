@@ -94,6 +94,9 @@ class NativeReader:
         if 'include_pinned' in fields and (self.name!='reminders' or action!='list_features'):raise SafetyError('Pin-state selection is supported only for Reminders list features')
         include_pinned=fields.pop('include_pinned',False)
         if type(include_pinned) is not bool:raise SafetyError('Pin-state selection must be Boolean')
+        if 'include_badge' in fields and (self.name!='reminders' or action!='list_features'):raise SafetyError('Badge selection is supported only for Reminders list features')
+        include_badge=fields.pop('include_badge',False)
+        if type(include_badge) is not bool:raise SafetyError('Badge selection must be Boolean')
         native_selections={}
         for key in ('include_native_metadata','include_native_tags','include_native_hierarchy','include_native_children','include_native_urgent','include_native_section','include_native_early','include_native_assignment','include_native_attachments'):
             if key in fields and (self.name!='reminders' or action!='get'):raise SafetyError('Native metadata selection is supported only for Reminders get')
@@ -240,6 +243,7 @@ class NativeReader:
         if match_scope!='all':request['match_scope']=match_scope
         if attachment_metadata:request['include_attachment_metadata']=True
         if include_pinned:request['include_pinned']=True
+        if include_badge:request['include_badge']=True
         if action=='model_folder_role':request['source_ids']=[fields['source_id']]
         request.update(native_selections)
         if action in {'folders','query','search','attachments','lists','text_page'}:
@@ -402,9 +406,11 @@ class NativeReader:
         if action=='list_features':
             keys={'protocol_version','source_id','list_id','grocery_categorization','grocery_shopping_session','is_group','shared','shared_to_me','can_be_shared','sharing_metadata_complete','list_type_verified','data_mutated','backend'}
             if include_pinned:keys.add('pinned')
+            if include_badge:keys.add('badge')
+            from .native_list_badges import valid_badge
             if (native_config('reminders')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode or not isinstance(result,dict) or set(result)!=keys
-                    or result.get('source_id') not in sources or result.get('list_id')!=fields['list_id'] or result.get('backend')!=('reminderkit-list-features-v3' if include_pinned else 'reminderkit-list-features-v2')
-                    or (include_pinned and type(result.get('pinned')) is not bool)
+                    or result.get('source_id') not in sources or result.get('list_id')!=fields['list_id'] or result.get('backend')!=('reminderkit-list-features-v4' if include_badge else 'reminderkit-list-features-v3' if include_pinned else 'reminderkit-list-features-v2')
+                    or (include_pinned and type(result.get('pinned')) is not bool) or (include_badge and not valid_badge(result.get('badge')))
                     or result.get('list_type_verified') is not False or result.get('sharing_metadata_complete') is not False or result.get('data_mutated') is not False
                     or any(type(result.get(k)) is not bool for k in ('grocery_categorization','grocery_shopping_session','is_group','shared','shared_to_me','can_be_shared'))):
                 raise SafetyError('Exact scoped native list settings could not be verified')
@@ -1160,9 +1166,9 @@ def register_read_tools(mcp):
 
         @mcp.tool(annotations=annotations)
         @guard
-        def reminders_list_features(list_id: str, include_pinned: bool=False) -> dict:
-            """Read scoped native grocery, group and sharing flags, optionally observing pin state; participants, permissions and complete list type remain unverified."""
-            return NativeReader('reminders').read('list_features',list_id=list_id,include_pinned=include_pinned)
+        def reminders_list_features(list_id: str, include_pinned: bool=False, include_badge:bool=False) -> dict:
+            """Read scoped native grocery, group and sharing flags, optionally observing pin state and emoji/symbol/default badge; participants, permissions and complete list type remain unverified."""
+            return NativeReader('reminders').read('list_features',list_id=list_id,include_pinned=include_pinned,include_badge=include_badge)
 
         @mcp.tool(annotations=annotations)
         @guard

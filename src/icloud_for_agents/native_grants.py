@@ -17,7 +17,7 @@ FIELDS={
  'notes':{'copy_observation':{'title','body','format'},'create_note':{'title','body','format'},'append_note':{'body','format'},'prepend_note':{'body','format'},'replace_text':{'find','replacement','expected_matches'},
           'update_note':{'title','body','format'},'move_note':{'destination_folder_id'},'restore_note':{'destination_folder_id'},'delete_note':{'recoverable'},'create_folder':{'title'},'rename_folder':{'title'}},
  'reminders':{'delete_reminder':{'recoverable'},'restore_reminder':{'deletion_plan_id','deletion_index','list_id'},'copy_observation':{'title','notes','priority','due','start','url','alarms'},'create_subtask':{'title'},'create_section':{'title'},'rename_section':{'title'},'create_reminder':{'title','notes','priority','due','start','url','alarms','location_alarms','recurrence'},'update_reminder':{'title','notes','priority','due','start','url','alarms','location_alarms'},
-              'set_completed':{'completed'},'set_flagged':{'flagged'},'set_urgent':{'urgent'},'add_early':{'unit','count'},'clear_early':{'clear'},'remove_tag':{'tag_id'},'add_tag':{'tag_name'},'replace_tag':{'tag_id','tag_name'},'move_reminder':{'list_id'},'create_list':{'title'},'rename_list':{'title'},'set_list_color':{'color'},'set_list_pinned':{'pinned'},'set_recurrence':{'recurrence','recurrence_scope'}}}
+              'set_completed':{'completed'},'set_flagged':{'flagged'},'set_urgent':{'urgent'},'add_early':{'unit','count'},'clear_early':{'clear'},'remove_tag':{'tag_id'},'add_tag':{'tag_name'},'replace_tag':{'tag_id','tag_name'},'move_reminder':{'list_id'},'create_list':{'title'},'rename_list':{'title'},'set_list_color':{'color'},'set_list_badge':{'badge'},'set_list_pinned':{'pinned'},'set_recurrence':{'recurrence','recurrence_scope'}}}
 
 
 def exact(value,limit=1000):
@@ -121,7 +121,7 @@ class NativeGrants:
             if self.name=='reminders' and rule['operation']=='delete_reminder':
                 from .native_reminder_moves import list_scope
                 result.append({'source':list_scope(self.engine.adapter,rule['source_id'],rule['container_id']),'destinations':[]});continue
-            if self.name=='reminders' and rule['operation']=='set_list_pinned':
+            if self.name=='reminders' and rule['operation'] in {'set_list_badge','set_list_pinned'}:
                 from .native_reminder_moves import list_scope
                 result.append({'source':list_scope(self.engine.adapter,rule['source_id'],rule['container_id']),'destinations':[]});continue
             if self.name=='reminders' and rule['operation'] in {'move_reminder','restore_reminder'}:
@@ -307,7 +307,7 @@ class NativeGrants:
         if marker is not None and (marker!='copy_observation' or op!=('create_note' if self.name=='notes' else 'create_reminder')):
             raise SafetyError('Invalid observation copy grant operation')
         container=(item.get('before',{}).get('original',{}).get('item',{}).get('list_id') if op=='restore_reminder' else item.get('parent_folder_id',item['source_id']) if op=='create_folder' else item['source_id'] if op=='create_list'
-                   else item.get('folder_id') if self.name=='notes' else item.get('list_id') if op in {'create_reminder','create_section','rename_section','rename_list','set_list_color','set_list_pinned'}
+                   else item.get('folder_id') if self.name=='notes' else item.get('list_id') if op in {'create_reminder','create_section','rename_section','rename_list','set_list_color','set_list_badge','set_list_pinned'}
                    else item.get('before',{}).get('item',{}).get('list_id'))
         fields=item.get('requested_fields')
         if not isinstance(fields,list) or not fields:raise SafetyError('Native standing plan lacks exact requested field scope')

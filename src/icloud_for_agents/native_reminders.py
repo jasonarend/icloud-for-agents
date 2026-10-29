@@ -153,7 +153,7 @@ def alarm_effects(alarms,due):
 
 
 class RemindersCreateAdapter:
-    operations={'delete_reminder','restore_reminder','set_list_pinned','create_list','create_reminder','create_section','rename_section','update_reminder','set_completed','move_reminder','rename_list','set_recurrence','set_list_color','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','add_early','clear_early','create_subtask'}
+    operations={'set_list_badge','delete_reminder','restore_reminder','set_list_pinned','create_list','create_reminder','create_section','rename_section','update_reminder','set_completed','move_reminder','rename_list','set_recurrence','set_list_color','set_flagged','remove_tag','add_tag','replace_tag','set_urgent','add_early','clear_early','create_subtask'}
     def __init__(self):self.reader=NativeReader('reminders')
     def bind_owner_context(self,account,store):self._plan_owner=account;self._plan_store=store
     @property
@@ -415,6 +415,9 @@ class RemindersCreateAdapter:
         if isinstance(change,dict) and change.get('operation') in {'delete_reminder','restore_reminder'}:
             from .native_reminder_lifecycle import prepare_delete,prepare_restore
             return prepare_delete(self,change) if change['operation']=='delete_reminder' else prepare_restore(self,change)
+        if isinstance(change,dict) and change.get('operation')=='set_list_badge':
+            from .native_list_badges import prepare
+            return prepare(self,change)
         if isinstance(change,dict) and change.get('operation')=='set_list_pinned':
             from .native_list_pins import prepare
             return prepare(self,change)
@@ -505,6 +508,9 @@ class RemindersCreateAdapter:
         if item['operation'] in {'delete_reminder','restore_reminder'}:
             from .native_reminder_lifecycle import deletion_snapshot,restoration_snapshot
             return deletion_snapshot(self,item) if item['operation']=='delete_reminder' else restoration_snapshot(self,item)
+        if item['operation']=='set_list_badge':
+            from .native_list_badges import snapshot
+            return snapshot(self,item)
         if item['operation']=='set_list_pinned':
             from .native_list_pins import snapshot
             return snapshot(self,item)
@@ -558,6 +564,9 @@ class RemindersCreateAdapter:
         if item['operation'] in {'delete_reminder','restore_reminder'}:
             from .native_reminder_lifecycle import verify_delete,verify_restore
             return verify_delete(self,item,outcome) if item['operation']=='delete_reminder' else verify_restore(self,item,outcome)
+        if item['operation']=='set_list_badge':
+            from .native_list_badges import verify
+            return verify(self,item,outcome)
         if item['operation']=='set_list_pinned':
             from .native_list_pins import verify
             return verify(self,item,outcome)

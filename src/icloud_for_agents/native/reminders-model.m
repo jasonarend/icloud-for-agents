@@ -180,12 +180,40 @@ NSData *ICloudRemindersListSections(NSData *data){
     }@catch(NSException *exception){return EncodeFlag(FlagFailure(@"private_read_exception"));}
 }
 // Observe fixed list flags only after EventKit establishes exact list/source scope.
+// A display badge is explicit emoji, a system symbol, or the provider default.
+static NSDictionary *ReadListBadge(id list){
+    if(!MethodMatches([list class],@"appearanceContext",@"@@:",NO))return nil;
+    id context=ObjectValue(list,@"appearanceContext");if(!MethodMatches([context class],@"badge",@"@@:",NO))return nil;
+    id badge=ObjectValue(context,@"badge");if(!badge){if(!MethodMatches([context class],@"badgeEmblem",@"@@:",NO) || ObjectValue(context,@"badgeEmblem"))return nil;return @{@"kind":@"default"};}
+    for(NSString *key in @[@"rawValue",@"emoji",@"emblem"])if(!MethodMatches([badge class],key,@"@@:",NO))return nil;
+    id raw=ObjectValue(badge,@"rawValue"),emoji=ObjectValue(badge,@"emoji"),emblem=ObjectValue(badge,@"emblem");
+    if(!raw && !emoji && !emblem)return @{@"kind":@"default"};
+    if(![raw isKindOfClass:NSString.class] || [raw length]>500 || (emoji && emblem))return nil;
+    if([emoji isKindOfClass:NSString.class] && [emoji length]>0 && [emoji length]<=64)return @{@"kind":@"emoji",@"value":emoji};
+    if([emblem isKindOfClass:NSString.class] && [emblem length]>0 && [emblem length]<=100)return @{@"kind":@"symbol",@"value":emblem};
+    return nil;
+}
+static id NewListBadge(NSDictionary *value){
+    if(![value isKindOfClass:NSDictionary.class])return nil;
+    NSString *kind=value[@"kind"];id text=value[@"value"];Class cls=NSClassFromString(@"REMListBadge");
+    // initWithRawValue:nil produces a literal null emoji on the tested provider.
+    // The exact default operation clears the appearance badge instead.
+    if([kind isEqual:@"default"] && value.count==1)return nil;
+    if(value.count!=2 || ![text isKindOfClass:NSString.class] || ![text length] || [text length]>100)return nil;
+    NSString *selector=[kind isEqual:@"emoji"]?@"initWithEmoji:":[kind isEqual:@"symbol"]?@"initWithEmblem:":nil;
+    if(!selector || !MethodMatches(cls,selector,@"@@:@",NO))return nil;
+    id badge=((id(*)(id,SEL,id))objc_msgSend)([cls alloc],NSSelectorFromString(selector),text);
+    if([kind isEqual:@"emoji"]){if(!MethodMatches(cls,@"_isSingleCharacterEmoji:",@"B@:@",NO) || !((BOOL(*)(id,SEL,id))objc_msgSend)(badge,NSSelectorFromString(@"_isSingleCharacterEmoji:"),text))return nil;}
+    else {Class image=NSClassFromString(@"NSImage");if(!MethodMatches(image,@"imageWithSystemSymbolName:accessibilityDescription:",@"@@:@@",YES) || !((id(*)(id,SEL,id,id))objc_msgSend)((id)image,NSSelectorFromString(@"imageWithSystemSymbolName:accessibilityDescription:"),text,nil))return nil;}
+    NSString *getter=[kind isEqual:@"emoji"]?@"emoji":@"emblem";if(![ObjectValue(badge,getter)isEqual:text])return nil;
+    return badge;
+}
 NSData *ICloudRemindersReadListFeatures(NSData *data){
     @try {
         id identity=[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
         if(![identity isKindOfClass:NSDictionary.class])return EncodeFlag(FlagFailure(@"invalid_public_identity"));
-        id includePinned=identity[@"include_pinned"];BOOL wantsPinned=includePinned!=nil;
-        if((wantsPinned && ([identity count]!=3 || CFGetTypeID((__bridge CFTypeRef)includePinned)!=CFBooleanGetTypeID() || ![includePinned boolValue])) || (!wantsPinned && [identity count]!=2))return EncodeFlag(FlagFailure(@"invalid_public_identity"));
+        id includePinned=identity[@"include_pinned"],includeBadge=identity[@"include_badge"];BOOL wantsPinned=includePinned!=nil,wantsBadge=includeBadge!=nil;
+        if([identity count]!=2+wantsPinned+wantsBadge || (wantsPinned && (CFGetTypeID((__bridge CFTypeRef)includePinned)!=CFBooleanGetTypeID() || ![includePinned boolValue])) || (wantsBadge && (CFGetTypeID((__bridge CFTypeRef)includeBadge)!=CFBooleanGetTypeID() || ![includeBadge boolValue])))return EncodeFlag(FlagFailure(@"invalid_public_identity"));
         for(NSString *key in @[@"source_id",@"list_id"]){id value=identity[key];NSUUID *uuid=[value isKindOfClass:NSString.class]?[[NSUUID alloc]initWithUUIDString:value]:nil;if(!uuid||!UUIDEqual(uuid.UUIDString,value))return EncodeFlag(FlagFailure(@"unsupported_public_identity"));}
         if(NSProcessInfo.processInfo.operatingSystemVersion.majorVersion!=27 || !dlopen("/System/Library/PrivateFrameworks/ReminderKit.framework/ReminderKit",RTLD_LAZY|RTLD_LOCAL))return EncodeFlag(FlagFailure(@"unsupported_interface"));
         Class ids=NSClassFromString(@"REMObjectID"),storeClass=NSClassFromString(@"REMStore");if(!MethodMatches(ids,@"objectIDWithURL:",@"@@:@",YES)||!MethodMatches(storeClass,@"fetchListWithObjectID:error:",@"@@:@^@",NO))return EncodeFlag(FlagFailure(@"unsupported_interface"));
@@ -203,6 +231,7 @@ NSData *ICloudRemindersReadListFeatures(NSData *data){
             BOOL pinned=((BOOL(*)(id,SEL))objc_msgSend)(list,NSSelectorFromString(@"isPinned"));
             result[@"pinned"]=@((BOOL)pinned);result[@"backend"]=@"reminderkit-list-features-v3";
         }
+        if(wantsBadge){NSDictionary *badge=ReadListBadge(list);if(!badge)return EncodeFlag(FlagFailure(@"unsupported_list_badge"));result[@"badge"]=badge;result[@"backend"]=@"reminderkit-list-features-v4";}
         return EncodeFlag(result);
     }@catch(NSException *exception){return EncodeFlag(FlagFailure(@"private_read_exception"));}
 }
@@ -1318,4 +1347,41 @@ NSData *ICloudRemindersRestoreRootLeaf(NSData *data,BOOL (^enterMutation)(void))
         if(!enterMutation())return EncodeFlag(FlagFailure(@"native_dispatch_cancelled"));dispatched=YES;error=nil;BOOL saved=((BOOL(*)(id,SEL,NSError **))objc_msgSend)(save,NSSelectorFromString(@"saveSynchronouslyWithError:"),&error);if(!saved || error)return EncodeFlag(@{@"protocol_version":@1,@"error":@"mutation_failed_or_uncertain",@"mutation_dispatched":@YES});
         return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":identifier,@"source_id":source,@"list_id":listID,@"saved_locally":@YES}});
     }@catch(NSException *e){return EncodeFlag(@{@"protocol_version":@1,@"error":dispatched?@"mutation_failed_or_uncertain":@"private_metadata_unavailable",@"mutation_dispatched":@(dispatched)});}
+}
+
+NSData *ICloudRemindersSetListBadge(NSData *data,BOOL (^enterMutation)(void)){
+    __block BOOL dispatched=NO;
+    @try {
+        id request=[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
+        if(![request isKindOfClass:NSDictionary.class] || [request count]!=4 || !enterMutation
+                || ![request[@"badge"] isKindOfClass:NSDictionary.class]
+                || ![request[@"expected_features"] isKindOfClass:NSDictionary.class])return EncodeFlag(FlagFailure(@"invalid_public_identity"));
+        NSDictionary *identity=@{@"source_id":request[@"source_id"]?:[NSNull null],@"list_id":request[@"list_id"]?:[NSNull null],@"include_badge":@YES};
+        NSData *identityData=[NSJSONSerialization dataWithJSONObject:identity options:0 error:NULL];
+        id observed=[NSJSONSerialization JSONObjectWithData:ICloudRemindersReadListFeatures(identityData) options:0 error:NULL];
+        if(![observed isEqual:request[@"expected_features"]] || ![observed[@"badge"] isKindOfClass:NSDictionary.class] || [observed[@"badge"] isEqual:request[@"badge"]])return EncodeFlag(FlagFailure(@"snapshot_changed"));
+        for(NSString *key in @[@"shared",@"shared_to_me",@"is_group",@"grocery_categorization",@"grocery_shopping_session"])if(![observed[key] isEqual:@NO])return EncodeFlag(FlagFailure(@"unsupported_badge_write"));
+        Class ids=NSClassFromString(@"REMObjectID"),storeClass=NSClassFromString(@"REMStore"),saveClass=NSClassFromString(@"REMSaveRequest");
+        if(!MethodMatches(saveClass,@"initWithStore:",@"@@:@",NO) || !MethodMatches(saveClass,@"updateList:",@"@@:@",NO) || !MethodMatches(saveClass,@"saveSynchronouslyWithError:",@"B@:^@",NO))return EncodeFlag(FlagFailure(@"unsupported_badge_write"));
+        id store=[storeClass new],objectID=((id(*)(id,SEL,id))objc_msgSend)((id)ids,NSSelectorFromString(@"objectIDWithURL:"),[NSURL URLWithString:[@"x-apple-reminderkit://REMCDList/" stringByAppendingString:request[@"list_id"]]]);NSError *error=nil;
+        id list=((id(*)(id,SEL,id,NSError **))objc_msgSend)(store,NSSelectorFromString(@"fetchListWithObjectID:error:"),objectID,&error);
+        if(error || !UUIDEqual(ObjectUUID(list,@"REMCDList"),request[@"list_id"]) || !UUIDEqual(ObjectUUID(ObjectValue(list,@"account"),@"REMCDAccount"),request[@"source_id"]) || !StorageMatchesAccount(ObjectValue(list,@"storage"),request[@"source_id"]))return EncodeFlag(FlagFailure(@"native_identity_mismatch"));
+        if(![ReadListBadge(list)isEqual:observed[@"badge"]])return EncodeFlag(FlagFailure(@"snapshot_changed"));
+        for(NSString *name in @[@"isShared",@"isSharedToMe"])if(!MethodMatches([list class],name,@"B@:",NO) || ((BOOL(*)(id,SEL))objc_msgSend)(list,NSSelectorFromString(name)))return EncodeFlag(FlagFailure(@"unsupported_badge_write"));
+        id storage=ObjectValue(list,@"storage");
+        for(NSString *name in @[@"shouldCategorizeGroceryItems",@"shouldSupportGroceryShoppingSession",@"isGroup"])if(!MethodMatches([storage class],name,@"B@:",NO) || ((BOOL(*)(id,SEL))objc_msgSend)(storage,NSSelectorFromString(name)))return EncodeFlag(FlagFailure(@"unsupported_badge_write"));
+        id save=((id(*)(id,SEL,id))objc_msgSend)([saveClass alloc],NSSelectorFromString(@"initWithStore:"),store),change=((id(*)(id,SEL,id))objc_msgSend)(save,NSSelectorFromString(@"updateList:"),list);
+        id appearance=ObjectValue(change,@"appearanceContext"),badge=NewListBadge(request[@"badge"]);
+        if(!change || (!badge && ![request[@"badge"] isEqual:@{@"kind":@"default"}]) || !MethodMatches([appearance class],@"setBadge:",@"v@:@",NO))return EncodeFlag(FlagFailure(@"unsupported_badge_write"));
+        ((void(*)(id,SEL,id))objc_msgSend)(appearance,NSSelectorFromString(@"setBadge:"),badge);
+        id keys=ObjectValue(change,@"changedKeys"),lists=ObjectValue(save,@"trackedListChangeItems"),reminders=ObjectValue(save,@"trackedReminderChangeItems");
+        if(![ReadListBadge(change)isEqual:request[@"badge"]] || ![keys isKindOfClass:NSSet.class] || ![keys isEqual:[NSSet setWithObject:@"badgeEmblem"]]
+                || ![lists isKindOfClass:NSDictionary.class] || [lists count]!=1 || ![reminders isKindOfClass:NSDictionary.class] || [reminders count]!=0)return EncodeFlag(FlagFailure(@"unsupported_badge_write"));
+        id key=[[lists allKeys] firstObject],uuid=ObjectValue(key,@"uuid");
+        if(![ObjectValue(key,@"entityName") isEqual:@"REMCDList"] || ![uuid isKindOfClass:NSUUID.class] || !UUIDEqual([uuid UUIDString],request[@"list_id"]) || ObjectValue(lists[key],@"valueWithoutPerformingCopy")!=change)return EncodeFlag(FlagFailure(@"unsupported_badge_write"));
+        if(!enterMutation())return EncodeFlag(FlagFailure(@"native_dispatch_cancelled"));
+        dispatched=YES;error=nil;BOOL saved=((BOOL(*)(id,SEL,NSError **))objc_msgSend)(save,NSSelectorFromString(@"saveSynchronouslyWithError:"),&error);
+        if(!saved || error)return EncodeFlag(@{@"protocol_version":@1,@"error":@"mutation_failed_or_uncertain",@"mutation_dispatched":@YES});
+        return EncodeFlag(@{@"protocol_version":@1,@"result":@{@"id":request[@"list_id"],@"source_id":request[@"source_id"],@"badge":request[@"badge"],@"saved_locally":@YES}});
+    }@catch(NSException *exception){return EncodeFlag(@{@"protocol_version":@1,@"error":dispatched?@"mutation_failed_or_uncertain":@"private_metadata_unavailable",@"mutation_dispatched":@(dispatched)});}
 }
