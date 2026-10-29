@@ -22,7 +22,7 @@ class NotesMoveRecovery:
         if (plan.get('kind')!='notes_change' or plan['payload'].get('account')!=self.account
                 or plan['payload'].get('context',{}).get('source_ids')!=context['source_ids']
                 or result.get('status')!='failed_or_uncertain' or result.get('phase') not in {'mutation','verification'}
-                or len(items)!=1 or items[0].get('operation')!='move_note' or items[0].get('id')!=items[0].get('before',{}).get('note',{}).get('id')
+                or len(items)!=1 or items[0].get('operation') not in {'move_note','restore_note'} or items[0].get('id')!=items[0].get('before',{}).get('note',{}).get('id')
                 or items[0].get('source_id')!=items[0].get('before',{}).get('note',{}).get('source_id')
                 or items[0].get('folder_id')!=items[0].get('before',{}).get('note',{}).get('folder_id')
                 or result.get('completed')!=[] or not isinstance(result.get('attempted'),list) or len(result['attempted'])>1
@@ -31,12 +31,21 @@ class NotesMoveRecovery:
         attempts=result['attempted'];expected=set()
         if attempts:
             attempt=attempts[0];expected={self.store.path(identity,'.attempt-0')}
-            if (attempt.get('index')!=0 or attempt.get('operation')!='move_note' or attempt.get('result',{}).get('id')!=items[0]['id']
+            if (attempt.get('index')!=0 or attempt.get('operation')!=items[0]['operation'] or attempt.get('result',{}).get('id')!=items[0]['id']
                     or self.store.read(self.store.path(identity,'.attempt-0'))!={'plan_sha256':digest(plan),'attempt':attempt}):raise SafetyError('Known move attempt evidence is inconsistent')
         if set(self.store.root.glob(identity+'.attempt-*'))!=expected:raise SafetyError('Unexpected move dispatch evidence; no observation association')
         return plan,result,items[0]
     def snapshot(self,item):
         source=item['folder_id'];destination=item['fields']['destination_folder_id'];identity=item['id']
+        if item['operation']=='restore_note':
+            from .native_notes_restore import observe
+            observed,physical,roles=observe(self.adapter,item);note=observed['note'];actual=physical['folder_id'];before=item['before']['note']
+            return {'note_id':identity,'source_id':item['source_id'],'source_folder_id':source,'destination_folder_id':destination,
+                    'observed_folder_id':actual,'location':'source' if actual==source else 'destination','title':note['title'],
+                    'original_modified':before.get('modified'),'observed_modified':note.get('modified'),
+                    'content_sha256':digest({key:note.get(key) for key in CONTENT_KEYS}),'attachments_sha256':digest(observed['attachments']),
+                    'folders':{source:item['before']['folder'],destination:item['before']['destination']},
+                    'persisted_location':physical,'recovery_roles':roles}
         folders={key:self.adapter.private_folder(key,item['source_id']) for key in (source,destination)}
         present={key:self.adapter.reader.read('contains',folder_id=key,id=identity).get('exists') for key in (source,destination)}
         if any(type(v) is not bool for v in present.values()) or sum(present.values())!=1:

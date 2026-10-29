@@ -15,7 +15,7 @@ from .native_read import native_config
 
 FIELDS={
  'notes':{'copy_observation':{'title','body','format'},'create_note':{'title','body','format'},'append_note':{'body','format'},'prepend_note':{'body','format'},'replace_text':{'find','replacement','expected_matches'},
-          'update_note':{'title','body','format'},'move_note':{'destination_folder_id'},'create_folder':{'title'},'rename_folder':{'title'}},
+          'update_note':{'title','body','format'},'move_note':{'destination_folder_id'},'restore_note':{'destination_folder_id'},'create_folder':{'title'},'rename_folder':{'title'}},
  'reminders':{'copy_observation':{'title','notes','priority','due','start','url','alarms'},'create_subtask':{'title'},'create_section':{'title'},'rename_section':{'title'},'create_reminder':{'title','notes','priority','due','start','url','alarms','location_alarms','recurrence'},'update_reminder':{'title','notes','priority','due','start','url','alarms','location_alarms'},
               'set_completed':{'completed'},'set_flagged':{'flagged'},'set_urgent':{'urgent'},'add_early':{'unit','count'},'clear_early':{'clear'},'remove_tag':{'tag_id'},'add_tag':{'tag_name'},'replace_tag':{'tag_id','tag_name'},'move_reminder':{'list_id'},'create_list':{'title'},'rename_list':{'title'},'set_list_color':{'color'},'set_list_pinned':{'pinned'},'set_recurrence':{'recurrence','recurrence_scope'}}}
 
@@ -49,7 +49,7 @@ def validate_scope(name,scope,now):
             raise SafetyError('Native grant field scope must explicitly select supported fields')
         if 'location_alarms' in fields and 'alarms' not in fields:raise SafetyError('Location-alarm authority requires explicit complete alarm-set authority')
         if (not isinstance(dest,list) or len(dest)>20 or any(not exact(d) for d in dest)
-                or len(set(dest))!=len(dest) or bool(dest)!=(op in {'move_note','move_reminder','create_subtask','rename_section'})):
+                or len(set(dest))!=len(dest) or bool(dest)!=(op in {'move_note','restore_note','move_reminder','create_subtask','rename_section'})):
             raise SafetyError('Moves require exact destinations, subtask creation exact parents and section renames exact section IDs; other rules cannot grant them')
         if op=='rename_section':
             import uuid
@@ -88,6 +88,16 @@ class NativeGrants:
             root=rule['operation'] in {'create_folder','create_list'}
             if not root and rule['container_id']==rule['source_id']:raise SafetyError('An item operation needs a real container ID')
             if rule['operation']=='create_list' and rule['container_id']!=rule['source_id']:raise SafetyError('List creation targets its selected source root')
+            if self.name=='notes' and rule['operation']=='restore_note':
+                from .native_notes_restore import endpoints,stable_roles
+                destinations=[];roles={}
+                for destination in rule['destinations']:
+                    _,target,checked=endpoints(self.engine.adapter,rule['source_id'],rule['container_id'],destination,resolve_origin=False)
+                    destinations.append(target)
+                    for role in stable_roles(checked):
+                        if role['folder_id'] in roles and roles[role['folder_id']]!=role:raise SafetyError('Recovery folder roles changed during grant review')
+                        roles[role['folder_id']]=role
+                result.append({'source':{'source_id':rule['source_id'],'container_id':rule['container_id'],'verified_recovery_roles':[roles[key] for key in sorted(roles)]},'destinations':destinations});continue
             if self.name=='notes' and rule['operation']=='move_note':
                 destinations=[];roles={};source=None
                 for destination in rule['destinations']:
@@ -300,7 +310,7 @@ class NativeGrants:
                     and set(fields)<=set(rule['fields'])):
                 if requires_location and 'location_alarms' not in rule['fields']:continue
                 dest=item['fields'].get('destination_folder_id' if self.name=='notes' else 'list_id')
-                if op in {'move_note','move_reminder'} and dest not in rule['destinations']:continue
+                if op in {'move_note','restore_note','move_reminder'} and dest not in rule['destinations']:continue
                 if op=='create_subtask' and item['id'] not in rule['destinations']:continue
                 if op=='rename_section' and item['section_id'].upper() not in {value.upper() for value in rule['destinations']}:continue
                 return

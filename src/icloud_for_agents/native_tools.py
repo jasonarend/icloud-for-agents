@@ -175,7 +175,10 @@ def register_change_tools(mcp):
             replacement and integer expected_matches), update_note (id, folder_id,
             complete title/body/format), rename_folder (folder_id, title; requires the
             explicitly selected development native writer and store metadata).
-            Note moves are paused until special folder roles can be verified.
+            move_note (id, folder_id, destination_folder_id) moves between ordinary
+            private folders. restore_note uses those fields to restore from the
+            verified system Recently Deleted folder to an ordinary private folder.
+            Both require explicitly selected read-only store metadata.
             All require source_id and fields object.
             Literal replacement preserves the title; prepend follows the title.
             Existing native objects and unsupported body rewrites are refused.

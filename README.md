@@ -23,7 +23,7 @@ Mail cleanup moves messages to recoverable Trash. Permanent deletion and emptyin
 
 Calendar support currently covers personal, nonrecurring events. Invitations, guests, scheduling responses and recurring-event editing are not yet supported. iCloud Drive access is also not included.
 
-Notes and Reminders are optional development features, disabled by default. Some native capabilities require an explicitly selected advanced backend. Programmatic deletion, restoration and hierarchy-aware moves are not yet available; other rich content and native features have specific limits. See [native service setup and current capabilities](docs/getting-started/native-services.md).
+Notes and Reminders are optional development features, disabled by default. Some native capabilities require an explicitly selected advanced backend. Approved organization includes same-account Notes moves, native Notes restoration and bounded Reminder subtree moves. Programmatic deletion and Reminder restoration remain unfinished; rich content and other native features have specific limits. See [native service setup and current capabilities](docs/getting-started/native-services.md).
 
 ## Set up with your AI agent
 

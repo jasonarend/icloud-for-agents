@@ -51,7 +51,7 @@ def prepare_content(fields):
 
 
 class NotesCreateAdapter:
-    operations={'create_note','create_folder','append_note','prepend_note','replace_text','update_note','move_note','rename_folder'}
+    operations={'create_note','create_folder','append_note','prepend_note','replace_text','update_note','move_note','restore_note','rename_folder'}
     def __init__(self):self.reader=NativeReader('notes')
 
     @property
@@ -381,6 +381,9 @@ class NotesCreateAdapter:
         return item
 
     def prepare(self,change):
+        if isinstance(change,dict) and change.get('operation')=='restore_note':
+            from .native_notes_restore import prepare
+            return prepare(self,change)
         if isinstance(change,dict) and change.get('operation')=='rename_folder':return self.prepare_folder_rename(change)
         if isinstance(change,dict) and change.get('operation')=='move_note':return self.prepare_move(change)
         if isinstance(change,dict) and change.get('operation') in {'append_note','prepend_note','replace_text','update_note'}:
@@ -422,6 +425,9 @@ class NotesCreateAdapter:
         return item
 
     def snapshot(self,item):
+        if item['operation']=='restore_note':
+            from .native_notes_restore import snapshot
+            return snapshot(self,item)
         if item['operation']=='rename_folder':return self.folder_rename_snapshot(item)
         if item['operation']=='move_note':return self.move_snapshot(item)
         if item['operation'] in {'append_note','prepend_note','replace_text','update_note'}:return self.note_snapshot(item)
@@ -443,6 +449,9 @@ class NotesCreateAdapter:
         return self.reader._dispatch(request,config)['result']
 
     def verify(self,item,outcome):
+        if item['operation']=='restore_note':
+            from .native_notes_restore import verify
+            return verify(self,item,outcome)
         if outcome.get('source_id')!=item['source_id'] or not isinstance(outcome.get('id'),str):return False
         if item['operation']=='rename_folder':return self.verify_folder_rename(item,outcome)
         if item['operation']=='move_note':return self.verify_move(item,outcome)
