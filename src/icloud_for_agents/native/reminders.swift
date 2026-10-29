@@ -10,6 +10,7 @@ import Darwin
 import AppKit
 import Carbon
 import CryptoKit
+import ImageIO
 
 let ipcDirectory: URL? = {
     guard CommandLine.arguments.count > 1 else { return nil }
@@ -682,8 +683,35 @@ func reminderRecurrence(_ value:Any,due:DateComponents?)->EKRecurrenceRule? {
     return rule
 }
 if action == "apply" {
-    if let change=req["change"] as? [String:Any],let operation=change["operation"] as? String,["add_file_attachment","rename_grocery_category","set_grocery_category","create_grocery_category","set_grocery_categorization","create_template","rename_template","set_section","create_smart_list","set_smart_list_sources","rename_smart_list","reparent_reminder","reorder_group","group_list","ungroup_list","create_group","rename_group","reorder_reminder","delete_reminder","restore_reminder","set_list_badge","set_list_pinned","set_flagged","remove_tag","add_tag","replace_tag","set_urgent","add_early","clear_early","create_subtask","create_section","rename_section","move_reminder"].contains(operation) {
+    if let change=req["change"] as? [String:Any],let operation=change["operation"] as? String,["add_image_attachment","add_file_attachment","rename_grocery_category","set_grocery_category","create_grocery_category","set_grocery_categorization","create_template","rename_template","set_section","create_smart_list","set_smart_list_sources","rename_smart_list","reparent_reminder","reorder_group","group_list","ungroup_list","create_group","rename_group","reorder_reminder","delete_reminder","restore_reminder","set_list_badge","set_list_pinned","set_flagged","remove_tag","add_tag","replace_tag","set_urgent","add_early","clear_early","create_subtask","create_section","rename_section","move_reminder"].contains(operation) {
         privateReminderGateArmed=true;NativeMutationGate.armDeadline()
+    }
+    if let item=req["change"] as? [String:Any],item["operation"] as? String=="add_image_attachment" {
+        guard let source=item["source_id"] as? String,sourceIDs.contains(source),let listing=item["list_id"] as? String,let identity=item["id"] as? String,UUID(uuidString:identity)?.uuidString==identity,
+              let fields=item["fields"] as? [String:Any],Set(fields.keys)==["data_base64"],let encoded=fields["data_base64"] as? String,encoded.utf8.count<=21848,let raw=Data(base64Encoded:encoded),raw.count>0,raw.count<=16384,raw.base64EncodedString()==encoded,let width=item["width"] as? NSNumber,let height=item["height"] as? NSNumber,CFGetTypeID(width) != CFBooleanGetTypeID(),CFGetTypeID(height) != CFBooleanGetTypeID(),width.doubleValue==Double(width.intValue),height.doubleValue==Double(height.intValue),(1...1024).contains(width.intValue),(1...1024).contains(height.intValue),let imageSource=CGImageSourceCreateWithData(raw as CFData,[kCGImageSourceShouldCache:false] as CFDictionary),CGImageSourceGetCount(imageSource)==1,CGImageSourceGetType(imageSource) as String?=="public.png",let image=CGImageSourceCreateImageAtIndex(imageSource,0,[kCGImageSourceShouldCache:false] as CFDictionary),image.width==width.intValue,image.height==height.intValue,let attachment=item["attachment_id"] as? String,UUID(uuidString:attachment)?.uuidString==attachment,let hash=item["sha256"] as? String,hash==SHA256.hash(data:raw).map({String(format:"%02x",$0)}).joined(),let size=item["size"] as? NSNumber,CFGetTypeID(size) != CFBooleanGetTypeID(),size.doubleValue==Double(raw.count),let before=item["before"] as? [String:Any],let expectedList=before["list"] as? [String:Any],
+              let graph=before["graph"] as? [String:Any],let nodes=graph["nodes"] as? [[String:Any]],nodes.count<=20,let previous=before["items"] as? [[String:Any]],previous.count==nodes.count,
+              let list=lists.first(where:{$0.calendarIdentifier==listing && $0.source.sourceIdentifier==source}),list.allowsContentModifications,NSDictionary(dictionary:listRecord(list)).isEqual(to:expectedList) else {fail("invalid_mutation")}
+        store.fetchReminders(matching:store.predicateForReminders(in:[list])) { values in
+            guard let values=values,values.count==nodes.count,Set(values.map{$0.calendarItemIdentifier})==Set(nodes.compactMap{$0["id"] as? String}) else {fail("snapshot_changed")}
+            var seen=Set<String>()
+            for snapshot in previous {
+                guard let old=snapshot["item"] as? [String:Any],let id=old["id"] as? String,seen.insert(id).inserted,let reminder=values.first(where:{$0.calendarItemIdentifier==id}),!reminder.isCompleted,!reminder.hasRecurrenceRules,NSDictionary(dictionary:object(reminder)).isEqual(to:old),
+                      let native=snapshot["native_metadata"] as? [String:Any],nativeSnapshotMatches(reminder,native),native["parent_id"] is NSNull,(native["child_ids"] as? [String])?.isEmpty==true,
+                      let urgent=snapshot["urgent"] as? NSNumber,CFGetTypeID(urgent)==CFBooleanGetTypeID(),let bytes=try? JSONSerialization.data(withJSONObject:["id":id,"source_id":source,"list_id":listing]),
+                      let result=(try? JSONSerialization.jsonObject(with:ICloudRemindersReadUrgent(bytes))) as? [String:Any],let meta=result["native_metadata"] as? [String:Any],let current=meta["urgent"] as? NSNumber,CFGetTypeID(current)==CFBooleanGetTypeID(),current.boolValue==urgent.boolValue else {fail("snapshot_changed")}
+            }
+            for snapshot in previous {
+                guard let old=snapshot["item"] as? [String:Any],let id=old["id"] as? String,let oldAttachments=snapshot["attachments"] as? [String:Any],
+                      let bytes=try? JSONSerialization.data(withJSONObject:["id":id,"source_id":source,"list_id":listing]),
+                      let response=(try? JSONSerialization.jsonObject(with:ICloudRemindersReadAttachments(bytes))) as? [String:Any],let current=response["native_metadata"] as? [String:Any],NSDictionary(dictionary:current).isEqual(to:oldAttachments) else {fail("snapshot_changed")}
+            }
+            guard let bytes=try? JSONSerialization.data(withJSONObject:["source_id":source,"list_id":listing,"id":identity,"attachment_id":attachment,"uti":"public.png","data_base64":encoded,"width":width,"height":height,"sha256":hash,"before":before]),
+                  let response=(try? JSONSerialization.jsonObject(with:ICloudRemindersAddPNGImage(bytes,{NativeMutationGate.beginMutation()}))) as? [String:Any] else {fail("invalid_mutation")}
+            if response["error"] != nil {failPrivateReminder(response)}
+            guard let output=response["result"] as? [String:Any] else {fail("mutation_failed_or_uncertain")}
+            respond(["protocol_version":1,"result":output])
+        }
+        RunLoop.current.run(until:Date(timeIntervalSinceNow:30));fail("mutation_failed_or_uncertain")
     }
     if let item=req["change"] as? [String:Any],item["operation"] as? String=="add_file_attachment" {
         guard let source=item["source_id"] as? String,sourceIDs.contains(source),let listing=item["list_id"] as? String,let identity=item["id"] as? String,UUID(uuidString:identity)?.uuidString==identity,

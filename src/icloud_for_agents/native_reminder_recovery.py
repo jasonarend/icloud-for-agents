@@ -56,7 +56,7 @@ class ReminderObservationRecovery:
         with self.engine.serialized():
             plan,result,item=self.original(original_id)
             if self.store._native_reminder_recovery_completed(original_id):raise SafetyError('An observation has already been accepted for this Reminder')
-            if item.get('operation') in {'add_file_attachment','rename_grocery_category','create_grocery_category','set_grocery_categorization','create_template','create_smart_list','set_smart_list_sources','rename_template','rename_smart_list','create_subtask','delete_reminder','restore_reminder','reorder_reminder','create_group','rename_group','group_list','ungroup_list','reorder_group','set_grocery_category','set_section','reparent_reminder'} and legacy:raise SafetyError('Subtask and lifecycle acceptance require retained terminal evidence')
+            if item.get('operation') in {'add_image_attachment','add_file_attachment','rename_grocery_category','create_grocery_category','set_grocery_categorization','create_template','create_smart_list','set_smart_list_sources','rename_template','rename_smart_list','create_subtask','delete_reminder','restore_reminder','reorder_reminder','create_group','rename_group','group_list','ungroup_list','reorder_group','set_grocery_category','set_section','reparent_reminder'} and legacy:raise SafetyError('Subtask and lifecycle acceptance require retained terminal evidence')
             observed=self.observation(original_id,True) if legacy else self.observation(original_id,unknown=True) if accept_unknown_dispatch else self.observation(original_id)
             request=None if legacy else self.store.read(self.store.path(original_id,'.native-reminder-request-0'))
             response=None if legacy else self.store.read(self.store.path(original_id,'.native-reminder-response-0'))
@@ -84,6 +84,9 @@ class ReminderObservationRecovery:
                 payload['effects']['group_order_coverage']=RECOVERY_EFFECT
             if item.get('operation') in {'group_list','ungroup_list'}:
                 payload['effects']['list_grouping_coverage']='Only the reviewed list scope, bounded task membership, parent, mixed group view and native account order are compared. Causal dispatch, delayed effects and unexposed metadata remain unproven. No replay.'
+            if item.get('operation')=='add_image_attachment':
+                from .native_reminder_image_create import RECOVERY_EFFECT
+                payload['effects']['image_insertion_coverage']=RECOVERY_EFFECT
             if item.get('operation')=='add_file_attachment':
                 from .native_reminder_file_create import RECOVERY_EFFECT
                 payload['effects']['file_insertion_coverage']=RECOVERY_EFFECT

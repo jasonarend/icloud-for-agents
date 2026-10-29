@@ -298,6 +298,18 @@ def register_change_tools(mcp):
             It preserves group identity, mixed child view and other account entries.
             rename_group uses source_id, group_id and fields.title for one
             private root group; observed child lists and account order are preserved.
+            add_image_attachment uses exact source_id/id and only
+            fields.data_base64 for one complete PNG of at most 16KiB/1024x1024.
+            Supports 8-bit noninterlaced RGB/RGBA without metadata or animation.
+            The server assigns attachment ID, dimensions and digest. The selected
+            ReminderKit helper validates bounded private ordinary root-leaf list
+            scope and an initially empty target attachment inventory, then uses
+            the native image constructor only after the mutation gate. Readback
+            verifies exact stored PNG bytes/dimensions and preserved source state.
+            Normal once/scenario authority, two-object quota and uncertainty
+            guards apply. Grant fields select data_base64 in the exact list.
+            JPEG, arbitrary filenames, existing-attachment replacement and image
+            removal remain unavailable.
             add_file_attachment uses exact source_id/id and fields.uti set to
             public.plain-text plus canonical fields.data_base64 (1..16384 UTF-8
             bytes, no NUL) and explicit fields.allow_mcp_only true: Reminders does

@@ -5,7 +5,7 @@ and cannot settle or replay it. No title, notes or other contents are returned.
 """
 from .core import SafetyError, digest
 
-OBSERVABLE_CHANGES = {'add_file_attachment','rename_grocery_category','create_grocery_category','set_grocery_categorization','create_template','create_smart_list','set_smart_list_sources','rename_template','rename_smart_list','update_reminder', 'set_completed', 'set_recurrence', 'set_flagged',
+OBSERVABLE_CHANGES = {'add_image_attachment','add_file_attachment','rename_grocery_category','create_grocery_category','set_grocery_categorization','create_template','create_smart_list','set_smart_list_sources','rename_template','rename_smart_list','update_reminder', 'set_completed', 'set_recurrence', 'set_flagged',
                       'remove_tag', 'add_tag', 'replace_tag', 'set_urgent', 'add_early',
                       'clear_early', 'move_reminder', 'create_subtask', 'delete_reminder', 'restore_reminder', 'reorder_reminder', 'create_group', 'rename_group', 'group_list', 'ungroup_list', 'reorder_group', 'set_grocery_category','set_section', 'reparent_reminder'}
 
@@ -31,6 +31,14 @@ def inspect_uncertain_reminder(engine, plan_id):
     if not isinstance(item, dict):
         raise SafetyError('The original reminder snapshot is unavailable')
     before = item.get('before')
+    if item.get('operation')=='add_image_attachment':
+        from .native_reminder_image_create import snapshot,COVERAGE
+        observed=snapshot(engine.adapter,item)
+        if engine.context(True)!=context:raise SafetyError('Reminders access changed during file observation')
+        from .native_reminder_exchange import inspect
+        return {'plan_id':plan_id,'reminder_id':item['id'],'source_id':item['source_id'],'observed_snapshot_matches_before':observed==before,
+                'snapshot_coverage':COVERAGE,'observation_consistency':'separate_live_reads_may_change','original_uncertainty_retained':True,
+                'causal_dispatch_proven':False,'temporary_artifacts_observed':False,'data_mutated':False,'do_not_retry':True,**inspect(engine.store,plan)}
     if item.get('operation')=='add_file_attachment':
         from .native_reminder_file_create import snapshot,COVERAGE
         observed=snapshot(engine.adapter,item)
