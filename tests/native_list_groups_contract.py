@@ -51,7 +51,7 @@ int main(){@autoreleasepool{
  saveFails=YES;NSCAssert([call(YES)[@"mutation_dispatched"]isEqual:@YES] && flagSaves==3,@"failed native save remains uncertain");saveFails=NO;prior=gates;group.isShared=YES;NSCAssert(call(YES)[@"error"] && gates==prior,@"shared group refused");
 }}
 '''
-def run():
+def list_groups_fixture():
     fixture=groups_fixture()
     fixture=fixture.replace('@interface FixtureAccountChange:NSObject','@class FixtureGroupChange;\n@interface FixtureAccountChange:NSObject\n-(void)insertListChangeItem:(id)item beforeListChangeItem:(id)anchor;\n-(void)insertListChangeItem:(id)item afterListChangeItem:(id)anchor;')
     fixture=fixture.replace('@interface FixtureGroupChange:NSObject','@interface FixtureGroupChange:NSObject\n-(id)sublistContext;')
@@ -61,6 +61,10 @@ def run():
     fixture=fixture.replace('@implementation FixtureGroupChange\n','@implementation FixtureGroupChange\n-(id)sublistContext{FixtureGroupContext *c=[FixtureGroupContext new];c.group=self;return c;}\n')
     fixture=fixture.replace('@interface FixtureList:NSObject','@interface FixtureList:NSObject\n-(id)sublistContext;').replace('@implementation FixtureList\n','@implementation FixtureList\n-(id)sublistContext{return [FixtureGroupContext new];}\n')
     a=fixture.index('@implementation FixtureSave');b=fixture.index('\n@end',a)+len('\n@end');fixture=fixture[:a]+EXTRA[EXTRA.index('static void Place('):]+SAVE+fixture[b:]
+    return fixture
+
+def run():
+    fixture=list_groups_fixture()
     with tempfile.TemporaryDirectory(prefix='native-list-groups-') as directory:
         p=Path(directory);(p/'reminders-model.h').write_text((ROOT/'src/icloud_for_agents/native/reminders-model.h').read_text());(p/'test.m').write_text(shipped_source()+'\n'+fixture+'\n'+MAIN)
         r=subprocess.run(['/usr/bin/clang','-fobjc-arc','-framework','Foundation',str(p/'test.m'),'-o',str(p/'contract')],capture_output=True,text=True,timeout=60);assert r.returncode==0,r.stderr

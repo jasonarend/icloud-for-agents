@@ -233,6 +233,10 @@ class PlanStore:
         if item['operation'] in {'delete_reminder','restore_reminder'}:
             if legacy or payload.get('effects',{}).get('lifecycle_coverage')!='Only reviewed live or recovery observations and the bounded list graph are compared. Deleted content not exposed by recovery, delayed effects and causal dispatch remain unproven. No replay or automatic retry.':return False
             coverage='unchanged_root_leaf_and_bounded_source_graph' if item['operation']=='delete_reminder' else 'reviewed_recovery_observations_and_bounded_destination_graph'
+        if item['operation']=='reorder_group':
+            from .native_group_order import COVERAGE,RECOVERY_EFFECT
+            if legacy or payload.get('effects',{}).get('group_order_coverage')!=RECOVERY_EFFECT:return False
+            coverage=COVERAGE
         if item['operation'] in {'group_list','ungroup_list'}:
             if legacy or payload.get('effects',{}).get('list_grouping_coverage')!='Only the reviewed list scope, bounded task membership, parent, mixed group view and native account order are compared. Causal dispatch, delayed effects and unexposed metadata remain unproven. No replay.':return False
             coverage='reviewed_list_scope_task_membership_parent_group_members_and_account_order'
@@ -491,7 +495,7 @@ class PlanStore:
         from .native_reminder_exchange import inspect
         from .native_reminder_lifecycle import expected_record_matches
         record=self.read(path);plan=self.read(self.path(identity,'.json'));result=self.read(self.path(identity,'.result'));payload=plan.get('payload',{});items=payload.get('changes',[]);started=self.read(self.path(identity,'.started'))
-        if (plan.get('kind')!='reminders_change' or not isinstance(items,list) or len(items)!=1 or items[0].get('operation') not in {'delete_reminder','restore_reminder','reorder_reminder','create_group','rename_group','group_list','ungroup_list'}
+        if (plan.get('kind')!='reminders_change' or not isinstance(items,list) or len(items)!=1 or items[0].get('operation') not in {'delete_reminder','restore_reminder','reorder_reminder','create_group','rename_group','group_list','ungroup_list','reorder_group'}
                 or result.get('status')!='failed_or_uncertain' or result.get('phase')!='mutation' or result.get('attempted')!=[] or result.get('completed')!=[]
                 or started.get('sha256')!=digest(plan) or started.get('account')!=payload.get('account')):return False
         terminal=inspect(self,plan);request=self.read(self.path(identity,'.native-reminder-request-0'));response=self.read(self.path(identity,'.native-reminder-response-0'));item=items[0];observed=record.get('observed',{})
@@ -499,7 +503,7 @@ class PlanStore:
                 and record.get('status')=='native_lifecycle_expected_state_observed' and record.get('plan_sha256')==digest(plan) and record.get('result_sha256')==digest(result)
                 and record.get('item_sha256')==digest(item) and record.get('request_record_sha256')==digest(request) and record.get('response_record_sha256')==digest(response)
                 and record.get('observed_sha256')==digest(observed) and observed.get('id')==item.get('id') and observed.get('source_id')==item.get('source_id')
-                and observed.get('state')==({'delete_reminder':'in_recovery','restore_reminder':'restored','reorder_reminder':'reordered','create_group':'group_created','rename_group':'group_renamed','group_list':'list_grouped','ungroup_list':'list_ungrouped'}[item['operation']])
+                and observed.get('state')==({'delete_reminder':'in_recovery','restore_reminder':'restored','reorder_reminder':'reordered','create_group':'group_created','rename_group':'group_renamed','group_list':'list_grouped','ungroup_list':'list_ungrouped','reorder_group':'group_reordered'}[item['operation']])
                 and record.get('original_failure_preserved') is True and record.get('causal_dispatch_proven') is False and record.get('do_not_retry') is True and expected_record_matches(item,observed))
 
     def _reconciliation_completed(self, original_id):

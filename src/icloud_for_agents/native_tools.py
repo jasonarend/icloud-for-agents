@@ -285,6 +285,9 @@ def register_change_tools(mcp):
             ungroup_list uses source_id/list_id, fields.anchor_id and placement
             before/after to return that child to source root at an exact root
             list/group anchor. No tasks are written; their IDs are checked.
+            reorder_group uses source_id/group_id and fields.anchor_id plus
+            before/after placement relative to an exact private root list/group.
+            It preserves group identity, mixed child view and other account entries.
             rename_group uses source_id, group_id and fields.title for one
             private root group; observed child lists and account order are preserved.
             create_group uses source_id and fields.title to create one empty

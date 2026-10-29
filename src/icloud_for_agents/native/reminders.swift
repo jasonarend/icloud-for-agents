@@ -659,8 +659,17 @@ func reminderRecurrence(_ value:Any,due:DateComponents?)->EKRecurrenceRule? {
     return rule
 }
 if action == "apply" {
-    if let change=req["change"] as? [String:Any],let operation=change["operation"] as? String,["group_list","ungroup_list","create_group","rename_group","reorder_reminder","delete_reminder","restore_reminder","set_list_badge","set_list_pinned","set_flagged","remove_tag","add_tag","replace_tag","set_urgent","add_early","clear_early","create_subtask","create_section","rename_section","move_reminder"].contains(operation) {
+    if let change=req["change"] as? [String:Any],let operation=change["operation"] as? String,["reorder_group","group_list","ungroup_list","create_group","rename_group","reorder_reminder","delete_reminder","restore_reminder","set_list_badge","set_list_pinned","set_flagged","remove_tag","add_tag","replace_tag","set_urgent","add_early","clear_early","create_subtask","create_section","rename_section","move_reminder"].contains(operation) {
         privateReminderGateArmed=true;NativeMutationGate.armDeadline()
+    }
+    if let item=req["change"] as? [String:Any],item["operation"] as? String=="reorder_group" {
+        guard let source=item["source_id"] as? String,sourceIDs.contains(source),let identifier=item["id"] as? String,
+              let fields=item["fields"] as? [String:Any],Set(fields.keys)==["anchor_id","placement"],let anchor=fields["anchor_id"] as? String,let placement=fields["placement"] as? String,["before","after"].contains(placement),
+              let before=item["before"] as? [String:Any],let inventory=before["inventory"] as? [String:Any],inventory["source_id"] as? String==source,let members=before["children"] as? [String:Any],
+              let payload=try? JSONSerialization.data(withJSONObject:["source_id":source,"group_id":identifier,"anchor_id":anchor,"placement":placement,"before_inventory":inventory,"before_members":members]),
+              let result=(try? JSONSerialization.jsonObject(with:ICloudRemindersReorderRootGroup(payload,{NativeMutationGate.beginMutation()}))) as? [String:Any] else {fail("invalid_mutation")}
+        if result["error"] != nil {fail((result["mutation_dispatched"] as? Bool)==true ? "mutation_failed_or_uncertain" : "unsupported_edit_target")}
+        guard let output=result["result"] as? [String:Any] else {fail("mutation_failed_or_uncertain")};respond(["protocol_version":1,"result":output])
     }
     if let item=req["change"] as? [String:Any],let operation=item["operation"] as? String,["group_list","ungroup_list"].contains(operation) {
         guard let source=item["source_id"] as? String,sourceIDs.contains(source),let identifier=item["list_id"] as? String,item["id"] as? String==identifier,

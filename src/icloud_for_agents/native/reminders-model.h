@@ -43,4 +43,5 @@ NSData *ICloudRemindersGroupInventory(NSData *data);
 NSData *ICloudRemindersCreateRootGroup(NSData *data, BOOL (^enterMutation)(void));
 NSData *ICloudRemindersRenameRootGroup(NSData *data, BOOL (^enterMutation)(void));
 NSData *ICloudRemindersAssignListGroup(NSData *data, BOOL (^enterMutation)(void));
+NSData *ICloudRemindersReorderRootGroup(NSData *data,BOOL (^enterMutation)(void));
 NS_ASSUME_NONNULL_END

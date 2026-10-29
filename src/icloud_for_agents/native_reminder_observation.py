@@ -7,7 +7,7 @@ from .core import SafetyError, digest
 
 OBSERVABLE_CHANGES = {'update_reminder', 'set_completed', 'set_recurrence', 'set_flagged',
                       'remove_tag', 'add_tag', 'replace_tag', 'set_urgent', 'add_early',
-                      'clear_early', 'move_reminder', 'create_subtask', 'delete_reminder', 'restore_reminder', 'reorder_reminder', 'create_group', 'rename_group', 'group_list', 'ungroup_list'}
+                      'clear_early', 'move_reminder', 'create_subtask', 'delete_reminder', 'restore_reminder', 'reorder_reminder', 'create_group', 'rename_group', 'group_list', 'ungroup_list', 'reorder_group'}
 
 
 def inspect_uncertain_reminder(engine, plan_id):
@@ -31,6 +31,14 @@ def inspect_uncertain_reminder(engine, plan_id):
     if not isinstance(item, dict):
         raise SafetyError('The original reminder snapshot is unavailable')
     before = item.get('before')
+    if item.get('operation')=='reorder_group':
+        from .native_group_order import snapshot,COVERAGE
+        observed=snapshot(engine.adapter,item)
+        if engine.context(True)!=context:raise SafetyError('Reminder access changed during group order observation')
+        from .native_reminder_exchange import inspect
+        return {'plan_id':plan_id,'reminder_id':item['id'],'source_id':item['source_id'],'observed_snapshot_matches_before':observed==before,
+                'snapshot_coverage':COVERAGE,'observation_consistency':'separate_live_reads_may_change',
+                'original_uncertainty_retained':True,'causal_dispatch_proven':False,'data_mutated':False,'do_not_retry':True,**inspect(engine.store,plan)}
     if item.get('operation') in {'group_list','ungroup_list'}:
         from .native_list_groups import snapshot
         observed=snapshot(engine.adapter,item)
