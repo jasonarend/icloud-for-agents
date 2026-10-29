@@ -623,8 +623,23 @@ func reminderRecurrence(_ value:Any,due:DateComponents?)->EKRecurrenceRule? {
     return rule
 }
 if action == "apply" {
-    if let change=req["change"] as? [String:Any],let operation=change["operation"] as? String,["create_group","rename_group","reorder_reminder","delete_reminder","restore_reminder","set_list_badge","set_list_pinned","set_flagged","remove_tag","add_tag","replace_tag","set_urgent","add_early","clear_early","create_subtask","create_section","rename_section","move_reminder"].contains(operation) {
+    if let change=req["change"] as? [String:Any],let operation=change["operation"] as? String,["group_list","ungroup_list","create_group","rename_group","reorder_reminder","delete_reminder","restore_reminder","set_list_badge","set_list_pinned","set_flagged","remove_tag","add_tag","replace_tag","set_urgent","add_early","clear_early","create_subtask","create_section","rename_section","move_reminder"].contains(operation) {
         privateReminderGateArmed=true;NativeMutationGate.armDeadline()
+    }
+    if let item=req["change"] as? [String:Any],let operation=item["operation"] as? String,["group_list","ungroup_list"].contains(operation) {
+        guard let source=item["source_id"] as? String,sourceIDs.contains(source),let identifier=item["list_id"] as? String,item["id"] as? String==identifier,
+              let fields=item["fields"] as? [String:Any],Set(fields.keys)==(operation=="group_list" ? ["group_id"] : ["anchor_id","placement"]),
+              let before=item["before"] as? [String:Any],let scope=before["source_scope"] as? [String:Any],let expectedList=scope["list"] as? [String:Any],let members=before["membership"] as? [String:Any],
+              let inventory=before["inventory"] as? [String:Any],inventory["source_id"] as? String==source,let parent=before["parent"] as? [String:Any],let groupMembers=before["group_members"] as? [String:Any],
+              let list=lists.first(where:{$0.calendarIdentifier==identifier && $0.source.sourceIdentifier==source}),list.allowsContentModifications,NSDictionary(dictionary:listRecord(list)).isEqual(to:expectedList) else {fail("invalid_mutation")}
+        store.fetchReminders(matching:store.predicateForReminders(in:[list])) { values in
+            guard let values=values,values.count<=100000,NSDictionary(dictionary:membershipRecord(values,list)).isEqual(to:members),
+                  let payload=try? JSONSerialization.data(withJSONObject:["operation":operation,"source_id":source,"list_id":identifier,"fields":fields,"before_inventory":inventory,"before_parent":parent,"before_members":groupMembers]),
+                  let result=(try? JSONSerialization.jsonObject(with:ICloudRemindersAssignListGroup(payload,{NativeMutationGate.beginMutation()}))) as? [String:Any] else {fail("snapshot_changed")}
+            if result["error"] != nil {fail((result["mutation_dispatched"] as? Bool)==true ? "mutation_failed_or_uncertain" : "unsupported_edit_target")}
+            guard let output=result["result"] as? [String:Any] else {fail("mutation_failed_or_uncertain")};respond(["protocol_version":1,"result":output])
+        }
+        RunLoop.current.run(until:Date(timeIntervalSinceNow:30));fail("mutation_failed_or_uncertain")
     }
     if let item=req["change"] as? [String:Any],let operation=item["operation"] as? String,["create_group","rename_group"].contains(operation) {
         guard let source=item["source_id"] as? String,sourceIDs.contains(source),let identifier=item["id"] as? String,

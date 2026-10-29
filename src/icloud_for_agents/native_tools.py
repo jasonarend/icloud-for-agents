@@ -280,6 +280,11 @@ def register_change_tools(mcp):
             requires the same ID/source, fields.deletion_plan_id from this owner's
             completed deletion, optional deletion_index (default 0), and exact
             destination fields.list_id. Restore can reactivate original alarms.
+            group_list uses source_id/list_id and fields.group_id for one root
+            private physical list into an observed empty private root group.
+            ungroup_list uses source_id/list_id, fields.anchor_id and placement
+            before/after to return that child to source root at an exact root
+            list/group anchor. No tasks are written; their IDs are checked.
             rename_group uses source_id, group_id and fields.title for one
             private root group; observed child lists and account order are preserved.
             create_group uses source_id and fields.title to create one empty

@@ -97,7 +97,7 @@ int main(){@autoreleasepool{
  group.isShared=YES;NSCAssert(read()[@"error"],@"shared group refused");group.isShared=NO;group.storage.accountID=Identity(@"REMCDAccount",list);NSCAssert(read()[@"error"],@"foreign storage refused");
 }}
 '''
-def run():
+def groups_fixture():
     fixture=fixture_source().replace('@interface FixtureAccount:NSObject','@interface FixtureAccount:NSObject\n-(id)groupContext;\n-(id)listIDsOrdering;')
     fixture=fixture.replace('@property NSString *name;','@property NSString *name;\n'+STORAGE)
     fixture=fixture.replace('@implementation FixtureListStorage','@implementation FixtureListStorage\n-(id)valueForUndefinedKey:(NSString*)key{return (wrongGroupDefaults && [key isEqual:@"sharingStatus"])?@1:@0;}')
@@ -109,6 +109,10 @@ def run():
     fixture=fixture.replace('@interface FixtureStore:NSObject','@interface FixtureStore:NSObject\n-(id)fetchAccountsWithError:(NSError**)error;').replace('@implementation FixtureStore','@implementation FixtureStore\n-(id)fetchAccountsWithError:(NSError**)error{return groupAccounts;}')
     fixture=fixture.replace('@interface FixtureSave:NSObject','@interface FixtureSave:NSObject\n@property FixtureAccountChange *groupAccount;\n@property FixtureGroupChange *createdGroup;\n-(id)updateAccount:(id)account;\n-(id)addGroupWithName:(id)name toAccountGroupContextChangeItem:(id)context groupObjectID:(id)identity;\n-(id)trackedAccountChangeItems;\n-(id)trackedListChangeItems;\n-(id)trackedListSectionChangeItems;\n-(id)trackedSmartListChangeItems;\n-(id)trackedSmartListSectionChangeItems;\n-(id)trackedTemplateChangeItems;\n-(id)trackedTemplateSectionChangeItems;')
     a=fixture.index('@implementation FixtureSave');b=fixture.index('\n@end',a)+len('\n@end');fixture=fixture[:a]+SAVE+fixture[b:]
+    return fixture
+
+def run():
+    fixture=groups_fixture()
     with tempfile.TemporaryDirectory(prefix='native-reminder-groups-') as directory:
         p=Path(directory);(p/'reminders-model.h').write_text((ROOT/'src/icloud_for_agents/native/reminders-model.h').read_text());(p/'test.m').write_text(shipped_source()+'\n'+fixture+'\n'+MAIN)
         r=subprocess.run(['/usr/bin/clang','-fobjc-arc','-framework','Foundation',str(p/'test.m'),'-o',str(p/'contract')],capture_output=True,text=True,timeout=60);assert r.returncode==0,r.stderr
