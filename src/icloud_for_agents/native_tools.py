@@ -256,6 +256,11 @@ def register_change_tools(mcp):
             return NotesCreationRecovery(owner()).finalize(plan_id)
 
     if enabled('reminders'):
+        def prepare_template_copy(source_id:str,template_id:str,list_id:str,accept_omissions:bool,grant_id:str|None=None)->dict:
+            """Prepare new incomplete root reminders from one selected saved template's captured title/notes text and priority. Explicitly accept omitted dates, alarms, flags, tags, rich objects, completion, original IDs and ordering; native template instantiation is not used. One to ten root saved items, optional ReminderKit/read-only content access, exact existing selected-source destination, and normal once/copy-scenario approval required. Source stays unchanged. For a new list, separately create it first and select its exact returned ID. This only prepares a review; no live write."""
+            from .native_template_copy import prepare
+            return prepare(editor('reminders'),source_id,template_id,list_id,accept_omissions=accept_omissions,grant_id=grant_id)
+        mcp.tool(name='reminders_prepare_template_copy',annotations=WRITE)(guard(prepare_template_copy))
         def prepare_observation_copy(snapshot:dict,source_id:str,list_id:str,accept_omissions:bool,include_dates:bool=False,include_urls:bool=False,grant_id:str|None=None)->dict:
             """Review up to 10 lossy copies; originals, completion and native metadata are not preserved. Requires one-time approval or an explicitly scoped copy_observation grant."""
             from .native_reminder_import import prepare_copy

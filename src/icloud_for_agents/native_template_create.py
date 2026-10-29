@@ -40,7 +40,7 @@ def prepare(adapter,change):
  item=deepcopy(change);item['id']=str(uuid.uuid4()).upper();item['before']=snapshot(adapter,item)
  if len(item['before']['templates'])>=100 or any(v['id']==item['id']or v['title']==title for v in item['before']['templates']):raise SafetyError('Template title or proposed identity already exists')
  item.update(fidelity_verified=True,effects={'change':'Create one private saved template from every reviewed incomplete root task in this exact list, with completed tasks excluded. No list is instantiated.',
-  'source':'Private ordinary unsectioned list; one to nineteen unique-title incomplete roots with empty notes. Scheduling, tags, flags, urgent state, attachments and rich objects are refused. Native source content is copied by Apple; no live task is edited.',
+  'source':'Private ordinary unsectioned list; one to nineteen unique-title incomplete roots with empty notes. Scheduling, tags, flags, urgent state, known attachments and assignments are refused; unexposed rich document representation is unverified. Native source content is copied by Apple; no live task is edited.',
   'verification':'Independent exact saved-item text and priority readback, bounded template inventory, native configuration and unchanged source observations. Manual display order, complete rich representation and cloud synchronization are not certified.',
   'cleanup':'Creates a persistent template; template deletion, sharing and instantiation are not included. Uncertain creation is never replayed.', 'quota_objects':charge(item)})
  return item
