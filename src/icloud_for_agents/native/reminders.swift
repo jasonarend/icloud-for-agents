@@ -375,10 +375,10 @@ guard let sourceIDs = req["source_ids"] as? [String], !sourceIDs.isEmpty, source
 guard sourceIDs.allSatisfy({ id in store.sources.contains(where: { $0.sourceIdentifier == id }) }) else { fail("not_found_in_scope") }
 let lists = allLists.filter { sourceIDs.contains($0.source.sourceIdentifier) }
 if action == "group_lists" {
-    guard let source=req["source_id"] as? String,sourceIDs.contains(source),let id=req["group_id"] as? String,let limit=req["limit"] as? Int,let offset=req["offset"] as? Int,
-          let payload=try? JSONSerialization.data(withJSONObject:["source_id":source,"group_id":id,"limit":limit,"offset":offset]),
-          let result=(try? JSONSerialization.jsonObject(with:ICloudRemindersGroupLists(payload))) as? [String:Any] else {fail("invalid_request")}
-    respond(result)
+    guard let source=req["source_id"] as? String,sourceIDs.contains(source),let id=req["group_id"] as? String,let limit=req["limit"] as? Int,let offset=req["offset"] as? Int else {fail("invalid_request")}
+    var identity:[String:Any]=["source_id":source,"group_id":id,"limit":limit,"offset":offset]
+    if let smart=req["include_smart_lists"] {guard let value=smart as? NSNumber,CFGetTypeID(value)==CFBooleanGetTypeID(),value.boolValue else {fail("invalid_request")};identity["include_smart_lists"]=true}
+    guard let payload=try? JSONSerialization.data(withJSONObject:identity),let result=(try? JSONSerialization.jsonObject(with:ICloudRemindersGroupLists(payload))) as? [String:Any] else {fail("invalid_request")};respond(result)
 }
 if action == "template_sections" {
     guard let source=req["source_id"] as? String,sourceIDs.contains(source),let id=req["id"] as? String,

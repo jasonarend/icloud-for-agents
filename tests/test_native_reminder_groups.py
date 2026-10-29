@@ -127,3 +127,16 @@ class GroupTests(unittest.TestCase):
         recovery=ReminderObservationRecovery(self.engine.account,self.store,self.adapter);review=recovery.prepare(p['plan_id']);self.adapter.reader.children[identity]=[{'id':LIST,'title':'Concurrent member','is_group':False}]
         with self.assertRaises(SafetyError):recovery.execute(review['plan_id'])
         self.adapter.reader.children[identity]=[];self.assertEqual(recovery.execute(review['plan_id'])['recovery_state'],'observed_unchanged_reminder_accepted_after_review');self.engine.assert_settled()
+    def test_mixed_group_reader_requires_new_helper_kind_and_scope_evidence(self):
+        from icloud_for_agents.native_read import NativeReader
+        config=json.loads(os.environ['ICLOUD_NATIVE_CONFIG']);config['reminders']['helper_path']='/synthetic/helper';os.environ['ICLOUD_NATIVE_CONFIG']=json.dumps(config);group='55555555-5555-4555-8555-555555555555'
+        value={'protocol_version':1,'source_id':SOURCE,'group_id':group,'lists':[{'id':LIST,'title':'Synthetic Smart child','is_group':False,'kind':'smart_list'}],'done':True,'next_offset':1,'pagination_consistency':'live_offset_may_shift','membership_complete':False,'ordering_verified':False,'data_mutated':False,'backend':'reminderkit-group-lists-v3','custom_smart_lists_included':True}
+        with patch.object(NativeReader,'_dispatch',return_value=value) as dispatch:
+            result=NativeReader('reminders').read('group_lists',source_id=SOURCE,group_id=group,include_smart_lists=True);self.assertIs(result['custom_smart_lists_included'],True);self.assertEqual(result['lists'][0]['kind'],'smart_list')
+            for invalid in (dict(value,backend='reminderkit-group-lists-v2'),dict(value,custom_smart_lists_included=False),dict(value,source_id=LIST),dict(value,lists=[dict(value['lists'][0],kind=[])]),dict(value,lists=[dict(value['lists'][0],is_group=True)])):
+                dispatch.return_value=invalid
+                with self.assertRaises(SafetyError):NativeReader('reminders').read('group_lists',source_id=SOURCE,group_id=group,include_smart_lists=True)
+            dispatch.reset_mock()
+            with self.assertRaises(SafetyError):NativeReader('reminders').read('group_lists',source_id=SOURCE,group_id=group,include_smart_lists=1)
+            with self.assertRaises(SafetyError):NativeReader('reminders').read('get',id=LIST,include_smart_lists=True)
+            dispatch.assert_not_called()

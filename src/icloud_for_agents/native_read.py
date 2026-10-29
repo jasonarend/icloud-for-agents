@@ -97,6 +97,9 @@ class NativeReader:
         if 'include_badge' in fields and (self.name!='reminders' or action!='list_features'):raise SafetyError('Badge selection is supported only for Reminders list features')
         include_badge=fields.pop('include_badge',False)
         if type(include_badge) is not bool:raise SafetyError('Badge selection must be Boolean')
+        if 'include_smart_lists' in fields and (self.name!='reminders' or action!='group_lists'):raise SafetyError('Custom Smart List selection is supported only for group reads')
+        include_smart_lists=fields.pop('include_smart_lists',False)
+        if type(include_smart_lists) is not bool:raise SafetyError('Custom Smart List selection must be Boolean')
         native_selections={}
         for key in ('include_native_metadata','include_native_tags','include_native_hierarchy','include_native_children','include_native_urgent','include_native_section','include_native_early','include_native_assignment','include_native_attachments'):
             if key in fields and (self.name!='reminders' or action!='get'):raise SafetyError('Native metadata selection is supported only for Reminders get')
@@ -245,6 +248,7 @@ class NativeReader:
         if attachment_metadata:request['include_attachment_metadata']=True
         if include_pinned:request['include_pinned']=True
         if include_badge:request['include_badge']=True
+        if include_smart_lists:request['include_smart_lists']=True
         if action=='model_folder_role':request['source_ids']=[fields['source_id']]
         request.update(native_selections)
         if action in {'folders','query','search','attachments','lists','text_page'}:
@@ -462,8 +466,8 @@ class NativeReader:
             result={key:result[key] for key in ('protocol_version','source_id','smart_lists','next_offset','done','pagination_consistency','filter_rules_complete','data_mutated','backend') if key in result}
         if action=='group_lists':
             if native_config('reminders')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode:raise SafetyError('Reminder access changed during group inspection')
-            validate_group_lists(result,fields['source_id'],fields['group_id'],limit,offset)
-            result={key:result[key] for key in ('protocol_version','source_id','group_id','lists','next_offset','done','pagination_consistency','membership_complete','ordering_verified','data_mutated','backend') if key in result}
+            validate_group_lists(result,fields['source_id'],fields['group_id'],limit,offset,include_smart_lists=include_smart_lists)
+            result={key:result[key] for key in ('protocol_version','source_id','group_id','lists','next_offset','done','pagination_consistency','membership_complete','ordering_verified','data_mutated','backend','custom_smart_lists_included') if key in result}
         if action=='list_parent':
             if native_config('reminders')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode:raise SafetyError('Reminder access changed during list parent inspection')
             validate_list_parent(result,fields['list_id'],sources)
@@ -879,9 +883,9 @@ def inspect_group_hierarchy(reader,source_id,group_id,max_nodes=20,max_depth=3):
             'ordering_verified':False,'data_mutated':False,'observation_consistency':'separate_provider_reads'}
 
 
-def validate_group_lists(result,source_id,group_id,limit,offset):
+def validate_group_lists(result,source_id,group_id,limit,offset,*,include_smart_lists=False):
     import uuid
-    if (not isinstance(result,dict) or result.get('source_id')!=source_id or result.get('group_id')!=group_id or result.get('backend')!='reminderkit-group-lists-v2'
+    if (not isinstance(result,dict) or result.get('source_id')!=source_id or result.get('group_id')!=group_id or result.get('backend')!=('reminderkit-group-lists-v3' if include_smart_lists else 'reminderkit-group-lists-v2') or (include_smart_lists and result.get('custom_smart_lists_included') is not True)
             or result.get('data_mutated') is not False or result.get('membership_complete') is not False or result.get('ordering_verified') is not False or result.get('pagination_consistency')!='live_offset_may_shift' or type(result.get('done')) is not bool or type(result.get('next_offset')) is not int):
         raise SafetyError('Helper did not provide scoped group observation')
     lists=result.get('lists')
@@ -890,7 +894,8 @@ def validate_group_lists(result,source_id,group_id,limit,offset):
     except (ValueError,TypeError,AttributeError):raise SafetyError('Invalid group identity') from None
     seen=set()
     for row in lists:
-        if not isinstance(row,dict) or set(row)!={'id','title','is_group'} or type(row.get('is_group')) is not bool or not isinstance(row['title'],str) or len(row['title'])>1000:raise SafetyError('Invalid group child list')
+        if not isinstance(row,dict) or set(row)!=({'id','title','is_group','kind'} if include_smart_lists else {'id','title','is_group'}) or type(row.get('is_group')) is not bool or not isinstance(row['title'],str) or len(row['title'])>1000:raise SafetyError('Invalid group child list')
+        if include_smart_lists and (not isinstance(row.get('kind'),str) or row.get('kind') not in {'list','smart_list'} or (row['kind']=='smart_list' and row['is_group'] is not False)):raise SafetyError('Invalid native group member kind')
         try:identity=uuid.UUID(row['id'])
         except (ValueError,TypeError,AttributeError):raise SafetyError('Invalid group child identity') from None
         if identity==group or identity in seen:raise SafetyError('Duplicate or cyclic group child')
@@ -1159,9 +1164,9 @@ def register_read_tools(mcp):
 
         @mcp.tool(annotations=annotations)
         @guard
-        def reminders_group_lists(source_id: str, group_id: str, limit: int=100, offset: int=0) -> dict:
-            """Observe a bounded page of child lists in one exact selected-source group; follow next_offset; complete membership and ordering are unverified."""
-            return NativeReader('reminders').read('group_lists',source_id=source_id,group_id=group_id,limit=limit,offset=offset)
+        def reminders_group_lists(source_id: str, group_id: str, limit: int=100, offset: int=0, include_smart_lists:bool=False) -> dict:
+            """Observe a bounded page of child lists, optionally including custom Smart Lists with explicit member kinds. Follow next_offset; complete membership and ordering remain unverified."""
+            return NativeReader('reminders').read('group_lists',source_id=source_id,group_id=group_id,limit=limit,offset=offset,include_smart_lists=include_smart_lists)
 
         @mcp.tool(annotations=annotations)
         @guard

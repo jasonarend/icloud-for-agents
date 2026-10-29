@@ -263,7 +263,8 @@ NSData *ICloudRemindersReadListParent(NSData *data){
 NSData *ICloudRemindersGroupLists(NSData *data){
     @try {
         id identity=[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
-        if(![identity isKindOfClass:NSDictionary.class] || [identity count]!=4)return EncodeFlag(FlagFailure(@"invalid_public_identity"));
+        if(![identity isKindOfClass:NSDictionary.class])return EncodeFlag(FlagFailure(@"invalid_public_identity"));
+        id include=identity[@"include_smart_lists"];BOOL wantsSmart=include!=nil;if([identity count]!=4+wantsSmart || (wantsSmart && (![include isKindOfClass:NSNumber.class] || CFGetTypeID((__bridge CFTypeRef)include)!=CFBooleanGetTypeID() || ![include boolValue])))return EncodeFlag(FlagFailure(@"invalid_public_identity"));
         id limit=identity[@"limit"],offset=identity[@"offset"];
         if(![limit isKindOfClass:NSNumber.class] || ![offset isKindOfClass:NSNumber.class] || CFGetTypeID((__bridge CFTypeRef)limit)==CFBooleanGetTypeID() || CFGetTypeID((__bridge CFTypeRef)offset)==CFBooleanGetTypeID() || [limit doubleValue]!=[limit integerValue] || [offset doubleValue]!=[offset integerValue] || [limit integerValue]<1 || [limit integerValue]>100 || [offset integerValue]<0 || [offset integerValue]>100000)return EncodeFlag(FlagFailure(@"invalid_public_identity"));
         for(NSString *key in @[@"source_id",@"group_id"]){id value=identity[key];NSUUID *uuid=[value isKindOfClass:NSString.class]?[[NSUUID alloc]initWithUUIDString:value]:nil;if(!uuid || !UUIDEqual(uuid.UUIDString,value))return EncodeFlag(FlagFailure(@"unsupported_public_identity"));}
@@ -282,11 +283,20 @@ NSData *ICloudRemindersGroupLists(NSData *data){
             NSString *cid=ObjectUUID(child,@"REMCDList");id storage=ObjectValue(child,@"storage"),name=ObjectValue(storage,@"name"),parent=ObjectValue(storage,@"parentListID"),parentUUID=ObjectValue(parent,@"uuid");
             if(!cid || UUIDEqual(cid,identity[@"group_id"]) || [seen containsObject:cid] || !UUIDEqual(ObjectUUID(ObjectValue(child,@"account"),@"REMCDAccount"),identity[@"source_id"]) || !StorageMatchesAccount(storage,identity[@"source_id"]) || ![ObjectValue(parent,@"entityName") isEqual:@"REMCDList"] || ![parentUUID isKindOfClass:NSUUID.class] || !UUIDEqual([parentUUID UUIDString],identity[@"group_id"]) || !MethodMatches([storage class],@"isGroup",@"B@:",NO) || ![name isKindOfClass:NSString.class] || [name length]>1000 || [name lengthOfBytesUsingEncoding:NSUTF8StringEncoding]>4000)return EncodeFlag(FlagFailure(@"native_identity_mismatch"));
             BOOL childGroup=((BOOL(*)(id,SEL))objc_msgSend)(storage,NSSelectorFromString(@"isGroup"));
-            [seen addObject:cid];[out addObject:@{@"id":cid,@"title":name,@"is_group":@((BOOL)childGroup)}];
+            [seen addObject:cid];NSMutableDictionary *record=[@{@"id":cid,@"title":name,@"is_group":@((BOOL)childGroup)}mutableCopy];if(wantsSmart)record[@"kind"]=@"list";[out addObject:record];
+        }
+        if(wantsSmart){
+            id context=ObjectValue(group,@"sublistContext");if(!MethodMatches([context class],@"fetchCustomSmartListsWithError:",@"@@:^@",NO))return EncodeFlag(FlagFailure(@"unsupported_group_metadata"));
+            error=nil;id smart=((id(*)(id,SEL,NSError**))objc_msgSend)(context,NSSelectorFromString(@"fetchCustomSmartListsWithError:"),&error);
+            if(error || ![smart isKindOfClass:NSArray.class] || [smart count]+out.count>1000)return EncodeFlag(FlagFailure(@"unsupported_group_metadata"));
+            for(id child in smart){NSString *cid=ObjectUUID(child,@"REMCDSmartList");id storage=ObjectValue(child,@"storage"),name=ObjectValue(storage,@"name"),parent=ObjectValue(storage,@"parentListID"),uuid=ObjectValue(parent,@"uuid");
+                if(!cid || UUIDEqual(cid,identity[@"group_id"]) || [seen containsObject:cid] || !StorageMatchesAccount(storage,identity[@"source_id"]) || ![ObjectValue(parent,@"entityName")isEqual:@"REMCDList"] || ![uuid isKindOfClass:NSUUID.class] || !UUIDEqual([uuid UUIDString],identity[@"group_id"]) || ![name isKindOfClass:NSString.class] || [name length]>1000 || [name lengthOfBytesUsingEncoding:NSUTF8StringEncoding]>4000)return EncodeFlag(FlagFailure(@"native_identity_mismatch"));
+                [seen addObject:cid];[out addObject:@{@"id":cid,@"title":name,@"is_group":@NO,@"kind":@"smart_list"}];
+            }
         }
         [out sortUsingComparator:^NSComparisonResult(NSDictionary *a,NSDictionary *b){return [a[@"id"] compare:b[@"id"]];}];
         NSUInteger start=MIN((NSUInteger)[offset integerValue],out.count),end=MIN(start+(NSUInteger)[limit integerValue],out.count);
-        return EncodeFlag(@{@"protocol_version":@1,@"source_id":identity[@"source_id"],@"group_id":identity[@"group_id"],@"lists":[out subarrayWithRange:NSMakeRange(start,end-start)],@"next_offset":@((NSUInteger)[offset integerValue]+end-start),@"done":@((BOOL)(end>=out.count)),@"pagination_consistency":@"live_offset_may_shift",@"membership_complete":@NO,@"ordering_verified":@NO,@"data_mutated":@NO,@"backend":@"reminderkit-group-lists-v2"});
+        NSMutableDictionary *result=[@{@"protocol_version":@1,@"source_id":identity[@"source_id"],@"group_id":identity[@"group_id"],@"lists":[out subarrayWithRange:NSMakeRange(start,end-start)],@"next_offset":@((NSUInteger)[offset integerValue]+end-start),@"done":@((BOOL)(end>=out.count)),@"pagination_consistency":@"live_offset_may_shift",@"membership_complete":@NO,@"ordering_verified":@NO,@"data_mutated":@NO,@"backend":wantsSmart?@"reminderkit-group-lists-v3":@"reminderkit-group-lists-v2"}mutableCopy];if(wantsSmart)result[@"custom_smart_lists_included"]=@YES;return EncodeFlag(result);
     }@catch(NSException *exception){return EncodeFlag(FlagFailure(@"private_read_exception"));}
 }
 
