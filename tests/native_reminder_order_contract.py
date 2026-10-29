@@ -45,7 +45,7 @@ int main(){@autoreleasepool{
  fixtureOrder=[NSOrderedSet orderedSetWithArray:@[[items[0]remObjectID],[items[2]remObjectID],[items[1]remObjectID]]];request[@"ordered_ids"]=@[rootID,anchorID,childID];NSCAssert(call(YES)[@"result"] && flagSaves==3,@"reverse root relative move saves once");
 }}
 '''
-def run():
+def order_fixture():
     fixture=fixture_source().replace('@property FixtureID *parentReminderID;','@property FixtureID *parentReminderID;\n@property FixtureID *accountID;')
     fixture=fixture.replace('@interface FixtureListChange:NSObject',EXTRA+'\n@interface FixtureListChange:NSObject\n@property FixtureOrderStorage *storage;\n@property NSSet *changedKeys;\n-(void)insertReminderChangeItem:(id)root beforeReminderChangeItem:(id)anchor;\n-(void)insertReminderChangeItem:(id)root afterReminderChangeItem:(id)anchor;')
     fixture=fixture.replace('@interface FixtureList:NSObject','@interface FixtureList:NSObject\n-(id)reminderIDsOrdering;')
@@ -57,6 +57,10 @@ def run():
     fixture=fixture.replace('v.destination=list;return v;','v.destination=list;v.storage=[FixtureOrderStorage new];self.orderChange=v;return v;')
     fixture=fixture.replace('v.storage.listID=[reminder list].remObjectID;','v.storage.accountID=[[reminder account] remObjectID];v.storage.listID=[reminder list].remObjectID;')
     fixture=fixture.replace('@implementation FixtureSave','@implementation FixtureSave\n-(id)trackedListChangeItems{FixtureTracked *v=[FixtureTracked new];v.valueWithoutPerformingCopy=self.orderChange;return @{fixture.list.remObjectID:v};}')
+    return fixture
+
+def run():
+    fixture=order_fixture()
     with tempfile.TemporaryDirectory(prefix='native-reminder-order-') as directory:
         p=Path(directory);(p/'reminders-model.h').write_text((ROOT/'src/icloud_for_agents/native/reminders-model.h').read_text());(p/'test.m').write_text(shipped_source()+'\n'+fixture+'\n'+MAIN)
         result=subprocess.run(['/usr/bin/clang','-fobjc-arc','-framework','Foundation',str(p/'test.m'),'-o',str(p/'contract')],capture_output=True,text=True,timeout=60);assert result.returncode==0,result.stderr

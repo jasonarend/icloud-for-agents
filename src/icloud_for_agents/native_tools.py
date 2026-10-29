@@ -296,6 +296,13 @@ def register_change_tools(mcp):
             before/after within one selected private list. Both IDs must be roots.
             Parent/child links and exposed content are preserved; descendants
             count against grants. This observes native manual sequence, not app sorting.
+            reparent_reminder uses exact source/id and explicit parent_id,
+            anchor_id and placement fields. A null parent promotes a leaf to root;
+            a null anchor requires end, otherwise before/after an exact sibling.
+            Existing incomplete leaves and incomplete nonrecurring root parents
+            must share one private ordinary nongrocery list without sections.
+            It preserves exposed family content and moves only the leaf order entry;
+            the leaf and both affected parents count against grants.
             set_list_badge uses source_id/list_id and fields.badge: kind default,
             or kind emoji/symbol with a value. Native validation requires one
             emoji or an available macOS system symbol. It changes only appearance.
