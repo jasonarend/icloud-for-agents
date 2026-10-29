@@ -32,14 +32,15 @@ def prepare(adapter,change):
     graph=adapter.reader.read('list_order',list_id=current['list_id']);nodes={v['id']:v for v in graph['nodes']};node=nodes.get(identity)
     if node is None or any(v['parent_id']==identity for v in nodes.values()):raise SafetyError('Reparenting currently requires one existing leaf; no descendant moves')
     old=node['parent_id']
-    if old==parent:raise SafetyError('This reminder already belongs to the requested parent/root')
+    if old is None and parent is None:raise SafetyError('Use reorder_reminder for root ordering')
     for target in (old,parent):
         if target is not None and (target not in nodes or nodes[target]['parent_id'] is not None):raise SafetyError('Old and new parents must be existing roots in the same private list')
     if anchor is not None and (anchor not in nodes or nodes[anchor]['parent_id']!=parent):raise SafetyError('The exact anchor must already belong to the requested root-parent family')
     item=deepcopy(change);item.update(list_id=current['list_id'],old_parent_id=old,family_ids=sorted({identity,*([old] if old else []),*([parent] if parent else []),*([anchor] if anchor else [])}));item['before']=snapshot(adapter,item)
     if item['before']['source_graph']!=graph:raise SafetyError('Reminder hierarchy changed while preparing the family snapshot')
+    if old==parent and reordered(graph['ordered_ids'],identity,fields)==graph['ordered_ids']:raise SafetyError('This leaf already occupies the requested sibling position')
     affected=sorted({identity,*([old] if old else []),*([parent] if parent else [])})
-    item.update(fidelity_verified=True,effects={'hierarchy':'Change only this existing leaf parent. An explicit null parent promotes it to a root. Old/new parents must be incomplete, nonrecurring roots in this same private ordinary nongrocery list; descendants and sections are refused.',
+    item.update(fidelity_verified=True,effects={'hierarchy':'Change only this existing leaf parent or its relative sibling position. An explicit null parent promotes it to a root. Old/new parents must be incomplete, nonrecurring roots in this same private ordinary nongrocery list; descendants and sections are refused.',
         'order':'Move only the selected leaf entry before/after an exact sibling anchor, or to the explicit end of native manual order. Other sequence entries keep relative order. App sorting and synchronization can differ.',
         'content':'Preserve reviewed family content, dates, alarms, tags, flag, urgency and other native metadata. Family child IDs/presence and modification times can change. No implicit completion, recurrence, cross-list move or content rewrite.',
         'affected_objects':affected,'quota_objects':len(affected)})
@@ -82,7 +83,7 @@ def charge(item):
     try:
         nodes={v['id']:v for v in item['before']['source_graph']['nodes']};identity=item['id'];old=nodes[identity]['parent_id'];parent=item['fields']['parent_id'];anchor=item['fields']['anchor_id']
         affected={identity,*([old] if old else []),*([parent] if parent else [])};family=sorted(affected|({anchor} if anchor else set()))
-        if (old!=item['old_parent_id'] or old==parent or any(v['parent_id']==identity for v in nodes.values()) or any(target not in nodes or nodes[target]['parent_id'] is not None for target in (old,parent) if target is not None)
+        if (old!=item['old_parent_id'] or (old is None and parent is None) or (old==parent and reordered(item['before']['source_graph']['ordered_ids'],identity,item['fields'])==item['before']['source_graph']['ordered_ids']) or any(v['parent_id']==identity for v in nodes.values()) or any(target not in nodes or nodes[target]['parent_id'] is not None for target in (old,parent) if target is not None)
                 or item['family_ids']!=family or [v['item']['id'] for v in item['before']['items']]!=family):raise ValueError()
         return len(affected)
     except (KeyError,ValueError,TypeError,AttributeError):raise SafetyError('Reparent quota requires the exact reviewed leaf and root-parent family') from None

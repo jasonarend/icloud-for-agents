@@ -21,7 +21,8 @@ int main(){@autoreleasepool{
  FixtureReminder *sibling=items[2];sibling.parentReminder=fixture;r[@"source_nodes"]=graph()[@"nodes"];NSCAssert(call(YES)[@"error"] && gates==prior,@"descendant source refused");sibling.parentReminder=items[0];r[@"source_nodes"]=graph()[@"nodes"];
  saveFails=YES;NSCAssert([call(YES)[@"mutation_dispatched"]isEqual:@YES] && flagSaves==2,@"failed parent save remains uncertain");saveFails=NO;
  r[@"parent_id"]=NSNull.null;r[@"anchor_id"]=parentID;r[@"placement"]=@"before";NSCAssert(call(YES)[@"result"] && flagSaves==3,@"existing child promotion to root");
- fixture.parentReminder=items[3];fixtureOrder=[NSOrderedSet orderedSetWithArray:@[[items[0]remObjectID],[items[2]remObjectID],[items[3]remObjectID],[items[1]remObjectID]]];r[@"parent_id"]=oldID;r[@"anchor_id"]=siblingID;r[@"placement"]=@"before";r[@"source_nodes"]=graph()[@"nodes"];r[@"ordered_ids"]=graph()[@"ordered_ids"];NSCAssert(call(YES)[@"result"] && flagSaves==4,@"exact sibling anchor restores original family placement");
+ r[@"parent_id"]=oldID;r[@"anchor_id"]=siblingID;r[@"placement"]=@"after";NSCAssert(call(YES)[@"result"] && flagSaves==4,@"same-root-parent sibling order uses one gated save");int siblingGates=gates;r[@"placement"]=@"before";NSCAssert(call(YES)[@"error"] && gates==siblingGates,@"same-parent unchanged order refuses before save gate");
+ fixture.parentReminder=items[3];fixtureOrder=[NSOrderedSet orderedSetWithArray:@[[items[0]remObjectID],[items[2]remObjectID],[items[3]remObjectID],[items[1]remObjectID]]];r[@"parent_id"]=oldID;r[@"anchor_id"]=siblingID;r[@"placement"]=@"before";r[@"source_nodes"]=graph()[@"nodes"];r[@"ordered_ids"]=graph()[@"ordered_ids"];NSCAssert(call(YES)[@"result"] && flagSaves==5,@"exact sibling anchor restores original family placement");
 }}
 '''
 def run():

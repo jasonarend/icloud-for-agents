@@ -36,6 +36,15 @@ class ParentTests(unittest.TestCase):
    p=self.engine.prepare_once([self.change(restore)]);self.assertEqual(p['review']['payload']['changes'][0]['effects']['quota_objects'],3);self.assertEqual(self.engine.execute(p['plan_id'])['status'],'applied')
    with self.assertRaises(SafetyError):self.engine.execute(p['plan_id'])
   self.assertEqual(self.adapter.reader.items,before);self.assertEqual(self.adapter.reader.parents,parents);self.assertEqual(self.adapter.reader.order,order)
+ def test_same_root_parent_sibling_order_once_and_grant_charge_unique_parent(self):
+  before=copy.deepcopy(self.adapter.reader.items);parents=copy.deepcopy(self.adapter.reader.parents);order=list(self.adapter.reader.order)
+  def change(after):return dict(self.change(True),fields={'parent_id':f.ROOT,'anchor_id':SIBLING,'placement':'after' if after else 'before'})
+  for after in (True,False):
+   p=self.engine.prepare_once([change(after)]);self.assertEqual(p['review']['payload']['changes'][0]['effects']['quota_objects'],2);self.assertEqual(self.engine.execute(p['plan_id'])['status'],'applied')
+  manager=NativeGrants(self.engine);scope=self.scope(max_batch=2,max_24h=4);g=manager.prepare(scope)['plan_id'];manager.activate(g)
+  for after in (True,False):
+   p=self.engine.prepare_with_grant(g,[change(after)]);self.assertEqual(manager.batch_count(p['review']['payload']['changes']),2);self.assertEqual(self.engine.execute(p['plan_id'])['status'],'applied')
+  manager.revoke(g);self.assertEqual(self.adapter.reader.items,before);self.assertEqual(self.adapter.reader.parents,parents);self.assertEqual(self.adapter.reader.order,order)
  def test_promotion_and_root_reattachment_preserve_unknown_child_presence(self):
   change=dict(self.change(),fields={'parent_id':None,'anchor_id':ANCHOR,'placement':'before'});p=self.engine.prepare_once([change]);self.assertEqual(p['review']['payload']['changes'][0]['effects']['quota_objects'],2);self.assertEqual(self.engine.execute(p['plan_id'])['status'],'applied');self.assertIsNone(self.adapter.reader.parents[f.CHILD]);p=self.engine.prepare_once([self.change(True)]);self.assertEqual(self.engine.execute(p['plan_id'])['status'],'applied')
  def test_noop_cycle_descendants_nested_parent_and_wrong_anchor_refuse(self):

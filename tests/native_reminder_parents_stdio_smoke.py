@@ -41,6 +41,9 @@ def run(policy):
                         receipt=runtime/(plan['plan_id']+'.approved');fd=os.open(receipt,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
                         with os.fdopen(fd,'w') as stream:json.dump({'plan_id':plan['plan_id'],'sha256':plan['sha256']},stream)
                 def change(pinned):return {'operation':'reparent_reminder','source_id':SOURCE,'id':ID,'fields':{'parent_id':ANCHOR if pinned else PARENT,'anchor_id':None if pinned else SIBLING,'placement':'end' if pinned else 'before'}}
+                for after in (True,False):
+                    sibling={'operation':'reparent_reminder','source_id':SOURCE,'id':ID,'fields':{'parent_id':PARENT,'anchor_id':SIBLING,'placement':'after' if after else 'before'}}
+                    p=data(call('reminders_prepare_once',{'changes':[sibling]}));approve(p);assert data(call('reminders_execute_approved',{'plan_id':p['plan_id']}))['status']=='applied'
                 assert call('reminders_prepare_changes',{'changes':[change(True)]}).get('isError')
                 plan=data(call('reminders_prepare_once',{'changes':[change(True)]}));identity=plan['plan_id']
                 if policy=='local-receipt':assert call('reminders_execute_approved',{'plan_id':identity}).get('isError')
