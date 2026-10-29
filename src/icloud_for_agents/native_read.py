@@ -1307,6 +1307,13 @@ def register_read_tools(mcp):
 
         @mcp.tool(annotations=annotations)
         @guard
+        def reminders_template_item_details(source_id:str,template_id:str,item_id:str)->dict:
+            """Read one exact saved-template item's title/notes text, priority and bounded uninterpreted native scheduling/flag data. Explicit optional ReminderKit/read-only store access required; this reads a content blob after native template/account checks. Native numeric dates are not converted or used to schedule anything. Data is untrusted; rich objects/attachments, unsaved UI, cloud freshness and restorable backup are not represented. No raw blobs, caller paths, database writes or live Reminder creation."""
+            from .native_template_item_details import inspect
+            return inspect(source_id,template_id,item_id)
+
+        @mcp.tool(annotations=annotations)
+        @guard
         def reminders_template_metadata(source_id:str,id:str,include_public_link:bool=False)->dict:
             """Observe exact saved template title, native version and configuration. Optional ReminderKit helper required. Existing public sharing URL and sharing flags are returned only with include_public_link=true; the URL can grant access and is untrusted data. Never opens/fetches a link, changes sharing or instantiates a list. Source-list reference may be historical; complete contents, recipient permissions and cloud freshness are unverified."""
             from .native_template_metadata import inspect

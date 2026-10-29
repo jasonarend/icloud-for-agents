@@ -56,7 +56,7 @@ def _one(fields,number,wire,*,required=True):
     return rows[0][1]
 
 
-def decode(compressed):
+def _decode(compressed,include_text):
     if type(compressed)is not bytes or not 1<=len(compressed)<=MAX_COMPRESSED:invalid()
     try:
         inflater=zlib.decompressobj(31);data=inflater.decompress(compressed,MAX_DECOMPRESSED+1)
@@ -110,5 +110,21 @@ def decode(compressed):
         identity,done,indent=next(iter(native))
         if identity in used or len(items)>=MAX_ITEMS:invalid()
         used.add(identity);items.append({'id':identity,'text':line,'checked':done,'indent':indent,'start_utf16':start,'end_utf16':end})
-    return {'format_version':version,'text_utf16_units':units,'text_sha256':hashlib.sha256(text.encode()).hexdigest(),'items':items,'representation_complete':False,
+    result={'format_version':version,'text_utf16_units':units,'text_sha256':hashlib.sha256(text.encode()).hexdigest(),'items':items,'representation_complete':False,
             'coverage':'Direct checklist paragraph runs only; rich objects, soft-line semantics, cross-device state and native editing are not represented'}
+
+    if include_text:result['text']=text
+    return result
+
+
+def decode(compressed):
+    """Checklist projection; ordinary callers never receive the whole body text."""
+    return _decode(compressed,False)
+
+
+def text_projection(compressed):
+    """Reuse the same bounded grammar for selected saved-template text documents."""
+    value=_decode(compressed,True)
+    return {'text':value['text'],'format_version':value['format_version'],'text_sha256':value['text_sha256'],
+            'text_utf16_units':value['text_utf16_units'],'native_checklist_items_omitted':len(value['items']),
+            'representation_complete':False}
