@@ -18,7 +18,7 @@ class NotesEditRecovery:
         plan=self.store.read(self.store.path(identity,'.json'));result=self.store.read(self.store.path(identity,'.result'))
         items=plan.get('payload',{}).get('changes',[]);attempts=result.get('attempted')
         if (plan.get('kind')!='notes_change' or plan.get('payload',{}).get('account')!=self.account
-                or len(items)!=1 or items[0].get('operation') not in {'append_note','prepend_note','replace_text','update_note'}
+                or len(items)!=1 or items[0].get('operation') not in {'add_image','append_note','prepend_note','replace_text','update_note'}
                 or result.get('status')!='failed_or_uncertain' or result.get('phase') not in {'mutation','verification'}
                 or result.get('completed')!=[] or not isinstance(attempts,list) or len(attempts)>1
                 or self.store.read(self.store.path(identity,'.started')).get('sha256')!=digest(plan)):

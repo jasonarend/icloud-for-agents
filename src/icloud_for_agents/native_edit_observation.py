@@ -20,7 +20,7 @@ def inspect_uncertain_note_edit(engine, plan_id, folder_id):
             or plan['payload'].get('context',{}).get('source_ids')!=context['source_ids']
             or plan['payload'].get('context',{}).get('backend')!=context['backend']
             or result.get('status')!='failed_or_uncertain' or result.get('phase') not in {'mutation','verification'}
-            or len(items)!=1 or items[0].get('operation') not in {'append_note','prepend_note','replace_text','update_note'}
+            or len(items)!=1 or items[0].get('operation') not in {'add_image','append_note','prepend_note','replace_text','update_note'}
             or engine.store.read(engine.store.path(plan_id,'.started')).get('sha256')!=digest(plan)):
         raise SafetyError('Inspection requires one owned uncertain edit with unchanged source and backend')
     item=items[0];before=item.get('before',{});note=before.get('note',{})

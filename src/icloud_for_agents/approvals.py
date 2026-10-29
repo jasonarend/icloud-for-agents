@@ -304,13 +304,20 @@ class PlanStore:
                         and isinstance(backend,str) and backend.startswith('notes-creation-v1:'+fingerprint)
                         and binding.get('backend_id')==backend and binding.get('plan_sha256')==digest(original)
                         and binding.get('request_sha256')==payload.get('request_sha256')==digest(request))
-        if (original.get('kind')!='notes_change' or len(items)!=1 or items[0].get('operation') not in {'append_note','prepend_note','replace_text','update_note'}
+        if (original.get('kind')!='notes_change' or len(items)!=1 or items[0].get('operation') not in {'add_image','append_note','prepend_note','replace_text','update_note'}
                 or result.get('status')!='failed_or_uncertain' or result.get('phase') not in {'mutation','verification'}
                 or payload.get('account')!=original['payload'].get('account') or payload.get('original_sha256')!=digest(original)
                 or payload.get('original_result_sha256')!=digest(result) or payload.get('original_item_sha256')!=digest(items[0])
                 or not request_matches or payload.get('operation')!='accept_observed_unchanged_note'
                 or payload.get('context',{}).get('source_ids')!=original['payload'].get('context',{}).get('source_ids')):return False
         item=items[0]
+        if item['operation']=='add_image':
+            # Experimental attempts require their exact retained terminal bytes;
+            # this does not authorize or restore the unavailable image writer.
+            from .native_app import completed_exchange_evidence
+            try:terminal=completed_exchange_evidence(mutation_request('notes',item),plan_id=original_id,store=self)
+            except SafetyError:return False
+            if observed.get('terminal_exchange_sha256')!=digest(terminal):return False
         if (observed.get('plan_id')!=original_id or observed.get('note_id')!=item.get('id') or observed.get('source_id')!=item.get('source_id')
                 or observed.get('original_folder_id')!=item.get('folder_id') or not isinstance(observed.get('observed_folder_id'),str) or not observed['observed_folder_id']
                 or observed.get('observable_content_matches_before') is not True or observed.get('terminal_exchange_observed') is not True

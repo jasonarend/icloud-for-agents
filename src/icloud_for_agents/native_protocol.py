@@ -8,12 +8,14 @@ operation uses, avoiding duplicate projections and review-only metadata in IPC.
 def mutation_request(service,item):
     if service not in {'notes','reminders'}:raise ValueError('Unknown native service')
     operation=item.get('operation')
-    if service=='notes' and operation in {'create_note','create_folder','append_note','prepend_note','replace_text','update_note','repair_note_body','move_note','restore_note','delete_note','rename_folder'}:
+    # The historical add_image envelope is retained only for read-only recovery
+    # of experimental attempts. Current adapters and helpers reject new writes.
+    if service=='notes' and operation in {'add_image','create_note','create_folder','append_note','prepend_note','replace_text','update_note','repair_note_body','move_note','restore_note','delete_note','rename_folder'}:
         content_roles=None
         change={key:item[key] for key in ('operation','source_id','folder_id','parent_folder_id','id') if key in item}
-        if operation in {'create_note','append_note','prepend_note','replace_text','update_note','repair_note_body'} or (operation=='create_folder' and item.get('parent_folder_id')):
+        if operation in {'add_image','create_note','append_note','prepend_note','replace_text','update_note','repair_note_body'} or (operation=='create_folder' and item.get('parent_folder_id')):
             before=item.get('before',{})
-            folder=(before.get('parent') if operation=='create_folder' else before.get('folder') if operation in {'append_note','prepend_note','replace_text','update_note','repair_note_body'} else before)
+            folder=(before.get('parent') if operation=='create_folder' else before.get('folder') if operation in {'add_image','append_note','prepend_note','replace_text','update_note','repair_note_body'} else before)
             target=item.get('parent_folder_id') if operation=='create_folder' else item.get('folder_id')
             model=folder.get('verified_model_role') if isinstance(folder,dict) else None
             default=folder.get('verified_default_folder') if isinstance(folder,dict) else None
@@ -26,15 +28,16 @@ def mutation_request(service,item):
                 change['folder_guard']='verified_store_roles';content_roles=stored
             else:change['folder_guard']='unverified'
         keys={'title'} if operation in {'create_folder','rename_folder'} else {'title','destination_folder_id'} if operation in {'move_note','restore_note','delete_note'} else {'title','html'}
+        if operation=='add_image':keys={'title','filename','data_base64','sha256','size','media_type'}
         if operation=='delete_note':keys.add('recoverable')
         change['fields']={key:item['fields'][key] for key in keys if key in item['fields']}
         if operation=='rename_folder':
             change['before']={'inventory':item['before']['inventory'],'role':next(r for r in item['before']['roles'] if r['folder_id']==item['id'])}
             change['writer_backend']=item['writer_backend']
             if item.get('legacy_title_restore') is True:change['legacy_title_restore']=True
-        if operation in {'append_note','prepend_note','replace_text','update_note','repair_note_body','move_note','restore_note','delete_note'}:
+        if operation in {'add_image','append_note','prepend_note','replace_text','update_note','repair_note_body','move_note','restore_note','delete_note'}:
             before=item['before'];change['before']={'note':{key:before['note'][key] for key in ('title','html','modified')}}
-            if operation in {'move_note','restore_note','delete_note'}:
+            if operation in {'add_image','move_note','restore_note','delete_note'}:
                 change['before']['attachments']=before['attachments']
                 roles=before.get('roles')
                 if isinstance(roles,list) and roles:

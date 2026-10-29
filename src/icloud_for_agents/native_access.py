@@ -21,6 +21,7 @@ def access_status(name):
     # Describe implementation boundaries separately from configuration or OS
     # grants. A listed operation still needs exact target and approval checks.
     unsupported = ({
+        'add_image':'Native scripting did not provide a verified single-image append; one tested form produced duplicate references. File export is separately supported.',
         'delete_note':'Requires selected read-only folder metadata, a compatible helper and a visible verified system recovery folder.',
         'restore_note':'Requires explicitly selected read-only folder metadata and a compatible helper.',
         'delete_folder':'Complete contents and recoverable deletion effects are unverified.',
