@@ -53,7 +53,8 @@ def run(policy):
                         assert data(call(name+'_execute_approved',{'plan_id':plan['plan_id']}))['status']=='applied'
                         assert not (runtime/(plan['plan_id']+'.approved')).exists()
                         assert call(name+'_execute_approved',{'plan_id':plan['plan_id']}).get('isError')
-                    assert data(call(name+'_access_status',{}))['effective_access']=='read-only'
+                    status=data(call(name+'_access_status',{}));assert status['effective_access']=='read-only'
+                    assert ('native_checklist_writes'if name=='notes'else'template_writes')in status['unavailable_feature_families'];assert status['provider_capabilities']=='not_probed'and status['operation_listing_is_authorization']is False
                     invalid=[dict(changes[0],fields=dict(fields,unreviewed='No'))]
                     assert call(name+'_prepare_with_grant',{'grant_id':identity,'changes':invalid}).get('isError')
                     pending=data(call(name+'_prepare_with_grant',{'grant_id':identity,'changes':changes}))

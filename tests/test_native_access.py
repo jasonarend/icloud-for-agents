@@ -69,3 +69,15 @@ class NativeAccessTests(unittest.TestCase):
                 for operation in ('clear_early','move_reminder'):
                     self.assertEqual(operation in status['implemented_write_operations'],backend=='reminderkit');self.assertEqual(operation in status['unavailable_write_operations'],backend!='reminderkit')
                 self.assertEqual(status['effective_access'],'read-only')
+
+    def test_inventory_discloses_unavailable_native_features_without_provider_probe_or_authority(self):
+        for name,feature in (('notes','native_checklist_writes'),('reminders','template_writes')):
+            env={'ICLOUD_ENABLE_'+name.upper():'1','ICLOUD_NATIVE_CONFIG':json.dumps({name:{'source_ids':['selected'],'metadata_backend':'notes-store-readonly' if name=='notes' else 'reminders-store-readonly',**({}if name=='notes'else{'advanced_backend':'reminderkit'})}})}
+            with patch.dict(os.environ,env,clear=True),patch('icloud_for_agents.native_read.NativeReader.read',side_effect=AssertionError('Inventory must not read app data')):
+                status=access_status(name)
+                self.assertIn(feature,status['unavailable_feature_families'])
+                self.assertIn('permanent_deletion',status['unavailable_feature_families'])
+                self.assertEqual(status['effective_access'],'read-only');self.assertFalse(status['operation_listing_is_authorization'])
+                self.assertEqual(status['provider_capabilities'],'not_probed');self.assertEqual(status['os_permission'],'not_checked')
+                status['unavailable_feature_families'].clear()
+                self.assertIn(feature,access_status(name)['unavailable_feature_families'])
