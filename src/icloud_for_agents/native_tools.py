@@ -293,6 +293,15 @@ def register_change_tools(mcp):
             It preserves group identity, mixed child view and other account entries.
             rename_group uses source_id, group_id and fields.title for one
             private root group; observed child lists and account order are preserved.
+            create_template uses source_id, the exact source list_id and fields.title.
+            One to nineteen incomplete root tasks with unique titles and empty notes
+            in a private ordinary unsectioned list are copied into a new private
+            saved template. Scheduling, attachments, tags, flags and urgent state
+            refuse. Requires optional ReminderKit and explicit read-only store
+            content verification. The server preassigns the template ID. Quota is
+            one template plus every copied task; no list is instantiated. Its
+            scenario container_id is the exact source list ID, title only and no
+            destinations. Fresh source review still applies to every creation.
             rename_template uses source_id/id and fields.title for one exact saved
             template with no observed public link and at most twenty local saved-item
             outlines. Requires optional ReminderKit plus explicit read-only store

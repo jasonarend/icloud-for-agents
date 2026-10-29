@@ -682,8 +682,33 @@ func reminderRecurrence(_ value:Any,due:DateComponents?)->EKRecurrenceRule? {
     return rule
 }
 if action == "apply" {
-    if let change=req["change"] as? [String:Any],let operation=change["operation"] as? String,["rename_template","set_section","create_smart_list","set_smart_list_sources","rename_smart_list","reparent_reminder","reorder_group","group_list","ungroup_list","create_group","rename_group","reorder_reminder","delete_reminder","restore_reminder","set_list_badge","set_list_pinned","set_flagged","remove_tag","add_tag","replace_tag","set_urgent","add_early","clear_early","create_subtask","create_section","rename_section","move_reminder"].contains(operation) {
+    if let change=req["change"] as? [String:Any],let operation=change["operation"] as? String,["create_template","rename_template","set_section","create_smart_list","set_smart_list_sources","rename_smart_list","reparent_reminder","reorder_group","group_list","ungroup_list","create_group","rename_group","reorder_reminder","delete_reminder","restore_reminder","set_list_badge","set_list_pinned","set_flagged","remove_tag","add_tag","replace_tag","set_urgent","add_early","clear_early","create_subtask","create_section","rename_section","move_reminder"].contains(operation) {
         privateReminderGateArmed=true;NativeMutationGate.armDeadline()
+    }
+    if let item=req["change"] as? [String:Any],item["operation"] as? String=="create_template" {
+        guard let source=item["source_id"] as? String,sourceIDs.contains(source),let id=item["id"] as? String,UUID(uuidString:id)?.uuidString==id,
+              let listID=item["list_id"] as? String,let fields=item["fields"] as? [String:Any],Set(fields.keys)==["title"],let title=fields["title"] as? String,
+              let before=item["before"] as? [String:Any],let scope=before["source_scope"] as? [String:Any],let expectedList=scope["list"] as? [String:Any],
+              let graph=before["source_graph"] as? [String:Any],let nodes=graph["nodes"] as? [[String:Any]],let previous=before["items"] as? [[String:Any]],(1...19).contains(nodes.count),previous.count==nodes.count,
+              let list=lists.first(where:{$0.calendarIdentifier==listID && $0.source.sourceIdentifier==source}),list.allowsContentModifications,NSDictionary(dictionary:listRecord(list)).isEqual(to:expectedList) else {fail("invalid_mutation")}
+        store.fetchReminders(matching:store.predicateForReminders(in:[list])) { values in
+            guard let values=values,values.count==nodes.count,Set(values.map{$0.calendarItemIdentifier})==Set(nodes.compactMap{$0["id"] as? String}) else {fail("snapshot_changed")}
+            var seen=Set<String>()
+            for snapshot in previous {
+                guard let old=snapshot["item"] as? [String:Any],let identity=old["id"] as? String,seen.insert(identity).inserted,
+                      let reminder=values.first(where:{$0.calendarItemIdentifier==identity}),NSDictionary(dictionary:object(reminder)).isEqual(to:old),
+                      !reminder.isCompleted,!reminder.hasRecurrenceRules,!reminder.hasAlarms,reminder.dueDateComponents==nil,reminder.startDateComponents==nil,reminder.url==nil,(reminder.notes ?? "").isEmpty,
+                      let native=snapshot["native_metadata"] as? [String:Any],nativeSnapshotMatches(reminder,native),native["parent_id"] is NSNull,native["child_ids"] as? [String]==[],native["flagged"] as? Bool==false,(native["tags"] as? [Any])?.isEmpty==true,
+                      snapshot["urgent"] as? Bool==false,let bytes=try? JSONSerialization.data(withJSONObject:["id":identity,"source_id":source,"list_id":listID]),
+                      let result=(try? JSONSerialization.jsonObject(with:ICloudRemindersReadUrgent(bytes))) as? [String:Any],let meta=result["native_metadata"] as? [String:Any],let current=meta["urgent"] as? NSNumber,CFGetTypeID(current)==CFBooleanGetTypeID(),!current.boolValue else {fail("snapshot_changed")}
+            }
+            guard let payload=try? JSONSerialization.data(withJSONObject:["source_id":source,"list_id":listID,"id":id,"title":title,"before":before]),
+                  let response=(try? JSONSerialization.jsonObject(with:ICloudRemindersCreateTemplate(payload,{NativeMutationGate.beginMutation()}))) as? [String:Any] else {fail("invalid_mutation")}
+            if response["error"] != nil {failPrivateReminder(response)}
+            guard let output=response["result"] as? [String:Any] else {fail("mutation_failed_or_uncertain")}
+            respond(["protocol_version":1,"result":output])
+        }
+        RunLoop.current.run(until:Date(timeIntervalSinceNow:30));fail("mutation_failed_or_uncertain")
     }
     if let item=req["change"] as? [String:Any],item["operation"] as? String=="create_smart_list" {
         guard let source=item["source_id"] as? String,sourceIDs.contains(source),let id=item["id"] as? String,UUID(uuidString:id)?.uuidString==id,

@@ -55,3 +55,5 @@ FOUNDATION_EXPORT NSData *ICloudRemindersRenameTemplate(NSData *data,BOOL (^ente
 NS_ASSUME_NONNULL_END
 
 NSData *ICloudRemindersSetSection(NSData *data,BOOL (^enterMutation)(void));
+
+NSData *ICloudRemindersCreateTemplate(NSData *data,BOOL (^enterMutation)(void));
