@@ -1,0 +1,54 @@
+"""Real MCP scoped Notes native pin, asset metadata and generated PDF reads with isolated synthetic providers."""
+import json,os,select,subprocess,sys,tempfile,time
+from pathlib import Path
+ROOT=Path(__file__).resolve().parents[1]
+from test_native_note_assets import SOURCE,FOLDER,NOTE,ASSET,RAW
+
+def run(policy):
+    with tempfile.TemporaryDirectory(prefix='native-once-protocol-') as directory:
+        home=Path(directory);audit=home/'audit.json';runtime=home/'runtime'
+        env={'HOME':str(home),'PATH':os.defpath,'PYTHONPATH':str(ROOT/'src')+os.pathsep+str(ROOT/'tests'),
+            'PYTHONUNBUFFERED':'1','BRIDGE_TEST_AUDIT':str(audit),'FASTMCP_SHOW_SERVER_BANNER':'false','FASTMCP_CHECK_FOR_UPDATES':'off',
+            'ICLOUD_MAIL_ACCOUNT':'synthetic@example.com','ICLOUD_MAIL_ACCESS':'read-only','ICLOUD_APPROVAL_POLICY':policy,
+            'ICLOUD_ENABLE_MAIL':'0','ICLOUD_ENABLE_CALENDAR':'0','ICLOUD_ENABLE_CONTACTS':'0','ICLOUD_ENABLE_NOTES':'1','ICLOUD_ENABLE_REMINDERS':'0',
+            'ICLOUD_NATIVE_CONFIG':json.dumps({n:{'access_mode':'read-only','source_ids':[SOURCE],'metadata_backend':'notes-store-readonly'} for n in ('notes',)}),
+            'ICLOUD_RUNTIME_ROOT':str(runtime)}
+        with (home/'stderr.log').open('wb') as stderr:
+            process=subprocess.Popen([sys.executable,str(ROOT/'tests/native_note_assets_stdio_server.py')],cwd=home,env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=stderr);sequence=0
+            def rpc(method,params):
+                nonlocal sequence
+                sequence+=1;current=sequence;process.stdin.write((json.dumps({'jsonrpc':'2.0','id':current,'method':method,'params':params})+'\n').encode());process.stdin.flush();deadline=time.monotonic()+20
+                while time.monotonic()<deadline:
+                    if select.select([process.stdout],[],[],1)[0]:
+                        line=process.stdout.readline()
+                        if not line:raise AssertionError('Synthetic server exited')
+                        value=json.loads(line)
+                        if value.get('id')==current:return value
+                raise AssertionError('Synthetic MCP timeout')
+            def call(name,args):
+                response=rpc('tools/call',{'name':name,'arguments':args});assert 'error' not in response,response;return response['result']
+            def data(response):
+                assert not response.get('isError'),response
+                return response.get('structuredContent') or json.loads(response['content'][0]['text'])
+            try:
+                rpc('initialize',{'protocolVersion':'2025-11-25','capabilities':{},'clientInfo':{'name':'synthetic-native-once','version':'1'}})
+                process.stdin.write(b'{"jsonrpc":"2.0","method":"notifications/initialized"}\n');process.stdin.flush()
+                args={'folder_id':FOLDER,'id':NOTE}
+                metadata=data(call('notes_native_metadata',args));assert metadata['pinned'] is False and metadata['content_read'] is False
+                inventory=data(call('notes_native_assets',args));assert len(inventory['assets'])==1 and inventory['assets'][0]['id']==ASSET and inventory['native_asset_inventory_complete'] is False
+                exported=data(call('notes_export_fallback_pdf',dict(args,asset_id=ASSET)));assert exported['size']==len(RAW) and exported['encoding']=='base64' and exported['original_file'] is False and exported['download_attempted'] is False
+                for bad in (dict(args,asset_id=ASSET,max_bytes=1),dict(args,asset_id=ASSET,max_bytes=1048577),dict(args,asset_id=ASSET,id='foreign'),dict(args,asset_id=ASSET,output_path='/tmp/not-allowed')):
+                    assert call('notes_export_fallback_pdf',bad).get('isError')
+                assert call('notes_native_metadata',dict(args,folder_id='foreign')).get('isError')
+                assert data(call('notes_access_status',{}))['effective_access']=='read-only'
+
+            finally:
+                process.stdin.close()
+                try:process.wait(timeout=10)
+                except subprocess.TimeoutExpired:process.terminate();process.wait(timeout=5)
+                process.stdout.close()
+        assert process.returncode==0,(home/'stderr.log').read_text();assert json.loads(audit.read_text())==[]
+        return {'status':'passed','transport':'real stdio JSON-RPC','synthetic_providers_only':True,'policy':policy,'services':['notes'],'settings_remained_read_only':True,'native_pin_inventory_generated_pdf_scope_and_bounds_verified':True,'network_helper_attempts':[]}
+
+if __name__=='__main__':
+    results=[run(policy) for policy in ('trusted-client','local-receipt')];path=ROOT/'build/reports/NATIVE-NOTE-ASSETS-STDIO.json';path.parent.mkdir(parents=True,exist_ok=True);path.write_text(json.dumps(results,indent=2)+'\n');print(json.dumps(results,indent=2))

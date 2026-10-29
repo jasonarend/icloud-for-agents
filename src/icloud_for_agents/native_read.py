@@ -1384,6 +1384,27 @@ def register_read_tools(mcp):
 
         @mcp.tool(annotations=annotations)
         @guard
+        def notes_native_metadata(folder_id:str,id:str)->dict:
+            """Read one exact note's native pin observation without reading its body. Requires the optional notes-store-readonly backend; unknown state stays unavailable."""
+            from .native_note_assets import metadata
+            return metadata(folder_id,id)
+
+        @mcp.tool(annotations=annotations)
+        @guard
+        def notes_native_assets(folder_id:str,id:str)->dict:
+            """Read <=100 live direct native attachment metadata rows in one selected note, including paper PDFs omitted by scripting. Optional notes-store-readonly access; no complete native-object inventory or file-availability claim."""
+            from .native_note_assets import inventory
+            return inventory(folder_id,id)
+
+        @mcp.tool(annotations=annotations)
+        @guard
+        def notes_export_fallback_pdf(folder_id:str,id:str,asset_id:str,max_bytes:int=1048576)->dict:
+            """Read <=1MiB of one exact unlocked note's locally available Notes-generated PDF as base64 with SHA-256. Optional notes-store-readonly backend; no download, caller paths, original-file identity or complete-backup claim."""
+            from .native_note_assets import export_pdf
+            return export_pdf(folder_id,id,asset_id,max_bytes)
+
+        @mcp.tool(annotations=annotations)
+        @guard
         def notes_export_attachment(folder_id:str,id:str,attachment_id:str,max_bytes:int=1048576)->dict:
             """Export one exact unlocked note attachment as bounded base64 bytes with SHA-256. Native-file representation only; no arbitrary paths or complete-backup claim. May download an iCloud asset through Notes."""
             return NativeReader('notes').read('attachment_export',folder_id=folder_id,id=id,attachment_id=attachment_id,max_bytes=max_bytes)
