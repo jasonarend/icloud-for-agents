@@ -304,6 +304,13 @@ def register_change_tools(mcp):
             no task or category edits are requested. Current-source and
             full-storage guards, normal once/scoped approval and quota apply.
             Its scenario rule uses the exact list container and enabled field.
+            rename_grocery_category uses exact source_id/list_id/id and fields.title
+            for one existing category in a private grocery list. The ReminderKit
+            helper binds all bounded root tasks, order and category inventory, then
+            stages only the exact category name with full storage/tracker guards.
+            It requires an unused different title. Scenario rules name the exact
+            list container, title field and allowed category IDs as destinations.
+            Quota is one object; no category membership or task content is edited.
             set_grocery_category uses exact source_id/id and fields.category_id,
             an existing same-list category ID or explicit null for removal. The
             selected ReminderKit and opted-in read-only store guards are required.
