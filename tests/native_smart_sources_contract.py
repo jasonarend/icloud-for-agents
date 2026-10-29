@@ -37,6 +37,7 @@ static NSDictionary *physical;
 @implementation FakeChange(Filter)
 -(void)setFilterData:(id)value{self.storage.filterData=value;[self.changedKeys addObject:@"filterData"];
  if([mode isEqual:@"extra_key"])[self.changedKeys addObject:@"name"];
+ if([mode isEqual:@"version_drift"])self.storage.minimumSupportedVersion=0;
  if([mode isEqual:@"filter_drift"])self.storage.filterData=[@"{}"dataUsingEncoding:NSUTF8StringEncoding];
  if([mode isEqual:@"title_drift"])self.storage.name=@"Unreviewed title";
 }
@@ -46,7 +47,7 @@ static NSDictionary *scope(NSString *source,NSString *identity){return @{@"list"
 CASES = r'''
 int main(int argc,const char **argv){@autoreleasepool{
  mode=[NSString stringWithUTF8String:argv[1]];NSString *source=@"11111111-1111-4111-8111-111111111111",*identifier=@"22222222-2222-4222-8222-222222222222",*old=@"33333333-3333-4333-8333-333333333333",*next=@"44444444-4444-4444-8444-444444444444";
- original=[FakeList new];original.remObjectID=ident(@"REMCDSmartList",identifier);original.storage=[FakeStorage new];original.storage.remObjectID=original.remObjectID;original.storage.accountID=ident(@"REMCDAccount",source);original.storage.name=@"Synthetic source view";
+ original=[FakeList new];original.remObjectID=ident(@"REMCDSmartList",identifier);original.storage=[FakeStorage new];original.storage.remObjectID=original.remObjectID;original.storage.accountID=ident(@"REMCDAccount",source);original.storage.name=@"Synthetic source view";original.storage.minimumSupportedVersion=20220430;
  NSMutableDictionary *criterion=[@{@"operation":@"and",@"lists":@{@"include":@[old],@"exclude":@[]}}mutableCopy];if([mode isEqual:@"unknown_criteria"])criterion[@"unknown"]=@YES;if([mode isEqual:@"or"])criterion[@"operation"]=@"or";
  original.storage.filterData=[NSJSONSerialization dataWithJSONObject:criterion options:0 error:NULL];
  NSMutableDictionary *objects=[NSMutableDictionary dictionary];for(NSString *identity in @[old,next]){FakeList *list=[FakeList new];list.remObjectID=ident(@"REMCDList",identity);list.storage=[FakeStorage new];list.storage.remObjectID=list.remObjectID;list.storage.accountID=ident(@"REMCDAccount",source);objects[identity]=list;}physical=objects;
@@ -82,7 +83,7 @@ def run():
         opened=call('valid');assert opened['gate_calls']==1 and opened['save_calls']==1 and opened['response']['result']['saved_locally'] is True
         multiple=call('multiple');assert multiple['gate_calls']==1 and multiple['save_calls']==1 and multiple['response']['result']['saved_locally'] is True
         error=call('save_error');assert error['save_calls']==1 and error['response']['mutation_dispatched'] is True
-        for mode in ('shared','grocery','foreign_reference','unknown_criteria','or','missing_old','duplicate','empty','unreviewed','same_sources','extra_field','extra_key','filter_drift','title_drift','unrelated_reminder'):
+        for mode in ('version_drift','shared','grocery','foreign_reference','unknown_criteria','or','missing_old','duplicate','empty','unreviewed','same_sources','extra_field','extra_key','filter_drift','title_drift','unrelated_reminder'):
             value=call(mode);assert value['gate_calls']==0 and value['save_calls']==0 and value['response']['error'],mode
     return {'status':'passed','apple_store_opened':False,'exact_source_and_private_references_verified':True,
             'known_schema_only':True,'closed_gate_and_single_save_verified':True,'unrelated_changes_refused':True}

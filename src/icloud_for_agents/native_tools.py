@@ -290,6 +290,12 @@ def register_change_tools(mcp):
             It preserves group identity, mixed child view and other account entries.
             rename_group uses source_id, group_id and fields.title for one
             private root group; observed child lists and account order are preserved.
+            create_smart_list uses source_id and fields.title/list_ids for a new
+            Lists-only AND custom Smart List over one to ten exact private ordinary
+            nongrocery physical lists. The server preassigns its ID and appends it
+            to native account order. No Reminders are copied or edited. Its scenario
+            rule uses source_id as container_id and explicit permitted list IDs as
+            destinations. The view is persistent; no delete-view operation is included.
             create_group uses source_id and fields.title to create one empty
             private root list group, preserving prior account order and all tasks.
             reorder_reminder uses exact source/id, fields.anchor_id and placement

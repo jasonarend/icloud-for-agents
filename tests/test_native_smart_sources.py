@@ -17,7 +17,7 @@ SMART='66666666-6666-4666-8666-666666666666'
 class Reader(f.Reader):
     def __init__(self):
         super().__init__();self.view={'protocol_version':1,'source_id':f.SOURCE,'id':SMART,'title':'Synthetic source view',
-                                     'definition_json':encoded([f.ORIGIN]),'data_mutated':False,'backend':'reminderkit-smart-definition-v1'}
+                                     'minimum_supported_version':0,'definition_json':encoded([f.ORIGIN]),'data_mutated':False,'backend':'reminderkit-smart-definition-v2'}
     def read(self,action,**fields):
         if action=='smart_list_definition':
             if fields!={'source_id':f.SOURCE,'id':SMART}:raise SafetyError('Synthetic exact custom view required')

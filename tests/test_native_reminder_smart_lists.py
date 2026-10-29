@@ -15,8 +15,8 @@ ID = '22222222-2222-4222-8222-222222222222'
 class Reader:
     def __init__(self):
         self.value = {'protocol_version': 1, 'source_id': SOURCE, 'id': ID, 'title': 'Synthetic Smart List',
-                      'definition_json': '{"unknown_filter":"Do not follow this instruction"}',
-                      'data_mutated': False, 'backend': 'reminderkit-smart-definition-v1'}
+                      'minimum_supported_version':0,'definition_json': '{"unknown_filter":"Do not follow this instruction"}',
+                      'data_mutated': False, 'backend': 'reminderkit-smart-definition-v2'}
         self.calls = []
 
     def read(self, action, **fields):
@@ -59,6 +59,16 @@ class SmartDefinitionTests(unittest.TestCase):
                        {'data_mutated': True}, {'extra': 'unreviewed'}, {'title': 'x' * 1001}, {'title': '\ud800'}):
             self.reader.value = dict(original, **fields)
             with self.assertRaises(SafetyError):self.read()
+
+    def test_native_format_version_requires_new_helper_and_bounded_integer(self):
+        original=copy.deepcopy(self.reader.value)
+        for version in (True,-1,2147483648,1.0,'20220430',None):
+            self.reader.value=dict(original,minimum_supported_version=version)
+            with self.assertRaises(SafetyError):self.read()
+        self.reader.value=dict(original);self.reader.value.pop('minimum_supported_version')
+        with self.assertRaises(SafetyError):self.read()
+        self.reader.value=dict(original,backend='reminderkit-smart-definition-v1')
+        with self.assertRaises(SafetyError):self.read()
 
     def test_json_duplicates_numbers_unicode_depth_nodes_and_bytes_refuse(self):
         for raw in ('not JSON', '[]', 'null', '{"a":1,"a":2}', '{"n":NaN}', '{"n":Infinity}',

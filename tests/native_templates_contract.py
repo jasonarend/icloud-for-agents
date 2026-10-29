@@ -15,7 +15,7 @@ FIXTURE=r'''
 @end
 @implementation FakeAccount @end
 @interface FakeStorage:NSObject
-@property FakeID *accountID; @property NSString *name; @property FakeID *remObjectID; @property NSData *filterData;
+@property long long minimumSupportedVersion;@property FakeID *accountID; @property NSString *name; @property FakeID *remObjectID; @property NSData *filterData;
 @end
 @implementation FakeStorage @end
 @interface FakeTemplate:NSObject
@@ -76,6 +76,8 @@ int main(int argc,const char **argv){@autoreleasepool{
  if([mode isEqual:@"section_foreign"])section.storage.accountID=ident(@"REMCDAccount",other);if([mode isEqual:@"section_wrong_parent"])section.storage.parentTemplateID=b.remObjectID;if([mode isEqual:@"section_duplicate"])sections=@[section,section];if([mode isEqual:@"section_empty"])sections=@[];
  if([mode hasPrefix:@"smart_"]){a.remObjectID.entityName=@"REMCDSmartList";b.remObjectID.entityName=@"REMCDSmartList";if([mode isEqual:@"smart_foreign"])a.storage.accountID=ident(@"REMCDAccount",other);}
  if([mode hasPrefix:@"definition_"]){a.remObjectID.entityName=@"REMCDSmartList";a.storage.remObjectID=a.remObjectID;a.storage.filterData=[@"{\"uninterpreted_filter\":true}" dataUsingEncoding:NSUTF8StringEncoding];
+ if([mode isEqual:@"definition_negative_version"])a.storage.minimumSupportedVersion=-1;
+ if([mode isEqual:@"definition_large_version"])a.storage.minimumSupportedVersion=2147483648LL;
  if([mode isEqual:@"definition_foreign"])a.storage.accountID=ident(@"REMCDAccount",other);
  if([mode isEqual:@"definition_wrong_entity"])a.remObjectID.entityName=@"REMCDList";
  if([mode isEqual:@"definition_wrong_storage"])a.storage.remObjectID=b.remObjectID;
@@ -106,6 +108,6 @@ def run():
         smart=call('smart_ok');assert smart['smart_lists'][0]['title']=='Synthetic' and smart['filter_rules_complete'] is False and smart['data_mutated'] is False
         assert call('smart_foreign').get('error')
         definition=call('definition_ok');assert json.loads(definition['definition_json'])=={'uninterpreted_filter':True} and definition['data_mutated'] is False
-        for mode in ('definition_foreign','definition_wrong_entity','definition_wrong_storage','definition_missing','definition_oversized','definition_nonutf8'):assert call(mode).get('error'),mode
+        for mode in ('definition_foreign','definition_wrong_entity','definition_wrong_storage','definition_missing','definition_oversized','definition_nonutf8','definition_negative_version','definition_large_version'):assert call(mode).get('error'),mode
     print(json.dumps({'status':'passed','apple_store_opened':False,'checks':['scoped_identity','bounded_stable_page','foreign_duplicate_missing_refused','no_mutation']}))
 if __name__=='__main__':run()

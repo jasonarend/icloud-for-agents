@@ -15,12 +15,13 @@ def snapshot(source_id, identity, *, reader=None):
         raise SafetyError('Custom Smart List definitions require the exact selected source and optional ReminderKit helper')
     reader = reader or NativeReader('reminders')
     before = reader.read('smart_list_definition', source_id=source_id, id=identity)
-    if (not isinstance(before, dict) or set(before) != {'protocol_version', 'source_id', 'id', 'title', 'definition_json', 'data_mutated', 'backend'}
+    if (not isinstance(before, dict) or set(before) != {'protocol_version', 'source_id', 'id', 'title', 'minimum_supported_version', 'definition_json', 'data_mutated', 'backend'}
             or type(before['protocol_version']) is not int or before['protocol_version'] != 1
             or before['source_id'] != source_id or before['id'] != identity
             or not isinstance(before['title'], str) or len(before['title']) > 1000
             or any(0xD800 <= ord(c) <= 0xDFFF for c in before['title'])
-            or before['data_mutated'] is not False or before['backend'] != 'reminderkit-smart-definition-v1'):
+            or type(before['minimum_supported_version']) is not int or not 0 <= before['minimum_supported_version'] <= 2147483647
+            or before['data_mutated'] is not False or before['backend'] != 'reminderkit-smart-definition-v2'):
         raise SafetyError('Helper did not verify the exact custom Smart List definition')
     parse(before['definition_json'])
     if reader.read('smart_list_definition', source_id=source_id, id=identity) != before:
@@ -33,7 +34,7 @@ def snapshot(source_id, identity, *, reader=None):
 def definition(source_id, identity, *, reader=None):
     before = snapshot(source_id, identity, reader=reader)
     value = parse(before['definition_json'])
-    return {key: before[key] for key in ('protocol_version', 'source_id', 'id', 'title', 'backend', 'data_mutated')} | {
+    return {key: before[key] for key in ('protocol_version', 'source_id', 'id', 'title', 'minimum_supported_version', 'backend', 'data_mutated')} | {
         'definition': value, 'definition_format': 'uninterpreted_native_JSON',
         'semantics_verified': False, 'membership_evaluated': False, 'instructions_trusted': False,
         'consistency': 'separate_live_reads_may_change'}

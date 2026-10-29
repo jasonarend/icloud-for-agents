@@ -49,7 +49,7 @@ from test_native_reminder_smart_lists import ID as SMART_ID
 class SmartReader:
  def read(self,action,**fields):
   if action!='smart_list_definition' or fields!={'source_id':FILE_SOURCE,'id':SMART_ID}:raise SafetyError('Synthetic Smart List exact scope mismatch')
-  return {'protocol_version':1,'source_id':FILE_SOURCE,'id':SMART_ID,'title':'Synthetic Smart List','definition_json':'{"unknown_filter":true}','data_mutated':False,'backend':'reminderkit-smart-definition-v1'}
+  return {'protocol_version':1,'source_id':FILE_SOURCE,'id':SMART_ID,'title':'Synthetic Smart List','minimum_supported_version':0,'definition_json':'{"unknown_filter":true}','data_mutated':False,'backend':'reminderkit-smart-definition-v2'}
 smart.NativeReader=lambda name:SmartReader()
 from icloud_for_agents.server import main
 main()

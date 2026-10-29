@@ -665,8 +665,26 @@ func reminderRecurrence(_ value:Any,due:DateComponents?)->EKRecurrenceRule? {
     return rule
 }
 if action == "apply" {
-    if let change=req["change"] as? [String:Any],let operation=change["operation"] as? String,["set_smart_list_sources","rename_smart_list","reparent_reminder","reorder_group","group_list","ungroup_list","create_group","rename_group","reorder_reminder","delete_reminder","restore_reminder","set_list_badge","set_list_pinned","set_flagged","remove_tag","add_tag","replace_tag","set_urgent","add_early","clear_early","create_subtask","create_section","rename_section","move_reminder"].contains(operation) {
+    if let change=req["change"] as? [String:Any],let operation=change["operation"] as? String,["create_smart_list","set_smart_list_sources","rename_smart_list","reparent_reminder","reorder_group","group_list","ungroup_list","create_group","rename_group","reorder_reminder","delete_reminder","restore_reminder","set_list_badge","set_list_pinned","set_flagged","remove_tag","add_tag","replace_tag","set_urgent","add_early","clear_early","create_subtask","create_section","rename_section","move_reminder"].contains(operation) {
         privateReminderGateArmed=true;NativeMutationGate.armDeadline()
+    }
+    if let item=req["change"] as? [String:Any],item["operation"] as? String=="create_smart_list" {
+        guard let source=item["source_id"] as? String,sourceIDs.contains(source),let id=item["id"] as? String,UUID(uuidString:id)?.uuidString==id,
+              let fields=item["fields"] as? [String:Any],Set(fields.keys)==Set(["title","list_ids"]),let title=fields["title"] as? String,
+              let selected=fields["list_ids"] as? [String],(1...10).contains(selected.count),selected==selected.sorted(),Set(selected).count==selected.count,
+              selected.allSatisfy({UUID(uuidString:$0)?.uuidString==$0}),let before=item["before"] as? [String:Any],
+              let scopes=before["scopes"] as? [[String:Any]],scopes.count==selected.count else {fail("invalid_mutation")}
+        var seen=Set<String>()
+        for scope in scopes {
+            guard let expected=scope["list"] as? [String:Any],let listID=expected["id"] as? String,seen.insert(listID).inserted,selected.contains(listID),
+                  let list=lists.first(where:{$0.calendarIdentifier==listID && $0.source.sourceIdentifier==source}),list.allowsContentModifications,
+                  NSDictionary(dictionary:listRecord(list)).isEqual(to:expected) else {fail("snapshot_changed")}
+        }
+        guard let payload=try? JSONSerialization.data(withJSONObject:["source_id":source,"id":id,"title":title,"list_ids":selected,"before":before]),
+              let response=(try? JSONSerialization.jsonObject(with:ICloudRemindersCreateSmartList(payload,{NativeMutationGate.beginMutation()}))) as? [String:Any] else {fail("invalid_mutation")}
+        if response["error"] != nil {fail((response["mutation_dispatched"] as? Bool)==true ? "mutation_failed_or_uncertain" : "unsupported_edit_target")}
+        guard let output=response["result"] as? [String:Any] else {fail("mutation_failed_or_uncertain")}
+        respond(["protocol_version":1,"result":output])
     }
     if let item=req["change"] as? [String:Any],item["operation"] as? String=="set_smart_list_sources" {
         guard let source=item["source_id"] as? String,sourceIDs.contains(source),let id=item["id"] as? String,

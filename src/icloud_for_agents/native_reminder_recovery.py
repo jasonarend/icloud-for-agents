@@ -56,7 +56,7 @@ class ReminderObservationRecovery:
         with self.engine.serialized():
             plan,result,item=self.original(original_id)
             if self.store._native_reminder_recovery_completed(original_id):raise SafetyError('An observation has already been accepted for this Reminder')
-            if item.get('operation') in {'set_smart_list_sources','rename_smart_list','create_subtask','delete_reminder','restore_reminder','reorder_reminder','create_group','rename_group','group_list','ungroup_list','reorder_group','reparent_reminder'} and legacy:raise SafetyError('Subtask and lifecycle acceptance require retained terminal evidence')
+            if item.get('operation') in {'create_smart_list','set_smart_list_sources','rename_smart_list','create_subtask','delete_reminder','restore_reminder','reorder_reminder','create_group','rename_group','group_list','ungroup_list','reorder_group','reparent_reminder'} and legacy:raise SafetyError('Subtask and lifecycle acceptance require retained terminal evidence')
             observed=self.observation(original_id,True) if legacy else self.observation(original_id,unknown=True) if accept_unknown_dispatch else self.observation(original_id)
             request=None if legacy else self.store.read(self.store.path(original_id,'.native-reminder-request-0'))
             response=None if legacy else self.store.read(self.store.path(original_id,'.native-reminder-response-0'))
@@ -78,6 +78,9 @@ class ReminderObservationRecovery:
                 payload['effects']['group_order_coverage']=RECOVERY_EFFECT
             if item.get('operation') in {'group_list','ungroup_list'}:
                 payload['effects']['list_grouping_coverage']='Only the reviewed list scope, bounded task membership, parent, mixed group view and native account order are compared. Causal dispatch, delayed effects and unexposed metadata remain unproven. No replay.'
+            if item.get('operation')=='create_smart_list':
+                from .native_reminder_smart_create import RECOVERY_EFFECT
+                payload['effects']['smart_creation_coverage']=RECOVERY_EFFECT
             if item.get('operation') in {'create_group','rename_group'}:
                 payload['effects']['group_coverage']='Only the exact private root-group inventory and account order are observed. No creation success, causal dispatch, delayed effects or absence of unexposed changes is proven. No replay.'
             if item.get('operation')=='reorder_reminder':
