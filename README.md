@@ -17,13 +17,13 @@ An independent project, unaffiliated with Apple. The tested setup is macOS on Ap
 - Find information in selected Notes folders, read notes and supported attachments, save supplied specifications or transcripts, edit supported text, and move or recoverably remove notes with approval.
 - Review today’s reminders or a date range, create and edit tasks, mark them complete, organize supported lists and task hierarchies, and recoverably remove or restore tasks with approval.
 
-Setup starts read-only. Sending and Mail, Calendar or Contacts changes require write access and the applicable approvals. Notes and Reminders also support separately approved one-time changes and scoped standing grants while their normal access remains read-only; your assistant can help review the exact scope first.
+All five services are optional and can be enabled independently. A new setup enables Mail in read-only mode by default; Calendar, Contacts, Notes and Reminders start disabled. Sending and Mail, Calendar or Contacts changes require write access and the applicable approvals. Notes and Reminders also support separately approved one-time changes and scoped standing grants while their normal access remains read-only; your assistant can help review the exact scope first.
 
 Mail cleanup moves messages to recoverable Trash. Permanent deletion and emptying Trash are intentionally excluded.
 
 Calendar support currently covers personal, nonrecurring events. Invitations, guests, scheduling responses and recurring-event editing are not yet supported. iCloud Drive access is also not included.
 
-Notes and Reminders are optional and disabled by default. Some capabilities need a separately selected native backend and additional macOS access. Notes removal requires an accessible, verified Recently Deleted folder; an empty or hidden folder refuses safely. Reminders supports recoverable removal and restoration of individual root tasks and explicitly reviewed families with direct children. Rich editing, deeper hierarchies and other native operations have specific limits. See the [capability overview](docs/reference/native-support.md) and [Notes and Reminders setup](docs/getting-started/native-services.md).
+Some Notes and Reminders capabilities need a separately selected native backend and additional macOS access. Notes removal requires an accessible, verified Recently Deleted folder; an empty or hidden folder refuses safely. Reminders supports recoverable removal and restoration of individual root tasks and explicitly reviewed families with direct children. Rich editing, deeper hierarchies and other native operations have specific limits. See the [capability overview](docs/reference/native-support.md) and [Notes and Reminders setup](docs/getting-started/native-services.md).
 
 ## Set up with your AI agent
 
