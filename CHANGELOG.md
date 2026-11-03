@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 2.0.1 — 2026-11-03
+
+- Stabilize the native permission test on hosted runners and allow more time for the full source-check workflow.
 
 ## 2.0.0 — 2026-11-03
 
