@@ -12,9 +12,10 @@ import AppKit
 import ApplicationServices
 let ipcDirectory:URL?=nil
 var testRunning=true
-var testDeadline=0.1
+var testDeadline=5.0
 var testCode:OSStatus=0
 var testSlow=false
+let testGate=DispatchSemaphore(value:0)
 var calls=0
 var lastPrompt=false
 func syntheticPermission(_ target:UnsafePointer<AEAddressDesc>!,_ eventClass:AEEventClass,_ eventID:AEEventID,_ prompt:Bool)->OSStatus {
@@ -22,7 +23,7 @@ func syntheticPermission(_ target:UnsafePointer<AEAddressDesc>!,_ eventClass:AEE
  precondition(target.pointee.descriptorType==typeApplicationBundleID)
  precondition(eventClass==typeWildCard && eventID==typeWildCard)
  calls+=1;lastPrompt=prompt
- if testSlow { Thread.sleep(forTimeInterval:0.5) }
+ if testSlow { testGate.wait() }
  return testCode
 }
 '''
@@ -32,18 +33,21 @@ precondition(notesPermission(prompt:false) == -600 && calls==0)
 testRunning=true
 for code:OSStatus in [0,-1743,-1744,-600] {
  testCode=code
- precondition(notesPermission(prompt:false)==code && !lastPrompt)
+ let observed=notesPermission(prompt:false)
+ precondition(observed==code && !lastPrompt,"Expected \\(code), received \\(observed), prompt=\\(lastPrompt)")
 }
 testCode=0
 precondition(notesPermission(prompt:true)==0 && lastPrompt)
 testSlow=true
+testDeadline=0.1
 precondition(notesPermission(prompt:false) == -1712)
+testGate.signal()
 print("passed")
 '''
     with tempfile.TemporaryDirectory(prefix='native-permission-contract-') as directory:
         path=Path(directory)/'main.swift';path.write_text(header+function+tail);binary=Path(directory)/'contract'
-        subprocess.run(['/usr/bin/swiftc',str(path),'-o',str(binary)],check=True,capture_output=True,timeout=60)
-        result=subprocess.run([str(binary)],capture_output=True,text=True,timeout=10);assert result.returncode==0,result.stderr;assert result.stdout.strip()=='passed'
+        subprocess.run(['/usr/bin/swiftc',str(path),'-o',str(binary)],check=True,capture_output=True,timeout=120)
+        result=subprocess.run([str(binary)],capture_output=True,text=True,timeout=30);assert result.returncode==0,result.stderr;assert result.stdout.strip()=='passed'
     return {'status':'passed','real_permission_api_called':False,'native_data_access':False,'cases':['stable_bundle_address','off_main_permission_api','nonrunning_target_no_call','grant_deny_consent_error_propagation','explicit_prompt_only','bounded_timeout']}
 
 if __name__=='__main__':
