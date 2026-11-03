@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 2.0.0 — 2026-11-03
+
 - Add independently optional Notes and Reminders access, including source selection, bounded reads, and approved supported changes.
 - Add one-time and scoped ongoing permissions for supported Notes and Reminders operations, with safeguards for uncertain writes and recovery.
 - Support recoverable deletion and restoration of eligible notes and reminders, with object-specific safety checks.
@@ -9,7 +11,6 @@
 - Add a bundled native helper and setup guidance for macOS permissions, plus isolated protocol and native adapter tests.
 - Verify source removal after moves and refuse protected mark-as-read batches when their final snapshot has changed.
 - Complete dependency notice inventory (including aiofile LICENCE files) and add repeatable verification, macOS CI and maintenance/data-retention instructions.
-
 - Include every test runner and fixture, plus the security policy, in source distributions; add an archive completeness check.
 - Reuse one inherited credential handoff across Mail and DAV in either initialization order.
 - Replace and clear grouped vCard properties; remove event DURATION when setting an explicit end while preserving nested alarms.
