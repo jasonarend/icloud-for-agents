@@ -3,7 +3,7 @@
 
 Current durable setup and Keychain item names: [Background startup](../getting-started/background-service.md). A key tracking ID is not a usable secret; save a replacement one-time value in its approved Keychain item before closing the key-creation screen. Default launcher invocation only checks configuration.
 
-Start by distinguishing installation, tunnel transport, plugin installation/tool discovery, Apple authentication, and the actual mailbox action. Success at one layer does not prove the next. Preserve the exact error and a redacted description of what was attempted.
+Start by distinguishing installation, client connection, tool discovery, Apple credentials or macOS app permissions, and the requested operation. Success at one layer does not prove the next. Preserve the exact error and a redacted description of what was attempted.
 
 | Symptom | Check and next safe action |
 | --- | --- |
@@ -11,8 +11,10 @@ Start by distinguishing installation, tunnel transport, plugin installation/tool
 | Tunnel exists but discovery/calls fail | Confirm the foreground client is still running and the Mac is awake/online. Use the installed client's supported health/readiness/doctor checks with secrets redacted. Then verify the exact local stdio command/interpreter. |
 | A localhost URL does not connect | This bridge has no HTTP MCP endpoint. Use the private Tunnel stdio route or a supported local stdio client. Do not add an unauthenticated HTTP adapter as a workaround. |
 | Plugin installed but unavailable in the conversation | Check the correct account/workspace, installation state, and `@` selection. Refresh tools in app details after an authorized server change. Another client's MCP registration is not ChatGPT installation. |
-| Tools appear but writes fail | Expected if the owner-selected runtime is read-only. Discovery lists schemas, not enabled permissions. Do not remove read-only mode unless the owner approves that scope change. |
+| Tools appear but writes fail | Tool discovery does not grant permission. Ordinary changes require approved write access; Notes and Reminders also allow exact one-time plans or active scoped grants from read-only access. Check the returned refusal and the selected approval policy rather than broadly enabling writes. |
 | Calendar/Contacts are missing | Inspect the selected `services` in owner settings and the actual child's independent `ICLOUD_ENABLE_CALENDAR` / `ICLOUD_ENABLE_CONTACTS` switches. An explicit switch (`0` or `1`) takes precedence over legacy `ICLOUD_ENABLE_DAV_READ`; that combined setting is only a fallback when the corresponding independent switch is absent. Confirm the common access mode permits reads. Compare live discovery and refresh through supported client controls; tool counts depend on the selected service subset. |
+| Notes or Reminders are missing or cannot read | Confirm that the selected service is enabled, its helper is configured, the owner has granted the relevant macOS access, and exact source IDs have been selected. An empty source allowlist permits discovery only. Use the [native setup guide](../getting-started/native-services.md); Automation access, Reminders access and optional data-store access are separate permissions. |
+| Notes or Reminders times out or reports an uncertain write | Preserve the original plan and retained exchange. Inspect the service’s `plan_status` and supported recovery tools; never replay a consumed write or delete its evidence. A timeout does not prove that the app made no change. |
 | Mail tools report disabled access | Inspect the approved nonsecret launch setting. `disabled` intentionally refuses mail-service access. Do not silently enable it. |
 | Keychain item unavailable or authentication fails | Have the owner verify the exact login/service match, app-specific password, and native Keychain access prompt privately. Do not print the password, dump Keychain, or collect it through chat. |
 | Archive/Trash/Sent cannot resolve | List exact server folders. Have the owner choose an existing exact role override only when needed. Do not guess localized names, create folders, or accept conflicting special-use roles. |

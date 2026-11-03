@@ -27,7 +27,7 @@ Mail, Calendar and Contacts require an Apple app-specific password. If you selec
 
 Never use your main Apple Account password. Do not paste credentials into chat, terminal commands, screenshots, source, `.env` or JSON files. Handle Keychain access/unlock prompts personally. The bridge reads the existing item when required; it never provisions it. A trusted launcher can alternatively supply a bounded secret through an inherited descriptor; see [security](../security/model.md) for that trust boundary.
 
-Notes and Reminders use separate macOS permissions rather than this credential. They are optional and disabled by default; see [native-service setup](native-services.md) for their development setup, verification and current limits.
+Notes and Reminders use separate macOS permissions rather than this credential. They are optional and disabled by default; see [native-service setup](native-services.md) for setup, verification and supported operations.
 
 ## Nonsecret configuration
 
@@ -37,7 +37,7 @@ For direct local MCP use, no OpenAI account, tunnel or client name is required. 
 .venv/bin/python scripts/configure-local.py --account YOUR_ICLOUD_LOGIN
 ```
 
-This creates owner-only `local/settings.json`, defaults to read-only Mail, and leaves Calendar/Contacts disabled. To select a different approved subset, add `--services mail,calendar`, `--services contacts`, or `--services none`. Every listed name is enabled and every omitted service disabled. The legacy `--enable-dav-reads` option enables both DAV services and cannot be combined with `--services`. Writes require separate scope approval before using `--enable-writes`; it does not enable trusted-client mode or create a standing grant.
+This creates owner-only `local/settings.json`, defaults to read-only Mail, and leaves Calendar, Contacts, Notes and Reminders disabled. To select a different approved subset, add `--services mail,calendar`, `--services contacts`, or `--services none`. The accepted names are `mail`, `calendar`, `contacts`, `notes` and `reminders`. Every listed name is enabled and every omitted service disabled. Notes and Reminders also need the helper, macOS permissions and exact source selection described in [native-service setup](native-services.md). The legacy `--enable-dav-reads` option enables both DAV services and cannot be combined with `--services`. Writes require separate scope approval before using `--enable-writes`; it does not enable trusted-client mode or create a standing grant.
 
 Show generic client registration information for existing settings without changing them:
 

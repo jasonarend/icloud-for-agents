@@ -7,6 +7,8 @@
   "services": {
     "mail": true,
     "calendar": false,
-    "contacts": false
+    "contacts": false,
+    "notes": false,
+    "reminders": false
   }
 }

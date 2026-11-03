@@ -1,4 +1,4 @@
-"""Public EventKit adapter, used only through exact source-bound native change plans."""
+"""Source-bound Reminders plans using EventKit and optional native operations."""
 import hashlib
 import json
 from datetime import date, datetime, timezone

@@ -13,6 +13,12 @@ The launcher reads the policy only from validated private settings, never an inh
 OpenAI documents context-dependent client write confirmations in [custom MCP connections](https://help.openai.com/en/articles/12584461-connecting-custom-mcp-servers-in-chatgpt). Standard [MCP elicitation](https://modelcontextprotocol.io/specification/2025-06-18/client/elicitation) requires client capability support. Actual elicitation support through this ChatGPT tunnel has not been established; this policy does not claim it has.
 
 
+## Notes and Reminders permissions
+
+Each native service has its own enabled state, selected sources and read/write mode. An OS permission lets the helper reach the app; it does not authorize a content change. From read-only access, your agent can prepare one exact action with `notes_prepare_once` or `reminders_prepare_once`, or propose a scoped ongoing grant for a scenario you approve. The selected strict-receipt or trusted-client policy still applies. A disabled service cannot be elevated by a one-time plan.
+
+Ongoing grants name exact operations, fields, containers and destinations, with owner-chosen expiry and rolling quotas. They can be inspected, replaced or revoked through the same MCP server. Clients sharing an instance also share its configured authority. See [Notes and Reminders setup](../getting-started/native-services.md#ongoing-and-scenario-permissions) for the complete workflow and operation-specific rules.
+
 ## Narrow no-effect recovery
 
 One failed calendar-create attempt may be recovered only through a separately reviewed local reconciliation transition, never an exposed approval/recovery tool or automatic retry. It preserves original plan, started marker and failure result. Evidence binds exact URL/UID, original request hash, a supported bounded UID absence check, GET404, timestamp and identified material fix. One identical-payload retry is reserved durably and proof freshness is checked before admission. The executor repeats exact GET404 before a conditional If-None-Match:* PUT. A second immutable record requires successful same-resource readback before future trusted writes are unblocked. This is a trusted local operator workflow; local files are not cryptographic proof of a human or provider response. No generic retry, uncertainty clear, expired-proof extension or irreversible-action bypass exists.

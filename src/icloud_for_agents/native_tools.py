@@ -1,4 +1,4 @@
-"""Client-neutral exact native creation plans and read-only outcome reconciliation."""
+"""Client-neutral native permissions, change plans, grants and reconciliation."""
 from functools import wraps
 import os
 from fastmcp.exceptions import ToolError

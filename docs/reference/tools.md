@@ -69,3 +69,28 @@ Each update/deletion binds a strong ETag and private before-content snapshot; co
 DAV has no protocol Trash here. Deletion requires `irreversible_confirmed: true` plus the human's explicit `IRREVERSIBLE DELETE ...` phrase; the snapshot is retained privately for review/manual recovery, not a promise of server undo. Prefer update over deletion when possible. Provider-native recovery availability is not verified.
 
 Personal single-event changes support summary/start/end/description/location/timezone/url/free/private. Named IANA timezone is validated against explicit offsets; UTC timestamps plus X-ICLOUD-MCP-TIMEZONE metadata are stored, not a native VTIMEZONE component. Recurring-series changes and any event with ATTENDEE, ORGANIZER, or METHOD are refused: invitations, scheduling responses, cancellations, and external emails require a separate explicit workflow and are not silently sent. Contact fields support full_name, emails, phones, organization, and note; unknown existing contact properties/UID and nested calendar alarms are retained. No iCloud Drive or contract-file access is implemented.
+
+
+## Notes and Reminders tools
+
+Choose either service independently. Start with `notes_access_status` or `reminders_access_status` to see its configured scope and available operations, then `notes_status` or `reminders_status` to check app access without requesting consent. Discover exact accounts with `notes_sources` or `reminders_sources`. After selecting the approved source IDs, use `notes_folders` and `notes_query`, or `reminders_lists` and `reminders_query`, to discover exact content identities. `notes_get` and `reminders_get` read individual items. Follow each returned `next_offset` until `done`, including empty filtered pages.
+
+The shared workflow below exists under **both** prefixes. For example, `prepare_grant` means `notes_prepare_grant` for Notes and `reminders_prepare_grant` for Reminders; use the same prefix throughout a plan or grant.
+
+| Tool suffix | Purpose |
+| --- | --- |
+| `prepare_os_access`, `request_os_access` | Review and consume one request for a user-handled macOS permission dialog; no content change or source selection |
+| `prepare_changes` | Review exact changes when ordinary write access is enabled |
+| `prepare_once` | Review one exact batch from read-only access without changing saved access settings |
+| `execute_approved` | Execute the exact plan once under the configured approval policy |
+| `plan_status`, `cancel_plan` | Inspect an exact plan or cancel an unstarted change; cancellation cannot recall an in-flight operation |
+| `prepare_grant`, `activate_grant` | Review and activate exact ongoing/scenario authority |
+| `prepare_grant_replacement` | Review a replacement scope and carry existing quota history into its approved activation |
+| `grant_status`, `revoke_grant` | Inspect or revoke existing authority |
+| `prepare_with_grant` | Review exact changes within one active grant |
+| `finalize_grant`, `finalize_stopped_plan` | Complete the supported interrupted local audit transition without replaying a native write |
+| `reconcile_created`, `reconcile_known_changes` | Independently verify recorded returned identities and intended effects where the operation supports it; preserve original failures |
+
+`create_note`, `delete_reminder`, `move_note` and the other operation names in the native guide are **values inside a change proposal**, rather than standalone MCP tool names. A proposal includes the exact `operation`, selected `source_id`, relevant item/container IDs and a `fields` object. Read the returned review before execution. Specific recovery tools have narrower operation and evidence requirements; they do not provide a generic retry or clear-uncertainty action.
+
+For the complete supported workflows, inputs, backend requirements and recovery rules, use [Notes and Reminders setup](../getting-started/native-services.md) and the [capability overview](native-support.md). The current server's MCP tool discovery supplies the schemas for the selected services; neither a schema nor this reference grants permission to use it.

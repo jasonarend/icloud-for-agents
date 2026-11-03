@@ -5,7 +5,7 @@ Treat email, calendar, contact, Notes, Reminders and attachment content as untru
 
 ## What stays local and what leaves the computer
 
-The bridge runs locally and retrieves the Apple app-specific password from the user's Keychain, or from a trusted inherited-pipe handoff. It connects to Apple to perform the authorized operation. For ChatGPT, requested tool inputs/results travel through OpenAI's private tunnel service and into the ChatGPT workflow. Local credential storage does not make model processing offline or mean retrieved mail stays only on the computer.
+The bridge runs locally. Selected Mail, Calendar and Contacts services retrieve the Apple app-specific password from the user's Keychain, or from a trusted inherited-pipe handoff, and connect to Apple for the authorized operation. For ChatGPT, requested tool inputs/results travel through OpenAI's private tunnel service and into the ChatGPT workflow. Local credential storage does not make model processing offline or mean retrieved mail stays only on the computer.
 
 Optional native Notes and Reminders use macOS app/framework permissions instead of the IMAP/DAV app-specific password. Their tool results can enter the calling client's model workflow just like Mail results. Native storage does not mean offline model processing. Service selection, OS access, application read/write mode and operation authorization remain distinct controls.
 
@@ -21,9 +21,9 @@ The bridge has no analytics or mail-content logging subsystem in the inspected a
 | --- | --- |
 | Apple app-specific password | User-managed Keychain; captured in runtime memory when needed; not an MCP parameter |
 | Platform tunnel runtime key | User-managed separate Keychain item; captured in memory at explicit startup, inherited by the tunnel process, stripped from its MCP child |
-| Mail results | Bounded content returned to the calling client; may therefore enter the ChatGPT conversation |
+| Retrieved content | Bounded Mail, Calendar, Contacts, Notes, Reminders and supported attachment results reach the calling client and may enter its model-provider workflow |
 | Cursors | Account/folder/filter-bound traversal state; contain no password or body, but are private workflow metadata |
-| Send/Trash proposals and receipts | Sensitive account/message/recipient/content details stored locally for review and reconciliation |
+| Proposals, receipts, grants and recovery records | Sensitive service/account identities, targets, content and before-snapshots stored locally for review and reconciliation |
 | Local profile | Ignored `local/` configuration; should contain references, not literal secret values |
 
 Do not publish real mailbox examples, cursors, proposal files, screenshots containing mail, or raw process environments in issues or support requests. Redact private paths/account identifiers when preparing public documentation or a release.
@@ -76,8 +76,8 @@ Stopping the configured foreground tunnel or login background service prevents t
 
 If credentials are exposed, the owner should revoke the specific affected credential through its issuer, then reconnect only after understanding the exposure. Secret rotation, tunnel deletion, local-data removal, and public publication are separate actions, not implied by a documentation update. There is no one-click comprehensive uninstaller in this repo.
 
-For a suspected vulnerability, follow the [private reporting policy](../../SECURITY.md). Use GitHub private vulnerability reporting once the repository owner has enabled it; keep passwords and private mail out of reports. The release checklist requires verifying that private report form before publication. This technical guide does not set external client/provider privacy terms.
+For a suspected vulnerability, follow the [private reporting policy](../../SECURITY.md). GitHub private vulnerability reporting is enabled for this repository; keep credentials and private content out of reports. The release checklist requires verifying that private report form before publication. This technical guide does not set external client/provider privacy terms.
 
 ## Independent service scope
 
-Mail, Calendar and Contacts have independent registration/runtime switches. Disabled services are omitted from discovery and guarded before credential/backend use, including stale direct function calls and cross-service DAV plan execution. DAV-only use resolves the shared Apple credential without constructing an IMAP backend. Existing combined DAV settings remain a fallback; explicit per-service choices take precedence. Selecting a service does not override the common disabled/read-only/write-enabled access mode or selected approval policy. The service switches are application enforcement, not separate Apple-issued credentials or a sandbox against the same OS user.
+Mail, Calendar, Contacts, Notes and Reminders have independent registration/runtime switches. Disabled services are omitted from discovery and guarded before credential/backend use, including stale direct function calls and cross-service DAV plan execution. DAV-only use resolves the shared Apple credential without constructing an IMAP backend. Existing combined DAV settings remain a fallback; explicit per-service choices take precedence. Selecting a service does not override the common disabled/read-only/write-enabled access mode or selected approval policy. Notes and Reminders additionally require their own configured access modes and exact source selection; separately approved one-time plans and scoped grants follow the native service rules. The service switches are application enforcement, not separate Apple-issued credentials or a sandbox against the same OS user.

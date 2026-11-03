@@ -1,8 +1,8 @@
 # iCloud for Agents
 
-**Development version 1.2.0.dev0**
+**Version 1.2.0.dev0**
 
-Manage iCloud mail, calendars and contacts from your AI assistant while keeping your credentials private and stored locally on your Mac. Optional development support also connects Apple Notes and Reminders on your Mac. Connect a local MCP client like Claude over stdio, or connect ChatGPT through your own private OpenAI Secure MCP Tunnel.
+Connect your AI assistant to iCloud Mail, Calendar, Contacts, Apple Notes and Reminders while keeping credentials private and stored locally on your Mac. Choose only the apps you want to use. Connect a local MCP client like Claude over stdio, or connect ChatGPT through your own private OpenAI Secure MCP Tunnel.
 
 An independent project, unaffiliated with Apple. The tested setup is macOS on Apple silicon with Python 3.14; see [installation requirements](docs/getting-started/installation.md) for compatibility details.
 
@@ -14,8 +14,8 @@ An independent project, unaffiliated with Apple. The tested setup is macOS on Ap
 - Review calendars and events over a date range, and create, update or delete personal events with details such as location, description and timezone.
 - Browse address books, read contact details, and create, update or delete contacts with names, email addresses, phone numbers, organizations and notes.
 - Run recurring mail cleanup within an explicitly configured account, folder and operation scope.
-- Read selected Notes folders and notes, search titles or bounded text, and prepare creation and supported text edits for approval.
-- Read selected Reminders lists and tasks, including daily and date-range queries, and prepare creation, edits and completion changes for approval.
+- Find information in selected Notes folders, read notes and supported attachments, save supplied specifications or transcripts, edit supported text, and move or recoverably remove notes with approval.
+- Review today’s reminders or a date range, create and edit tasks, mark them complete, organize supported lists and task hierarchies, and recoverably remove or restore tasks with approval.
 
 Setup starts read-only. Sending and Mail, Calendar or Contacts changes require write access and the applicable approvals. Notes and Reminders also support separately approved one-time changes and scoped standing grants while their normal access remains read-only; your assistant can help review the exact scope first.
 
@@ -23,7 +23,7 @@ Mail cleanup moves messages to recoverable Trash. Permanent deletion and emptyin
 
 Calendar support currently covers personal, nonrecurring events. Invitations, guests, scheduling responses and recurring-event editing are not yet supported. iCloud Drive access is also not included.
 
-Notes and Reminders are optional development features, disabled by default. Some native capabilities require an explicitly selected advanced backend. Approved organization includes same-account Notes moves, native Notes restoration and bounded Reminder subtree moves. Notes supports recoverable removal when the verified system Trash is accessible; an empty Trash currently refuses. Reminders supports recoverable removal of verified root leaves and restoration from the completed owned deletion ledger. Hierarchical deletion, rich content and other native features retain specific limits. See [native service setup and current capabilities](docs/getting-started/native-services.md).
+Notes and Reminders are optional and disabled by default. Some capabilities need a separately selected native backend and additional macOS access. Notes removal requires an accessible, verified Recently Deleted folder; an empty or hidden folder refuses safely. Reminders supports recoverable removal and restoration of individual root tasks and explicitly reviewed families with direct children. Rich editing, deeper hierarchies and other native operations have specific limits. See the [capability overview](docs/reference/native-support.md) and [Notes and Reminders setup](docs/getting-started/native-services.md).
 
 ## Set up with your AI agent
 
@@ -63,7 +63,7 @@ Prefer manual setup? Follow [installation and credentials](docs/getting-started/
 
 ## Choose services and customize safeguards
 
-Tell your setup agent which services you want: **Mail, Calendar, Contacts, Notes, Reminders, any combination, or none**. It can prepare the corresponding supported configuration without requiring a client name. Disabled services are omitted from tool registration and refused by backend guards; selecting one does not implicitly enable the others. New setup defaults to read-only Mail. Existing legacy DAV settings remain compatible.
+Tell your setup agent which services you want: **Mail, Calendar, Contacts, Notes, Reminders, any combination, or none**. Your agent can use an existing supported client configuration or provide the command and arguments for a local stdio connection. Disabled services are omitted from tool registration and refused by backend guards; selecting one does not implicitly enable the others. New setup defaults to read-only Mail. Existing legacy DAV settings remain compatible.
 
 You can ask your agent to propose a policy change, a specific one-time exception, or an engineering change to a hard-coded safeguard. It should explain the exact scope and before/after effect, obtain explicit approval, and test/review code changes before activation. Approval does not erase account/identity checks or grant permission to bypass the agent platform's own safety policies. Message content cannot authorize changes.
 

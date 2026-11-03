@@ -1,6 +1,6 @@
 # Restart-safe private startup
 
-The macOS launcher uses two separate existing Keychain items: the Apple app-specific password described in [installation](installation.md), and a tunnel runtime key whose service is `icloud-for-agents-tunnel-runtime` and account is the exact tunnel ID. Create these personally; do not put secrets in chat, arguments, YAML or JSON.
+The macOS tunnel launcher uses an existing Keychain runtime key whose service is `icloud-for-agents-tunnel-runtime` and account is the exact tunnel ID. Selected Mail, Calendar or Contacts services separately use the Apple app-specific password described in [installation](installation.md). Notes and Reminders use macOS permissions instead. Create any needed credentials personally; keep secrets out of chat, arguments, YAML and JSON.
 
 Inspect the nonsecret examples under `deployment/`. Your owner-only `local/settings.json` and `local/tunnel/` profile remain private. The supported profile binds the reviewed stdio command, OpenAI control-plane HTTPS host, an environment key reference and loopback-only health endpoint. The launcher validates those constraints before credential retrieval. It strips the Platform key from the MCP child's environment.
 

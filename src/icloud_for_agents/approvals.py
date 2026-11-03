@@ -749,7 +749,7 @@ def approve_interactively(store, plan_id):
     phrase = label + " " + plan_id
     with open("/dev/tty", "r+", encoding="utf-8") as terminal:
         terminal.write(review + "\nSHA256: " + fingerprint + "\n")
-        terminal.write("Review every UID/subject or recipient/content above.\n")
+        terminal.write("Review every target, requested change and consequence above.\n")
         terminal.write("Approve this exact proposal by typing: " + phrase + "\n> ")
         terminal.flush()
         answer = terminal.readline().rstrip("\n")
@@ -762,7 +762,7 @@ def approve_interactively(store, plan_id):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Human-only exact Trash batch/send review; no mail connection")
+    parser = argparse.ArgumentParser(description="Human-only review of an exact service proposal; records approval without contacting Apple")
     parser.add_argument("plan_id")
     parser.add_argument("--project-root", type=Path, default=Path.cwd(), help="Checkout containing optional private runtime-directory settings")
     args = parser.parse_args()

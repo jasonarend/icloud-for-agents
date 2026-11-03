@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add independently optional Notes and Reminders access, including source selection, bounded reads, and approved supported changes.
+- Add one-time and scoped ongoing permissions for supported Notes and Reminders operations, with safeguards for uncertain writes and recovery.
+- Support recoverable deletion and restoration of eligible notes and reminders, with object-specific safety checks.
+- Add supported Notes formatting, attachment reads and image text recognition, and Reminders organization, recurrence and selected attachment workflows. See the [capability reference](docs/reference/native-support.md) for supported operations and their boundaries.
+- Add a bundled native helper and setup guidance for macOS permissions, plus isolated protocol and native adapter tests.
 - Verify source removal after moves and refuse protected mark-as-read batches when their final snapshot has changed.
 - Complete dependency notice inventory (including aiofile LICENCE files) and add repeatable verification, macOS CI and maintenance/data-retention instructions.
 
@@ -11,7 +16,7 @@
 - Verify the final read/unread state of every requested message; uncertain cleanup results block further unattended actions.
 - Allow an explicit owner-selected tunnel executable path and document installation/version checks.
 - Add verified login-service status, stop and uninstall commands without credential lookup.
-- Document GitHub private vulnerability reporting and require activation before the first public release.
+- Document the GitHub private vulnerability reporting channel and release-time verification.
 
 ## 1.1.0 — 2026-10-21
 
