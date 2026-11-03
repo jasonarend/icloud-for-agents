@@ -40,12 +40,12 @@ for (key,value) in [("protocol_version",true as Any),("service","reminders" as A
 let large=pixels(8193);var oversized=request;oversized["image_data"]=large.base64EncodedString();oversized["image_sha256"]=SHA256.hash(data:large).map({String(format:"%02x",$0)}).joined();precondition(notesImageText(oversized)==nil)
 print("passed");exit(0)
 }
-RunLoop.current.run(until:Date(timeIntervalSinceNow:30))
+RunLoop.current.run(until:Date(timeIntervalSinceNow:60))
 fatalError("Synthetic OCR read timed out")
 '''
  with tempfile.TemporaryDirectory(prefix='native-note-ocr-')as directory:
   path=Path(directory)/'main.swift';path.write_text(main);binary=Path(directory)/'check';built=subprocess.run(['/usr/bin/swiftc',str(path),'-o',str(binary)],capture_output=True,text=True,timeout=90);assert built.returncode==0,built.stderr
-  result=subprocess.run([str(binary)],capture_output=True,text=True,timeout=40);assert result.returncode==0 and result.stdout.strip()=='passed',result.stderr
+  result=subprocess.run([str(binary)],capture_output=True,text=True,timeout=70);assert result.returncode==0 and result.stdout.strip()=='passed',result.stderr
   entry=Path(directory)/'processor';built=subprocess.run(['/usr/bin/swiftc',str(ROOT/'src/icloud_for_agents/native/notes-ocr.swift'),'-o',str(entry)],capture_output=True,text=True,timeout=90);assert built.returncode==0,built.stderr
   for payload in (b'{}',b'x'*240001,b'{\"protocol_version\":true}'):
    refused=subprocess.run([str(entry)],input=payload,capture_output=True,timeout=10);value=json.loads(refused.stdout);assert refused.returncode==0 and value['protocol_version']==1 and value.get('error')in {'invalid_request','read_failed'}

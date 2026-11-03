@@ -192,7 +192,7 @@ def register_read_tools(mcp, safe, service, *, calendar=True, contacts=True):
     @selected("calendar")
     @safe
     def calendar_list() -> list[dict]:
-        """Discover exact account calendar collection URLs. No write/invitation tools."""
+        """Discover exact account calendar collection URLs without changing events or responding to invitations."""
         return reader().collections("cal")
 
     @selected("calendar")

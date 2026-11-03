@@ -82,7 +82,7 @@ createdFrom=Date(timeIntervalSince1970:100);createdBefore=Date(timeIntervalSince
 precondition(filteredIDs()==["b"])
 createdBefore=Date(timeIntervalSince1970:100);precondition(filteredIDs().isEmpty)
 '''
-    assertions=''' 
+    assertions='''
 precondition(dueDay(EKReminder(dueDateComponents:nil))==nil)
 precondition(dueDay(EKReminder(dueDateComponents:components(2026,3,8)))=="2026-03-08")
 precondition(dueDay(EKReminder(dueDateComponents:components(2026,10,27,0,30,"Asia/Tokyo")))=="2026-10-26")

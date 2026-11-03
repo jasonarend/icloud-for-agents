@@ -174,7 +174,7 @@ def register_change_tools(mcp):
             folder_id, body/format), replace_text (id, folder_id, exact find,
             replacement and integer expected_matches), update_note (id, folder_id,
             complete title/body/format), rename_folder (folder_id, title; requires the
-            explicitly selected development native writer and store metadata).
+            explicitly selected native writer and store metadata).
             move_note (id, folder_id, destination_folder_id) moves between ordinary
             private folders. restore_note uses those fields to restore from the
             verified system Recently Deleted folder to an ordinary private folder.
@@ -280,11 +280,15 @@ def register_change_tools(mcp):
             requires list_id. update_reminder/set_completed use
             exact source_id and id. rename_list uses source_id/list_id/title.
             delete_reminder uses exact source_id/id and fields.recoverable=true.
-            Only private nonrecurring root leaves without sections or descendants
-            are supported; permanent deletion is unavailable. restore_reminder
+            The default scope is a private nonrecurring root leaf without sections
+            or descendants. For a root and up to nine direct children, explicitly
+            set fields.include_descendants=true; nested, recurring, sectioned,
+            shared and grocery families are refused. Permanent deletion is unavailable. restore_reminder
             requires the same ID/source, fields.deletion_plan_id from this owner's
             completed deletion, optional deletion_index (default 0), and exact
-            destination fields.list_id. Restore can reactivate original alarms.
+            destination fields.list_id. Family restoration also requires
+            include_descendants=true and the original list. Restore can reactivate
+            original alarms.
             group_list uses source_id/list_id and fields.group_id for one root
             private physical list into a private root group. A populated destination
             additionally requires fields.allow_nonempty=true, fewer than100 observed
@@ -376,8 +380,21 @@ def register_change_tools(mcp):
             to native account order. No Reminders are copied or edited. Its scenario
             rule uses source_id as container_id and explicit permitted list IDs as
             destinations. The view is persistent; no delete-view operation is included.
+            rename_smart_list uses source_id, the custom view id and fields.title;
+            the selected ReminderKit backend verifies the new name and unchanged
+            native filter. Built-in views and physical lists are refused.
+            set_smart_list_sources uses source_id, the custom view id and
+            fields.list_ids for exact private ordinary physical lists. It supports
+            positive Lists-AND criteria, optionally with the known Today predicate;
+            unknown criteria, shared or grocery lists and cross-account IDs refuse.
+            Scenario grants bind the exact view, fields and permitted destinations.
             create_group uses source_id and fields.title to create one empty
             private root list group, preserving prior account order and all tasks.
+            move_reminder uses source_id, a root id and fields.list_id to move
+            the complete bounded subtree between private ordinary lists in the
+            same source with the selected ReminderKit backend. All affected
+            descendants are reviewed and charged; recurring or sectioned items,
+            subtask detachment and cross-account moves are refused.
             reorder_reminder uses exact source/id, fields.anchor_id and placement
             before/after within one selected private list. Both IDs must be roots.
             Parent/child links and exposed content are preserved; descendants
@@ -413,6 +430,8 @@ def register_change_tools(mcp):
             enter/leave. Review includes exact triggers and notification effects.
             Location-text writes and unsupported advanced alarms are refused.
             add_early uses exact id and fields.unit (minutes, hours, days, weeks, or months) and positive integer fields.count; it adds one early alert to a timed reminder only when the native state is observed empty.
+            clear_early uses exact id and fields.clear=true to remove one observed
+            early alert, with its existing native payload bound to the review.
             set_urgent uses exact id and fields.urgent Boolean; it changes current-user urgent notifications.
             set_flagged uses exact id and fields.flagged Boolean, requiring the
             explicitly selected ReminderKit backend. remove_tag uses exact id and
@@ -424,7 +443,7 @@ def register_change_tools(mcp):
             rename_section uses source_id, list_id, section_id and fields.title; it preserves the observed section inventory and reminder membership.
             create_section uses source_id, list_id and fields.title; it creates a
             native section with a preassigned identity and checks observed sections
-            and list membership. Section order and section membership are unverified.
+            and list membership. Exact section order remains unverified.
             A create_subtask grant selects exact parent IDs in destinations; a rename_section grant selects exact section IDs there.
             Ordinary recurring edits are refused. set_recurrence requires exact id
             and fields.recurrence_scope="exact_native_rule" plus fields.recurrence
@@ -433,9 +452,9 @@ def register_change_tools(mcp):
             This changes only the exact uncompleted object's rule configuration;
             occurrence edits, completion generation and historical changes are not
             provided by this operation.
-            set_completed uses fields.completed boolean. Reminder moves are paused until
-            complete hierarchy effects can be verified. Use prepare_once or an approved scenario grant for
-            read-only application access. No operation opens a reference URL.
+            set_completed uses fields.completed boolean. Use prepare_once or an
+            approved scenario grant for read-only application access. No operation
+            opens a reference URL.
             """
             return editor('reminders',write=True).prepare(changes)
 
@@ -461,10 +480,10 @@ def register_change_tools(mcp):
             check_plan_scope('reminders',plan_id)
             return inspect_uncertain_reminder(editor('reminders'),plan_id)
 
-        @mcp.tool(annotations=READ)
+        @mcp.tool(annotations=WRITE)
         @guard
         def reminders_reconcile_lifecycle(plan_id:str)->dict:
-            """Independently verify a supported known native lifecycle, organization or custom-view state after a retained terminal error. Preserve the original failure and never replay the mutation."""
+            """Verify a supported known lifecycle, organization or custom-view state after a retained terminal error. On success, write durable local reconciliation evidence that can settle uncertainty. Preserve the original failure; never replay the native mutation."""
             from .native_reminder_lifecycle import reconcile
             check_plan_scope('reminders',plan_id)
             return reconcile(editor('reminders'),plan_id)

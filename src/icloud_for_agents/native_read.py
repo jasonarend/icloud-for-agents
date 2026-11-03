@@ -1352,7 +1352,7 @@ def register_read_tools(mcp):
         @mcp.tool(annotations=annotations)
         @guard
         def reminders_recovery_lookup(id: str, source_id: str) -> dict:
-            """Check one exact root in the selected account's Recently Deleted view; no deletion or restoration."""
+            """Check one exact reminder and its recovery root in the selected account's Recently Deleted view; no deletion or restoration."""
             return NativeReader('reminders').read('recovery_lookup',id=id,source_id=source_id)
 
         @mcp.tool(annotations=annotations)

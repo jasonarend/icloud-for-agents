@@ -1,4 +1,4 @@
-"""Packaged mail/DAV entrypoint. STDIO only: no TCP listener."""
+"""MCP entrypoint for the selected services. STDIO only: no TCP listener."""
 
 from functools import wraps
 import threading
@@ -189,7 +189,7 @@ def email_plan_status(plan_id: str) -> dict:
     return PlanStore().status(plan_id)
 
 
-# Disabled until the user confirms live calendar/contact read scope.
+# Register calendar and contact tools only for explicitly enabled services.
 if enabled("calendar") or enabled("contacts"):
     from .dav import register_read_tools
     register_read_tools(mcp, safe, dav_owner, calendar=enabled("calendar"), contacts=enabled("contacts"))
