@@ -54,7 +54,7 @@ Select Calendar with `ICLOUD_ENABLE_CALENDAR=1` and Contacts with `ICLOUD_ENABLE
 | Tool | Behavior |
 | --- | --- |
 | `calendar_list` | Discover exact calendar collections |
-| `calendar_events` | Bounded raw events, timezone-aware range <=31 days, <=200 resources |
+| `calendar_events` | Bounded calendar resources, timezone-aware range <=31 days; optionally request expanded occurrences |
 | `contacts_addressbooks` | Discover exact addressbooks |
 | `contacts_list` | Metadata pages of 1–100 references; bounded live listing, not an immutable snapshot |
 | `contacts_get` | One bounded raw vCard, <=256 KiB |
@@ -63,6 +63,8 @@ Select Calendar with `ICLOUD_ENABLE_CALENDAR=1` and Contacts with `ICLOUD_ENABLE
 | `dav_execute_approved` | Execute an exact calendar/contact plan under the selected approval policy |
 
 The three change tools are refused in initial read-only mode. A separately authorized `write-enabled` runtime and the selected approval policy are both necessary; general irreversible deletion retains strict local receipt handling. Read-only is the validation stage, not a permanent product restriction.
+
+For a bounded view of repeating events, `calendar_events` accepts `expand_recurring: true`. It asks the provider to expand occurrences within the requested window, with at most 200 returned occurrences. The result contains the original resource URL and a server-generated read-only projection; do not use that projection as an editable series snapshot. The server's complete recurrence coverage and iCloud support have not been independently verified. The default remains the existing raw resource view.
 
 Each update/deletion binds a strong ETag and private before-content snapshot; conditional If-Match protects against drift. Create uses an assigned resource URL and If-None-Match: *. One exact approval covers the bounded batch, not a new question per item. Interrupted or partially completed batches are never retried/rolled back automatically. Check exact resources and completed outcomes before a replacement plan.
 

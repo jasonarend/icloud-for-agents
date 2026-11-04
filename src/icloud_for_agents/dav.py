@@ -17,6 +17,51 @@ NS = {"d": "DAV:", "cal": "urn:ietf:params:xml:ns:caldav", "card": "urn:ietf:par
 LIMIT = 2 * 1024 * 1024
 
 
+def expanded_event_count(value):
+    """Validate the bounded shape of a requested server occurrence projection.
+
+    This checks the expansion contract, not recurrence completeness or provider
+    fidelity. The projection must never be used as an editable series snapshot.
+    """
+    lines = re.sub(r"\r?\n[ \t]", "", value).replace("\r\n", "\n").split("\n")
+    while lines and lines[-1] == "":
+        lines.pop()
+    stack, count, calendar_seen = [], 0, False
+    for line in lines:
+        if not line or "\r" in line or "\x00" in line or ":" not in line:
+            raise SafetyError("Malformed server-expanded calendar data")
+        name = line.split(":", 1)[0].split(";", 1)[0].upper()
+        if name in {"RRULE", "RDATE", "EXDATE", "EXRULE"}:
+            raise SafetyError("Server did not return a recurrence-free occurrence projection")
+        upper = line.upper()
+        if name == "BEGIN":
+            component = upper.split(":", 1)[1]
+            if upper != 'BEGIN:' + component:
+                raise SafetyError("Malformed expanded calendar component boundary")
+            allowed = ((not stack and not calendar_seen and component == "VCALENDAR") or
+                       (stack == ["VCALENDAR"] and component == "VEVENT") or
+                       (stack == ["VCALENDAR", "VEVENT"] and component == "VALARM"))
+            if not allowed:
+                raise SafetyError("Unsupported component in server-expanded calendar data")
+            stack.append(component)
+            if component == "VCALENDAR":
+                calendar_seen = True
+            if component == "VEVENT":
+                count += 1
+                if count > 200:
+                    raise SafetyError("More than 200 expanded occurrences; narrow the time range")
+        elif name == "END":
+            if upper != 'END:' + upper.split(":", 1)[1]:
+                raise SafetyError("Malformed expanded calendar component boundary")
+            if not stack or stack.pop() != upper.split(":", 1)[1]:
+                raise SafetyError("Unbalanced server-expanded calendar data")
+        elif not stack:
+            raise SafetyError("Calendar data outside the expanded calendar component")
+    if stack or not count:
+        raise SafetyError("Incomplete server-expanded calendar data")
+    return count
+
+
 def apple_url(url, kind):
     if kind not in {"cal", "card"} or not isinstance(url, str) or len(url) > 4096:
         raise SafetyError("Invalid DAV resource")
@@ -115,7 +160,9 @@ class DAVReader:
             raise SafetyError("Use an exact collection URL returned by discovery for this account")
         return url
 
-    def events(self, calendar_url, start, end):
+    def events(self, calendar_url, start, end, expand_recurring=False):
+        if type(expand_recurring) is not bool:
+            raise SafetyError("expand_recurring must be an explicit boolean")
         calendar_url = self.known_collection("cal", calendar_url)
         try:
             first = datetime.fromisoformat(start.replace("Z", "+00:00"))
@@ -125,27 +172,54 @@ class DAVReader:
         except (ValueError, TypeError):
             raise SafetyError("Calendar reads require explicit timezone-aware start/end, maximum 31 days") from None
         bounds = [x.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ") for x in (first,last)]
+        calendar_data = (f'<cal:calendar-data><cal:expand start="{bounds[0]}" end="{bounds[1]}"/>'
+                         '</cal:calendar-data>') if expand_recurring else '<cal:calendar-data/>'
         body = ('<cal:calendar-query xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav">'
-                '<d:prop><d:getetag/><cal:calendar-data/></d:prop><cal:filter>'
+                '<d:prop><d:getetag/>' + calendar_data + '</d:prop><cal:filter>'
                 '<cal:comp-filter name="VCALENDAR"><cal:comp-filter name="VEVENT">'
                 f'<cal:time-range start="{bounds[0]}" end="{bounds[1]}"/>'
                 '</cal:comp-filter></cal:comp-filter></cal:filter></cal:calendar-query>')
         final, raw = self.request("cal", "REPORT", calendar_url, body, depth=1)
         root = xml_document(raw)
-        result = []
+        if expand_recurring and root.tag != '{DAV:}multistatus':
+            raise SafetyError("Server did not return a calendar-query expansion response")
+        result, occurrences = [], 0
         for row in root.findall('d:response', NS):
             data = row.find('.//cal:calendar-data', NS)
             if data is None or data.text is None:
+                if expand_recurring:
+                    raise SafetyError("Server omitted requested expanded calendar data")
                 continue
+            if expand_recurring:
+                successful = [part for part in row.findall('d:propstat', NS)
+                              if part.find('d:prop/cal:calendar-data', NS) is not None
+                              and re.fullmatch(r'HTTP/\d(?:\.\d)? 200(?: .*)?', part.findtext('d:status', default='', namespaces=NS))]
+                if (len(successful) != 1 or len(row.findall('.//cal:calendar-data', NS)) != 1
+                        or row.find('d:status', NS) is not None):
+                    raise SafetyError("Server did not confirm successful occurrence expansion")
             value = data.text
             if len(value.encode()) > 262144:
                 raise SafetyError("One event exceeds bounded inspection limit")
-            result.append({"url": self.href(row, 'd:href', final, "cal"), "icalendar": value,
+            if expand_recurring:
+                occurrences += expanded_event_count(value)
+                if occurrences > 200:
+                    raise SafetyError("More than 200 expanded occurrences; narrow the time range")
+            resource = self.href(row, 'd:href', final, "cal")
+            if expand_recurring and (not resource.startswith(final.rstrip('/') + '/') or
+                    any(segment in {'.', '..'} for segment in urlsplit(resource).path.split('/')) or
+                    re.search(r'%2e|%2f|%5c', urlsplit(resource).path, re.I)):
+                raise SafetyError("Expanded resource escapes its queried calendar collection")
+            result.append({"url": resource, "icalendar": value,
                            "untrusted_content": True})
         if len(result) > 200:
             raise SafetyError("More than 200 event resources; narrow the time range")
-        return {"events": result, "start": start, "end": end,
-                "recurrence": "raw server-matched resources; not client-expanded occurrences"}
+        response = {"events": result, "start": start, "end": end,
+                    "recurrence": "raw server-matched resources; not client-expanded occurrences"}
+        if expand_recurring:
+            response.update(recurrence="server-expanded occurrence projection; not an editable series resource",
+                            occurrence_count=occurrences,
+                            expansion="requested_server_side; recurrence completeness not independently verified")
+        return response
 
     def contact_refs(self, addressbook_url, after=None, limit=50):
         if type(limit) is not int or not 1 <= limit <= 100:
@@ -197,9 +271,16 @@ def register_read_tools(mcp, safe, service, *, calendar=True, contacts=True):
 
     @selected("calendar")
     @safe
-    def calendar_events(calendar_url: str, start: str, end: str) -> dict:
-        """Read <=31 days and <=200 bounded raw event resources; explicit timezone required."""
-        return reader().events(calendar_url, start, end)
+    def calendar_events(calendar_url: str, start: str, end: str, expand_recurring: bool = False) -> dict:
+        """Read <=31 days and <=200 bounded calendar resources; explicit timezone required.
+
+        Set expand_recurring=true to request server-expanded occurrences, capped
+        at 200 total events. Expanded data is a read-only projection with original
+        resource URLs, not an editable series snapshot or proof of completeness.
+        Malformed responses or residual recurrence rules refuse; the default
+        returns raw resources. Provider completeness is not independently proven.
+        """
+        return reader().events(calendar_url, start, end, expand_recurring)
 
     @selected("contacts")
     @safe
