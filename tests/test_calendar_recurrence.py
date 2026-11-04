@@ -239,7 +239,10 @@ class RecurrenceRuleTests(unittest.TestCase):
     def test_readback_cannot_claim_success_for_changed_rule_or_extra_components(self):
         value = event_content(dict(self.fields, summary="Synthetic recurrence"))
         verify_created(value, value.replace("END:VEVENT", "CREATED:20261101T000000Z\r\nEND:VEVENT"))
+        verify_created(value, value.replace("FREQ=WEEKLY;INTERVAL=2;COUNT=5;BYDAY=MO,WE",
+                                            "FREQ=WEEKLY;COUNT=5;BYDAY=MO,WE;INTERVAL=2"))
         for modified in (value.replace("COUNT=5", "COUNT=6"),
+                         value.replace("COUNT=5", "COUNT=5;COUNT=5"),
                          value.replace("END:VEVENT", "ATTENDEE:mailto:other@example.com\r\nEND:VEVENT"),
                          value.replace("END:VCALENDAR", "METHOD:REQUEST\r\nEND:VCALENDAR"),
                          value.replace("VERSION:2.0", "VERSION:1.0"),

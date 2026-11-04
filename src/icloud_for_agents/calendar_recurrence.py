@@ -178,8 +178,26 @@ def verify_created(expected, observed):
         if (len(uids) != 1 or not 1 <= len(uids[0]) <= 255 or not uids[0].strip()
                 or any(ord(character) < 32 or ord(character) == 127 for character in uids[0])):
             raise SafetyError("Recurring event readback needs one valid event identity")
-        event = [line for line in raw_event
-                 if prop(line) not in {"DTSTAMP", "CREATED", "LAST-MODIFIED", "SEQUENCE"}]
+        event = []
+        for line in raw_event:
+            name = prop(line)
+            if name in {"DTSTAMP", "CREATED", "LAST-MODIFIED", "SEQUENCE"}:
+                continue
+            if name == "RRULE":
+                if not line.startswith("RRULE:"):
+                    raise SafetyError("Recurring event readback contains an unsupported rule")
+                pieces = line[6:].split(";")
+                if any(piece.count("=") != 1 for piece in pieces):
+                    raise SafetyError("Recurring event readback contains an invalid rule")
+                keys = [piece.split("=", 1)[0] for piece in pieces]
+                if (len(keys) != len(set(keys)) or
+                        any(not re.fullmatch(r"[A-Z0-9-]+", key) for key in keys) or
+                        any(not piece.split("=", 1)[1] for piece in pieces)):
+                    raise SafetyError("Recurring event readback contains an ambiguous rule")
+                # RFC 5545 rule-part ordering is not significant. Apple may
+                # reorder parts without changing the reviewed recurrence.
+                line = "RRULE:" + ";".join(sorted(pieces))
+            event.append(line)
         return Counter(event), timezone_component
 
     if event_lines(expected) != event_lines(observed):
