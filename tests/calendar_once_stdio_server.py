@@ -80,15 +80,25 @@ def transport(self, method, url, body, depth):
     requests["event_reads"] += 1
     if url not in objects:
         return 404, {}, b""
-    return 200, {"etag": '"synthetic"'}, objects[url].encode()
+    stored = objects[url]
+    return 200, {"etag": stored["etag"]}, stored["content"].encode()
 
 
 def write(self, kind, item):
-    if kind != "cal" or item["operation"] != "create":
+    if kind != "cal" or item["operation"] not in {"create", "update", "delete"}:
         raise ValueError("Unexpected synthetic write")
+    operation, url = item["operation"], item["url"]
+    if operation == "create":
+        if url in objects:
+            raise ValueError("Synthetic create must use an unused resource")
+    elif url not in objects or objects[url]["etag"] != item["before"]["etag"]:
+        raise ValueError("Synthetic conditional update failed")
     requests["writes"] += 1
-    objects[item["url"]] = item["content"]
-    return {"url": item["url"], "operation": item["operation"], "status": "applied"}
+    if operation == "delete":
+        del objects[url]
+    else:
+        objects[url] = {"content": item["content"], "etag": '"synthetic-' + str(requests["writes"]) + '"'}
+    return {"url": url, "operation": operation, "status": "applied"}
 
 
 DAVReader.known_collection = known_collection

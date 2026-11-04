@@ -31,6 +31,20 @@ async def run(mode):
         async with Client(params, mode="auto", read_timeout_seconds=20) as client:
             tools = {tool.name: tool for tool in (await client.list_tools()).tools}
             assert tools["calendar_prepare_once"].annotations.read_only_hint is False
+            def approve(plan_id, irreversible=False):
+                # Exercise the real approval interface with a separately simulated owner TTY.
+                phrase = ("IRREVERSIBLE DELETE " if irreversible else "") + "APPROVE CALENDAR " + plan_id
+                code = '''from io import StringIO
+from unittest.mock import patch
+from icloud_for_agents.approvals import PlanStore, approve_interactively
+class OwnerTTY(StringIO):
+ def readline(self): return %r + "\\n"
+ def __exit__(self,*args): pass
+with patch("builtins.open",return_value=OwnerTTY()): approve_interactively(PlanStore(),%r)
+''' % (phrase, plan_id)
+                reviewed = subprocess.run([sys.executable, "-c", code], cwd=home, env=env, capture_output=True, timeout=20)
+                assert reviewed.returncode == 0, reviewed.stderr.decode()
+            created_urls = []
             fields = [
                 {"summary": "Synthetic UTC recurrence", "start": "2026-11-09T16:00:00Z",
                  "end": "2026-11-09T17:00:00Z", "timezone": "UTC"},
@@ -56,27 +70,35 @@ async def run(mode):
                 plan_id = proposal["plan_id"]
                 if mode == "local-receipt":
                     assert (await client.call_tool("dav_execute_approved", {"plan_id": plan_id})).is_error
-                    # Exercise the real approval interface with a separately simulated owner TTY.
-                    code = '''from io import StringIO
-from unittest.mock import patch
-from icloud_for_agents.approvals import PlanStore, approve_interactively
-class OwnerTTY(StringIO):
- def readline(self): return "APPROVE CALENDAR " + %r + "\\n"
- def __exit__(self,*args): pass
-with patch("builtins.open",return_value=OwnerTTY()): approve_interactively(PlanStore(),%r)
-''' % (plan_id, plan_id)
-                    reviewed = subprocess.run([sys.executable, "-c", code], cwd=home, env=env, capture_output=True, timeout=20)
-                    assert reviewed.returncode == 0, reviewed.stderr.decode()
+                    approve(plan_id)
                 result = content(await client.call_tool("dav_execute_approved", {"plan_id": plan_id}))
                 assert result["status"] == "applied"
                 assert result["completed"][0]["verification"] == "reviewed_recurring_event_readback"
+                created_urls.append(item["url"])
                 assert (await client.call_tool("dav_execute_approved", {"plan_id": plan_id})).is_error
+            update = {"operation": "update", "url": created_urls[0], "recurrence_scope": "series",
+                      "fields": {"summary": "Updated synthetic series"}}
+            proposal = content(await client.call_tool("calendar_prepare_once", {"calendar_url": COLLECTION, "changes": [update]}))
+            item = proposal["review"]["payload"]["changes"][0]
+            assert "SUMMARY:Updated synthetic series" in item["content"] and "RRULE:" in item["content"]
+            if mode == "local-receipt":
+                approve(proposal["plan_id"])
+            result = content(await client.call_tool("dav_execute_approved", {"plan_id": proposal["plan_id"]}))
+            assert result["status"] == "applied" and result["completed"][0]["verification"] == "reviewed_recurring_event_readback"
+
+            deletion = {"operation": "delete", "url": created_urls[0], "recurrence_scope": "series", "irreversible_confirmed": True}
+            proposal = content(await client.call_tool("calendar_prepare_once", {"calendar_url": COLLECTION, "changes": [deletion]}))
+            # Deletion requires an exact local receipt even under trusted-client policy.
+            assert (await client.call_tool("dav_execute_approved", {"plan_id": proposal["plan_id"]})).is_error
+            approve(proposal["plan_id"], irreversible=True)
+            result = content(await client.call_tool("dav_execute_approved", {"plan_id": proposal["plan_id"]}))
+            assert result["status"] == "applied" and result["completed"][0]["verification"] == "series_resource_absent"
         audit = json.loads((home / "audit.json").read_text())
         assert audit["blocked_events"] == []
         # Each named-zone proposal reads the provider definition once at review
         # and once immediately before dispatch; each create gets exact readback.
-        assert audit["requests"] == {"timezone_reads": 2, "event_reads": 2, "writes": 2}, audit
-        print(mode + ": UTC and named-zone recurring batches verified; replay refused")
+        assert audit["requests"] == {"timezone_reads": 2, "event_reads": 8, "writes": 4}, audit
+        print(mode + ": recurring creates, series update and receipt-gated deletion verified; replay refused")
 
 
 async def main():
