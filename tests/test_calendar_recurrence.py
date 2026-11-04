@@ -86,6 +86,39 @@ class RecurrenceRuleTests(unittest.TestCase):
         with self.assertRaises(SafetyError):
             event_content(fields, timezone_definition=CHICAGO)
 
+    def test_series_rescheduling_replaces_rule_time_and_timezone_without_losing_identity(self):
+        before = event_content(dict(self.fields, summary="Synthetic", location="Original location"))
+        fields = {"start": "2026-10-26T09:00:00-05:00", "end": "2026-10-26T10:00:00-05:00",
+                  "timezone": "America/Chicago", "recurrence": {"frequency": "weekly", "count": 3}}
+        named = event_content(fields, before, recurring_master=True, timezone_definition=CHICAGO)
+        self.assertEqual(named.count("BEGIN:VTIMEZONE"), 1)
+        self.assertIn("DTSTART;TZID=America/Chicago:20261026T090000", named)
+        self.assertIn("RRULE:FREQ=WEEKLY;INTERVAL=1;COUNT=3", named)
+        self.assertIn("SUMMARY:Synthetic", named)
+        self.assertIn("LOCATION:Original location", named)
+        self.assertEqual(before.split("UID:")[1].splitlines()[0], named.split("UID:")[1].splitlines()[0])
+        named_again = event_content(fields, named, recurring_master=True, timezone_definition=CHICAGO)
+        self.assertEqual(named_again.count("BEGIN:VTIMEZONE"), 1)
+        utc_fields = {"start": "2026-11-09T16:00:00Z", "end": "2026-11-09T17:00:00Z",
+                      "timezone": "UTC", "recurrence": {"frequency": "daily", "count": 4}}
+        utc = event_content(utc_fields, named, recurring_master=True)
+        self.assertNotIn("VTIMEZONE", utc)
+        self.assertIn("DTSTART:20261109T160000Z", utc)
+        self.assertIn("RRULE:FREQ=DAILY;INTERVAL=1;COUNT=4", utc)
+        self.assertIn("LOCATION:Original location", utc)
+        verify_created(utc, utc)
+        with self.assertRaises(SafetyError):
+            verify_created(utc, utc.replace("COUNT=4", "COUNT=5"))
+
+    def test_series_rescheduling_refuses_unknown_properties_and_existing_exceptions(self):
+        before = event_content(dict(self.fields, summary="Synthetic"))
+        fields = {"start": "2026-11-09T16:00:00Z", "end": "2026-11-09T17:00:00Z",
+                  "timezone": "UTC", "recurrence": {"frequency": "daily", "count": 4}}
+        for extra in ("EXDATE:20261116T150000Z", "ATTENDEE:mailto:synthetic@example.com",
+                      "ATTACH:https://example.invalid/synthetic"):
+            with self.subTest(extra=extra), self.assertRaises(SafetyError):
+                event_content(fields, before.replace("END:VEVENT", extra + "\r\nEND:VEVENT"), recurring_master=True)
+
     def test_timezone_component_cannot_be_nested_inside_an_event(self):
         fields = dict(self.fields, timezone="America/Chicago", start="2026-10-26T09:00:00-05:00",
                       end="2026-10-26T10:00:00-05:00", summary="Synthetic")
@@ -215,6 +248,19 @@ class RecurrenceRuleTests(unittest.TestCase):
             with self.subTest(modified=modified), self.assertRaises(SafetyError):
                 verify_created(value, modified)
 
+    def test_series_readback_and_rescheduling_require_nonempty_uid(self):
+        before = event_content(dict(self.fields, summary="Synthetic"))
+        uid = next(line for line in before.splitlines() if line.startswith("UID:"))
+        fields = {"start": "2026-11-09T16:00:00Z", "end": "2026-11-09T17:00:00Z",
+                  "timezone": "UTC", "recurrence": {"frequency": "daily", "count": 4}}
+        for replacement in ("", "UID:", "UID:   ", "UID;X-EXTRA=1:synthetic"):
+            modified = before.replace(uid, replacement)
+            with self.subTest(replacement=replacement):
+                with self.assertRaises(SafetyError):
+                    verify_created(modified, modified)
+                with self.assertRaises(SafetyError):
+                    event_content(fields, modified, recurring_master=True)
+
     def test_creation_is_separately_reviewed_and_requires_verified_readback(self):
         with tempfile.TemporaryDirectory() as directory:
             store = PlanStore(Path(directory) / "plans")
@@ -297,6 +343,66 @@ class RecurrenceRuleTests(unittest.TestCase):
             result = editor.execute(proposal["plan_id"])
             self.assertEqual(result["status"], "applied")
             self.assertEqual(result["completed"][0]["verification"], "reviewed_recurring_event_readback")
+
+    def test_series_rescheduling_requires_complete_replacement_and_binds_review(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = PlanStore(Path(directory) / "plans")
+            collection = "https://p01-caldav.icloud.com/calendar/"
+            value = event_content(dict(self.fields, summary="Synthetic recurrence"))
+            transport = Mock(return_value=(200, {"etag": '"synthetic"'}, value.encode()))
+            reader = DAVReader("synthetic@example.com", "fake-only", transport)
+            reader.known_collection = lambda kind, target: target
+            writer = Mock(return_value={"status": "applied"})
+            editor = DAVChanges(reader, store, writer)
+            fields = {"start": "2026-11-09T16:00:00Z", "end": "2026-11-09T17:00:00Z",
+                      "timezone": "UTC", "recurrence": {"frequency": "daily", "count": 3}}
+            change = {"operation": "update", "url": collection + "synthetic.ics",
+                      "recurrence_scope": "series", "fields": fields}
+            for missing in fields:
+                with self.subTest(missing=missing), self.assertRaises(SafetyError):
+                    editor.prepare("cal", collection, [dict(change, fields={k: v for k, v in fields.items() if k != missing})])
+            with self.assertRaises(SafetyError):
+                editor.prepare("cal", collection, [change, change])
+            proposal = editor.prepare("cal", collection, [change])
+            item = proposal["review"]["payload"]["changes"][0]
+            self.assertTrue(any("past occurrences" in effect for effect in item["recurrence_effects"]))
+            self.assertTrue(any("count starts" in effect for effect in item["recurrence_effects"]))
+            self.assertIn("RRULE:FREQ=DAILY;INTERVAL=1;COUNT=3", item["content"])
+            store.write_once(store.path(proposal["plan_id"], ".approved"),
+                             {"plan_id": proposal["plan_id"], "sha256": proposal["sha256"]})
+            transport.side_effect = [(200, {"etag": '"synthetic"'}, value.encode()),
+                                     (200, {"etag": '"new"'}, item["content"].encode())]
+            result = editor.execute(proposal["plan_id"])
+            self.assertEqual(result["status"], "applied")
+            self.assertEqual(result["completed"][0]["verification"], "reviewed_recurring_event_readback")
+
+    def test_named_zone_series_reschedule_timezone_change_refuses_before_write(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = PlanStore(Path(directory) / "plans")
+            collection = "https://p01-caldav.icloud.com/calendar/"
+            value = event_content(dict(self.fields, summary="Synthetic recurrence"))
+            reader = DAVReader("synthetic@example.com", "fake-only", Mock(return_value=(200, {"etag": '"synthetic"'}, value.encode())))
+            reader.known_collection = lambda kind, target: target
+            def response(definition):
+                xml = ('<d:multistatus xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav">'
+                       '<d:response><d:href>' + collection + '</d:href><d:propstat><d:prop>'
+                       '<cal:calendar-timezone>' + escape(definition) + '</cal:calendar-timezone>'
+                       '</d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>')
+                return collection, ElementTree.fromstring(xml)
+            reader.propfind = Mock(side_effect=[response(CHICAGO), response(CHICAGO.replace("TZNAME:CDT", "TZNAME:SUMMER"))])
+            writer = Mock(return_value={"status": "applied"})
+            editor = DAVChanges(reader, store, writer)
+            fields = {"start": "2026-10-26T09:00:00-05:00", "end": "2026-10-26T10:00:00-05:00",
+                      "timezone": "America/Chicago", "recurrence": {"frequency": "weekly", "count": 3}}
+            proposal = editor.prepare("cal", collection, [{"operation": "update", "url": collection + "synthetic.ics",
+                                      "recurrence_scope": "series", "fields": fields}])
+            self.assertEqual(proposal["review"]["payload"]["changes"][0]["timezone_binding"]["name"], "America/Chicago")
+            store.write_once(store.path(proposal["plan_id"], ".approved"),
+                             {"plan_id": proposal["plan_id"], "sha256": proposal["sha256"]})
+            result = editor.execute(proposal["plan_id"])
+            self.assertEqual(result["status"], "calendar_timezone_refused_before_dispatch")
+            self.assertTrue(store.operation_settled(proposal["plan_id"]))
+            writer.assert_not_called()
 
     def test_series_update_refuses_noncanonical_event_boundaries(self):
         value = event_content(dict(self.fields, summary="Synthetic recurrence"))

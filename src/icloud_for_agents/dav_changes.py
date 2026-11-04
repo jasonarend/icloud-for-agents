@@ -85,7 +85,7 @@ def event_content(fields, before=None, *, recurring_master=False, timezone_defin
     recurrence = None
     local_recurrence = None
     if isinstance(fields, dict) and "recurrence" in fields:
-        if before is not None:
+        if before is not None and not recurring_master:
             raise SafetyError("Recurring event editing requires a separate explicit occurrence or series workflow")
         from .calendar_recurrence import recurrence_rule, zoned_datetime
         recurrence = recurrence_rule(fields)
@@ -160,6 +160,13 @@ def event_content(fields, before=None, *, recurring_master=False, timezone_defin
         lines = unfold(before)
         if lines.count("BEGIN:VEVENT") != 1 or lines.count("END:VEVENT") != 1:
             raise SafetyError("Series updates require canonical event boundaries")
+        if recurrence is not None:
+            from .calendar_recurrence import detach_timezone
+            from .calendar_occurrence_changes import EVENT_PROPERTIES
+            lines, _ = detach_timezone(lines)
+            start, end = lines.index("BEGIN:VEVENT"), lines.index("END:VEVENT")
+            if any(prop(line) not in EVENT_PROPERTIES for line in lines[start + 1:end]):
+                raise SafetyError("Series rescheduling requires supported simple event properties")
     else:
         lines = personal_event(before)
     if recurrence is not None:
@@ -225,8 +232,10 @@ class DAVChanges:
         collection = self.reader.known_collection(kind, collection)
         if any(isinstance(change, dict) and isinstance(change.get("fields"), dict)
                and "recurrence" in change["fields"] for change in changes):
-            if kind != "cal" or len(changes) != 1 or changes[0].get("operation") != "create":
-                raise SafetyError("Prepare each recurring event creation as a separate Calendar proposal")
+            if (kind != "cal" or len(changes) != 1 or not
+                    (changes[0].get("operation") == "create" or
+                     (changes[0].get("operation") == "update" and changes[0].get("recurrence_scope") == "series"))):
+                raise SafetyError("Prepare each recurring event creation or rescheduling as a separate Calendar proposal")
         prepared, identities = [], set()
         for change in changes:
             if not isinstance(change, dict) or set(change)-{"operation", "url", "fields", "irreversible_confirmed", "recurrence_scope", "occurrence_start"}:
@@ -246,8 +255,11 @@ class DAVChanges:
                 raise SafetyError("Prepare one occurrence change with its original UTC start")
             if recurrence_scope == "series" and operation == "update":
                 fields = change.get("fields")
-                if not isinstance(fields, dict) or not fields or set(fields) - {"summary", "description", "location", "url", "free", "private"}:
-                    raise SafetyError("Whole-series updates support only explicit text, URL, free or private fields")
+                allowed = {"summary", "description", "location", "url", "free", "private"}
+                schedule = {"start", "end", "timezone", "recurrence"}
+                if (not isinstance(fields, dict) or not fields or set(fields) - allowed - schedule
+                        or (set(fields) & schedule and not schedule <= set(fields))):
+                    raise SafetyError("Whole-series rescheduling requires complete start, end, timezone and recurrence fields")
             if operation in {"delete", "delete_occurrence"} and change.get("irreversible_confirmed") is not True:
                 raise SafetyError("DAV deletion has no protocol Trash; explicitly acknowledge irreversible deletion before human review")
             if operation == "create" and change.get("url") is not None:
@@ -278,7 +290,7 @@ class DAVChanges:
                         from .calendar_occurrence_changes import occurrence_content
                         occurrence_proof = prove_occurrence(self.reader, collection, url, before, change['occurrence_start'])
                         content = occurrence_content(before['content'], operation, change['occurrence_start'], fields)
-                    if (operation == 'create' and isinstance(fields, dict) and 'recurrence' in fields
+                    if (isinstance(fields, dict) and 'recurrence' in fields
                             and isinstance(fields.get('timezone'), str) and fields['timezone'] not in {'UTC', 'Etc/UTC'}):
                         from .calendar_recurrence import calendar_timezone, recurrence_rule, zoned_datetime
                         from .calendar_timezone import validate_timezone_coverage, validate_wall_duration
@@ -310,7 +322,7 @@ class DAVChanges:
                 item['occurrence_proof'] = occurrence_proof
             if timezone_binding is not None:
                 item['timezone_binding'] = timezone_binding
-            if (kind == 'cal' and operation == 'create' and isinstance(change.get('fields'), dict)
+            if (kind == 'cal' and isinstance(change.get('fields'), dict)
                     and 'recurrence' in change['fields']):
                 item['recurrence_effects'] = [
                     'The rule applies to the entire series and continues indefinitely without a count or end.',
@@ -318,6 +330,8 @@ class DAVChanges:
                     'Local occurrences in daylight-saving gaps may be skipped; future timezone rules can change.',
                     'Timezone comparisons are bounded and do not prove every future occurrence.',
                 ]
+                if operation == 'update':
+                    item['recurrence_effects'].append('This replaces the schedule for the entire series, including past occurrences; count starts at the new first occurrence.')
             prepared.append(item)
         payload={"account":self.reader.account,"kind":kind,"collection":collection,"changes":prepared,
                  "external_notifications":"no attendee scheduling; changes may synchronize to devices and shared collections",
@@ -474,7 +488,9 @@ def register_change_tools(mcp, safe, service, *, calendar=True, contacts=True):
         transition. Ambiguous or nonexistent initial local times refuse. For a supported single-component
         series without participants, exceptions, alarms or unsupported timezones,
         update summary/description/location/url/free/private with recurrence_scope=
-        "series". Delete a supported series with recurrence_scope="series" and
+        "series". To replace its whole schedule, provide start, end, timezone and
+        recurrence together in a separate series update. This changes past and
+        future occurrences; count starts from the new first occurrence. Delete a supported series with recurrence_scope="series" and
         irreversible_confirmed=true; the entire series is removed. For a single
         simple UTC occurrence, use recurrence_scope="occurrence", its original
         whole-second UTC occurrence_start, and an update of the same text fields.
@@ -482,7 +498,7 @@ def register_change_tools(mcp, safe, service, *, calendar=True, contacts=True):
         irreversible_confirmed=true; a local owner receipt is always required.
         Occurrence changes require a matching provider expansion and unchanged
         resource, have no attendees, alarms or prior exceptions, and are one per
-        proposal. Future-only, rule and time edits are not supported.
+        proposal. Future-only and individual-occurrence time edits are not supported.
         """
         return editor().prepare('cal',calendar_url,changes)
 

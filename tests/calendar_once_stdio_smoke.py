@@ -105,6 +105,21 @@ with patch("builtins.open",return_value=OwnerTTY()): approve_interactively(PlanS
                 result = content(await client.call_tool("dav_execute_approved", {"plan_id": proposal["plan_id"]}))
                 assert result["status"] == "applied" and result["completed"][0]["verification"] == "reviewed_occurrence_change_readback"
                 assert (await client.call_tool("dav_execute_approved", {"plan_id": proposal["plan_id"]})).is_error
+            schedules = [
+                {"start": "2026-11-09T16:00:00Z", "end": "2026-11-09T17:00:00Z", "timezone": "UTC"},
+                {"start": "2026-10-26T09:00:00-05:00", "end": "2026-10-26T10:00:00-05:00", "timezone": "America/Chicago"},
+            ]
+            for schedule in schedules:
+                schedule["recurrence"] = {"frequency": "weekly", "count": 3}
+                change = {"operation": "update", "url": created_urls[1], "recurrence_scope": "series", "fields": schedule}
+                proposal = content(await client.call_tool("calendar_prepare_once", {"calendar_url": COLLECTION, "changes": [change]}))
+                item = proposal["review"]["payload"]["changes"][0]
+                assert any("past occurrences" in effect for effect in item["recurrence_effects"])
+                assert item["content"].count("BEGIN:VTIMEZONE") == (schedule["timezone"] != "UTC")
+                if mode == "local-receipt":
+                    approve(proposal["plan_id"])
+                result = content(await client.call_tool("dav_execute_approved", {"plan_id": proposal["plan_id"]}))
+                assert result["status"] == "applied" and result["completed"][0]["verification"] == "reviewed_recurring_event_readback"
             update = {"operation": "update", "url": created_urls[0], "recurrence_scope": "series",
                       "fields": {"summary": "Updated synthetic series"}}
             proposal = content(await client.call_tool("calendar_prepare_once", {"calendar_url": COLLECTION, "changes": [update]}))
@@ -126,7 +141,7 @@ with patch("builtins.open",return_value=OwnerTTY()): approve_interactively(PlanS
         assert audit["blocked_events"] == []
         # Each named-zone proposal reads the provider definition once at review
         # and once immediately before dispatch; each create gets exact readback.
-        assert audit["requests"] == {"timezone_reads": 2, "event_reads": 20, "occurrence_reads": 4, "writes": 8}, audit
+        assert audit["requests"] == {"timezone_reads": 4, "event_reads": 26, "occurrence_reads": 4, "writes": 10}, audit
         print(mode + ": series and occurrence changes verified with scoped approval; replay refused")
 
 

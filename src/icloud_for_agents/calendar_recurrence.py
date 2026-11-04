@@ -1,4 +1,4 @@
-"""Bounded UTC recurrence authoring for non-invitation Calendar events."""
+"""Bounded recurrence authoring for non-invitation Calendar events."""
 
 from datetime import datetime, timezone
 from collections import Counter
@@ -174,6 +174,10 @@ def verify_created(expected, observed):
         raw_names = [prop(line) for line in raw_event]
         if len(raw_names) != len(set(raw_names)):
             raise SafetyError("Recurring event readback contains duplicate properties")
+        uids = [line[4:] for line in raw_event if line.startswith("UID:")]
+        if (len(uids) != 1 or not 1 <= len(uids[0]) <= 255 or not uids[0].strip()
+                or any(ord(character) < 32 or ord(character) == 127 for character in uids[0])):
+            raise SafetyError("Recurring event readback needs one valid event identity")
         event = [line for line in raw_event
                  if prop(line) not in {"DTSTAMP", "CREATED", "LAST-MODIFIED", "SEQUENCE"}]
         return Counter(event), timezone_component

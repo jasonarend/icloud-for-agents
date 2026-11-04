@@ -630,7 +630,9 @@ class PlanStore:
             started = self.read(self.path(plan_id, '.started'))
             changes = plan.get('payload', {}).get('changes', [])
             return (plan.get('kind') == 'calendar_change' and len(changes) == 1
-                    and changes[0].get('operation') == 'create' and isinstance(changes[0].get('timezone_binding'), dict)
+                    and (changes[0].get('operation') == 'create' or
+                         (changes[0].get('operation') == 'update' and changes[0].get('recurrence_scope') == 'series'))
+                    and isinstance(changes[0].get('timezone_binding'), dict)
                     and isinstance(changes[0].get('fields'), dict) and 'recurrence' in changes[0]['fields']
                     and started.get('sha256') == result.get('plan_sha256') == digest(plan)
                     and started.get('account') == plan['payload'].get('account')
