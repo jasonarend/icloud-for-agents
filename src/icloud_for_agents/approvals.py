@@ -12,6 +12,7 @@ operator workflow boundary, NOT isolation from a process with the same OS identi
 
 import fcntl
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -191,6 +192,225 @@ class PlanStore:
         self.write_once(self.path(original_id, ".reconciled-result"),
                         {"status":"reconciled_retry_verified", "retry_id":retry_id,
                          "retry_result_sha256":digest(result), "record_sha256":digest(record), "verification":verification})
+
+    def _calendar_create_readback_source(self, plan_id):
+        """Validate the narrow completed-write/readback-failure recovery boundary."""
+        from .calendar_recurrence import validate_series_deletion, verify_created
+        from .dav import apple_url
+        from .dav_changes import unfold
+        from urllib.parse import urlsplit
+
+        plan = self.read(self.path(plan_id, '.json'))
+        started = self.read(self.path(plan_id, '.started'))
+        result = self.read(self.path(plan_id, '.result'))
+        payload = plan.get('payload', {})
+        changes = payload.get('changes', [])
+        completed = result.get('completed', [])
+        if (plan.get('plan_id') != plan_id or plan.get('kind') != 'calendar_change'
+                or payload.get('kind') != 'cal' or not isinstance(changes, list) or len(changes) != 1
+                or not isinstance(changes[0], dict) or changes[0].get('operation') != 'create'
+                or changes[0].get('before') is not None
+                or not isinstance(changes[0].get('fields'), dict)
+                or not isinstance(changes[0]['fields'].get('recurrence'), dict)
+                or not isinstance(changes[0].get('content'), str)
+                or not isinstance(payload.get('account'), str) or not payload['account']
+                or started.get('sha256') != digest(plan) or started.get('account') != payload['account']
+                or started.get('authorization') not in {'local-receipt', 'trusted-client-policy; not an independent human receipt'}
+                or self.path(plan_id, '.cancelled').exists()
+                or result.get('status') != 'failed_or_uncertain' or result.get('do_not_retry') is not True
+                or result.get('diagnostic') != {'phase': 'recurring_readback', 'category': 'safety_precondition'}
+                or not isinstance(completed, list) or len(completed) != 1
+                or not isinstance(completed[0], dict) or set(completed[0]) != {'url', 'operation', 'status'}
+                or completed[0].get('status') != 'write_returned_readback_unverified'
+                or completed[0].get('operation') != 'create' or completed[0].get('url') != changes[0].get('url')):
+            raise SafetyError('Only an exact recurring Calendar create with returned write success and failed readback can be reconciled')
+        item = changes[0]
+        collection, url = payload.get('collection'), item.get('url')
+        apple_url(collection, 'cal')
+        apple_url(url, 'cal')
+        if (not url.startswith(collection.rstrip('/') + '/')
+                or any(part in {'.', '..'} for part in urlsplit(url).path.split('/'))
+                or re.search(r'%2e|%2f|%5c', urlsplit(url).path, re.I)):
+            raise SafetyError('Calendar creation identity escapes its reviewed collection')
+        validate_series_deletion(item['content'])
+        verify_created(item['content'], item['content'])
+        uid = next(line[4:] for line in unfold(item['content']) if line.startswith('UID:'))
+        return plan, started, result, item, uid
+
+    def _calendar_create_readback_record(self, plan_id, observation, observed_at):
+        from .calendar_recurrence import verify_created
+
+        plan, started, result, item, uid = self._calendar_create_readback_source(plan_id)
+        if (not isinstance(observation, dict) or set(observation) != {'etag', 'sha256', 'content'}
+                or not isinstance(observation['etag'], str) or not re.fullmatch(r'"[^"\r\n]{1,200}"', observation['etag'])
+                or not isinstance(observation['content'], str)
+                or hashlib.sha256(observation['content'].encode('utf-8')).hexdigest() != observation['sha256']
+                or type(observed_at) not in (int, float) or not 0 <= observed_at <= self.clock()):
+            raise SafetyError('Calendar readback observation does not bind an exact provider resource')
+        verify_created(item['content'], observation['content'])
+        record = {'status': 'calendar_create_verified_after_readback', 'original_id': plan_id,
+                'original_sha256': digest(plan), 'started_sha256': digest(started),
+                'original_result_sha256': digest(result), 'account': plan['payload']['account'],
+                'url': item['url'], 'uid': uid, 'observation': observation, 'observed_at': observed_at,
+                'verification': 'full_reviewed_recurring_create_readback', 'mutation_attempted': False,
+                'original_uncertainty_retained': True, 'do_not_retry': True}
+        record['proof_sha256'] = digest(record)
+        return record
+
+    def reconcile_calendar_create_readback(self, plan_id, editor):
+        """Local read-only reconciliation; no MCP registration, receipt, or replay.
+
+        Fetch the exact resource through the DAV editor and verify its full
+        reviewed content. Retain the original immutable failure and record only
+        the later verified observation, allowing separately authorized new work.
+        """
+        from .dav_changes import DAVChanges
+
+        if type(editor) is not DAVChanges or editor.store.root.resolve() != self.root.resolve():
+            raise SafetyError('Use the DAV editor for this exact private plan store')
+        self.ready()
+        fd = os.open(self.root / 'approval-policy.lock', os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        try:
+            info = os.fstat(fd)
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o600:
+                raise SafetyError('Invalid approval policy lock')
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            plan, started, result, item, _ = self._calendar_create_readback_source(plan_id)
+            if (editor.reader.account != plan['payload']['account']
+                    or os.environ.get('ICLOUD_MAIL_ACCOUNT') != plan['payload']['account']):
+                raise SafetyError('Calendar observation belongs to a different configured account')
+            if editor.reader.known_collection('cal', plan['payload']['collection']) != plan['payload']['collection']:
+                raise SafetyError('Calendar observation belongs to a different collection')
+            observation = editor.resource('cal', item['url'])
+            record = self._calendar_create_readback_record(plan_id, observation, self.clock())
+            if (record['original_sha256'] != digest(plan) or record['started_sha256'] != digest(started)
+                    or record['original_result_sha256'] != digest(result)):
+                raise SafetyError('Calendar recovery source changed while observing the resource')
+            self.write_once(self.path(plan_id, '.calendar-create-readback'), record)
+            return {'status': record['status'], 'original_id': plan_id, 'url': item['url'],
+                    'original_uncertainty_retained': True, 'mutation_attempted': False, 'do_not_retry': True}
+        finally:
+            os.close(fd)
+
+    def _calendar_create_readback_completed(self, plan_id):
+        path = self.path(plan_id, '.calendar-create-readback')
+        if not path.exists():
+            return False
+        try:
+            record = self.read(path)
+            return record == self._calendar_create_readback_record(plan_id, record.get('observation'), record.get('observed_at'))
+        except (OSError, ValueError, KeyError, TypeError, SafetyError, UnicodeError, StopIteration):
+            return False
+
+    def _calendar_series_readback_record(self, plan_id, observation, observed_at):
+        """Bind a verified whole-series update to its original uncertain result."""
+        from .calendar_recurrence import validate_series_deletion, verify_created
+        from .dav import apple_url
+        from .dav_changes import unfold
+        from urllib.parse import urlsplit
+
+        plan = self.read(self.path(plan_id, '.json'))
+        started = self.read(self.path(plan_id, '.started'))
+        result = self.read(self.path(plan_id, '.result'))
+        payload = plan.get('payload', {})
+        changes, completed = payload.get('changes', []), result.get('completed', [])
+        if (plan.get('plan_id') != plan_id or plan.get('kind') != 'calendar_change'
+                or payload.get('kind') != 'cal' or not isinstance(changes, list) or len(changes) != 1
+                or not isinstance(changes[0], dict) or changes[0].get('operation') != 'update'
+                or changes[0].get('recurrence_scope') != 'series'
+                or not isinstance(changes[0].get('fields'), dict)
+                or not isinstance(changes[0]['fields'].get('recurrence'), dict)
+                or not isinstance(changes[0].get('before'), dict)
+                or not isinstance(changes[0]['before'].get('content'), str)
+                or not isinstance(changes[0].get('content'), str)
+                or not isinstance(payload.get('account'), str) or not payload['account']
+                or started.get('sha256') != digest(plan) or started.get('account') != payload['account']
+                or started.get('authorization') not in {'local-receipt', 'trusted-client-policy; not an independent human receipt'}
+                or self.path(plan_id, '.cancelled').exists()
+                or result.get('status') != 'failed_or_uncertain' or result.get('do_not_retry') is not True
+                or result.get('diagnostic') != {'phase': 'recurring_readback', 'category': 'safety_precondition'}
+                or not isinstance(completed, list) or len(completed) != 1
+                or not isinstance(completed[0], dict) or set(completed[0]) != {'url', 'operation', 'status'}
+                or completed[0].get('status') != 'write_returned_readback_unverified'
+                or completed[0].get('operation') != 'update' or completed[0].get('url') != changes[0].get('url')):
+            raise SafetyError('Only an exact whole-series reschedule with returned write success can be reconciled')
+        item = changes[0]
+        collection, url = payload.get('collection'), item.get('url')
+        apple_url(collection, 'cal')
+        apple_url(url, 'cal')
+        if (not url.startswith(collection.rstrip('/') + '/')
+                or any(part in {'.', '..'} for part in urlsplit(url).path.split('/'))
+                or re.search(r'%2e|%2f|%5c', urlsplit(url).path, re.I)):
+            raise SafetyError('Calendar update identity escapes its reviewed collection')
+        before = item['before']
+        if (not isinstance(before.get('etag'), str) or not re.fullmatch(r'"[^"\r\n]{1,200}"', before['etag'])
+                or hashlib.sha256(before['content'].encode('utf-8')).hexdigest() != before.get('sha256')):
+            raise SafetyError('Original Calendar snapshot is invalid')
+        validate_series_deletion(before['content'])
+        verify_created(before['content'], before['content'])
+        validate_series_deletion(item['content'])
+        verify_created(item['content'], item['content'])
+        old_uid = next(line[4:] for line in unfold(before['content']) if line.startswith('UID:'))
+        uid = next(line[4:] for line in unfold(item['content']) if line.startswith('UID:'))
+        if uid != old_uid:
+            raise SafetyError('The reviewed series update changed event identity')
+        if (not isinstance(observation, dict) or set(observation) != {'etag', 'sha256', 'content'}
+                or not isinstance(observation['etag'], str) or not re.fullmatch(r'"[^"\r\n]{1,200}"', observation['etag'])
+                or not isinstance(observation['content'], str)
+                or hashlib.sha256(observation['content'].encode('utf-8')).hexdigest() != observation['sha256']
+                or type(observed_at) not in (int, float) or not 0 <= observed_at <= self.clock()):
+            raise SafetyError('Calendar readback observation does not bind an exact provider resource')
+        verify_created(item['content'], observation['content'])
+        record = {'status': 'calendar_series_update_verified_after_readback', 'original_id': plan_id,
+                  'original_sha256': digest(plan), 'started_sha256': digest(started),
+                  'original_result_sha256': digest(result), 'account': payload['account'], 'url': url,
+                  'uid': uid, 'observation': observation, 'observed_at': observed_at,
+                  'verification': 'full_reviewed_series_update_readback', 'mutation_attempted': False,
+                  'original_uncertainty_retained': True, 'do_not_retry': True}
+        record['proof_sha256'] = digest(record)
+        return record
+
+    def reconcile_calendar_series_update_readback(self, plan_id, editor):
+        """Observe an exact uncertain series update without mutating or replaying it."""
+        from .dav_changes import DAVChanges
+
+        if type(editor) is not DAVChanges or editor.store.root.resolve() != self.root.resolve():
+            raise SafetyError('Use the DAV editor for this exact private plan store')
+        self.ready()
+        fd = os.open(self.root / 'approval-policy.lock', os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        try:
+            info = os.fstat(fd)
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o600:
+                raise SafetyError('Invalid approval policy lock')
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            plan = self.read(self.path(plan_id, '.json'))
+            payload = plan.get('payload', {})
+            changes = payload.get('changes', [])
+            if (not isinstance(changes, list) or len(changes) != 1 or not isinstance(changes[0], dict)
+                    or editor.reader.account != payload.get('account')
+                    or os.environ.get('ICLOUD_MAIL_ACCOUNT') != payload.get('account')):
+                raise SafetyError('Calendar observation belongs to a different account or proposal')
+            if editor.reader.known_collection('cal', payload.get('collection')) != payload.get('collection'):
+                raise SafetyError('Calendar observation belongs to a different collection')
+            observation = editor.resource('cal', changes[0].get('url'))
+            record = self._calendar_series_readback_record(plan_id, observation, self.clock())
+            if record['original_sha256'] != digest(plan):
+                raise SafetyError('Calendar recovery source changed while observing the resource')
+            self.write_once(self.path(plan_id, '.calendar-series-readback'), record)
+            return {'status': record['status'], 'original_id': plan_id, 'url': record['url'],
+                    'original_uncertainty_retained': True, 'mutation_attempted': False, 'do_not_retry': True}
+        finally:
+            os.close(fd)
+
+    def _calendar_series_readback_completed(self, plan_id):
+        path = self.path(plan_id, '.calendar-series-readback')
+        if not path.exists():
+            return False
+        try:
+            record = self.read(path)
+            return record == self._calendar_series_readback_record(plan_id, record.get('observation'), record.get('observed_at'))
+        except (OSError, ValueError, KeyError, TypeError, SafetyError, UnicodeError, StopIteration):
+            return False
 
     def _native_reminder_recovery_for(self,original_id,recovery):
         if recovery.get('kind')!='reminders_observation_recovery' or recovery.get('payload',{}).get('original_id')!=original_id:return False
@@ -613,6 +833,7 @@ class PlanStore:
                 return self.read(revoked).get('grant_sha256')==digest(plan)
             return False
         result=self.read(path)
+        if self._calendar_create_readback_completed(plan_id) or self._calendar_series_readback_completed(plan_id):return True
         if result.get('status') == 'calendar_occurrence_refused_before_dispatch':
             plan = self.read(self.path(plan_id, '.json'))
             started = self.read(self.path(plan_id, '.started'))
@@ -709,6 +930,12 @@ class PlanStore:
         return result
 
     def status(self, plan_id):
+        if self._calendar_series_readback_completed(plan_id):
+            return {'status':'calendar_series_update_verified_after_readback', 'original_status':'failed_or_uncertain',
+                    'original_uncertainty_retained':True, 'mutation_attempted':False, 'do_not_retry':True}
+        if self._calendar_create_readback_completed(plan_id):
+            return {'status':'calendar_create_verified_after_readback', 'original_status':'failed_or_uncertain',
+                    'original_uncertainty_retained':True, 'mutation_attempted':False, 'do_not_retry':True}
         reminder_abandoned=self.path(plan_id,'.native-reminder-recovery-abandoned')
         if reminder_abandoned.exists():
             plan=self.read(self.path(plan_id,'.json'));record=self.read(reminder_abandoned)

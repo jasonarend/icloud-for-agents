@@ -25,6 +25,8 @@ Ongoing grants name exact operations, fields, containers and destinations, with 
 
 One failed calendar-create attempt may be recovered only through a separately reviewed local reconciliation transition, never an exposed approval/recovery tool or automatic retry. It preserves original plan, started marker and failure result. Evidence binds exact URL/UID, original request hash, a supported bounded UID absence check, GET404, timestamp and identified material fix. One identical-payload retry is reserved durably and proof freshness is checked before admission. The executor repeats exact GET404 before a conditional If-None-Match:* PUT. A second immutable record requires successful same-resource readback before future trusted writes are unblocked. This is a trusted local operator workflow; local files are not cryptographic proof of a human or provider response. No generic retry, uncertainty clear, expired-proof extension or irreversible-action bypass exists.
 
+For a single recurring Calendar create or whole-series reschedule where the server returned success but initial readback could not be verified, a separate local read-only reconciliation can inspect the exact resource again. It clears the write-admission block only when the full reviewed event, identity and provider version can be verified; it retains the original uncertain result and never repeats the write. Other uncertain operations remain blocked until their applicable recovery is complete.
+
 
 ## Different clients, same server checks
 
