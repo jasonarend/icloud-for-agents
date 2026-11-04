@@ -9,7 +9,6 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import re
 from urllib.parse import urljoin, urlsplit
-from xml.sax.saxutils import escape
 
 from .calendar_recurrence import recurrence_rule, utc_datetime
 from .core import SafetyError, digest
@@ -20,6 +19,8 @@ _LIMIT = 262144
 _ETAG = re.compile(r'"[\x21\x23-\x7e]{1,200}"')
 _COMMON = {"UID", "DTSTART", "DTEND", "DTSTAMP", "CREATED", "LAST-MODIFIED", "SEQUENCE",
            "SUMMARY", "DESCRIPTION", "LOCATION", "URL", "TRANSP", "CLASS", "X-ICLOUD-MCP-TIMEZONE"}
+_MANAGED = {"DTSTAMP", "CREATED", "LAST-MODIFIED", "SEQUENCE"}
+_EXPANDED = {"X-EXPANDED", "X-MASTER-DTSTART", "X-MASTER-RRULE"}
 
 
 def _refuse():
@@ -35,7 +36,7 @@ def _date(value):
         _refuse()
 
 
-def _parse(raw, *, master):
+def _parse(raw, *, master, source=None):
     if not isinstance(raw, str):
         _refuse()
     try:
@@ -51,25 +52,50 @@ def _parse(raw, *, master):
     if (not lines or len(lines) > 4096 or lines[0] != "BEGIN:VCALENDAR"
             or lines[-1] != "END:VCALENDAR"):
         _refuse()
-    root, events, event = {}, [], None
+    root, events, event, timestamps = {}, [], None, {}
     for line in lines[1:-1]:
         if not line or len(line.encode()) > 16384 or "\r" in line or "\t" in line or ":" not in line:
             _refuse()
         name, value = line.split(":", 1)
         if line == "BEGIN:VEVENT" and event is None:
             event = {}
+            timestamps = {}
         elif line == "END:VEVENT" and event is not None:
             events.append(event)
             event = None
             if len(events) > 200:
                 _refuse()
         else:
-            allowed = (_COMMON | ({"RRULE"} if master else {"RECURRENCE-ID"})) if event is not None else {"VERSION", "PRODID", "CALSCALE"}
+            allowed = (_COMMON | ({"RRULE"} if master else {"RECURRENCE-ID"})) if event is not None else ({"VERSION", "PRODID", "CALSCALE"} | (set() if master else _EXPANDED))
             destination = event if event is not None else root
+            if event is not None and not master and name in _MANAGED:
+                timestamps[name] = timestamps.get(name, 0) + 1
+                if timestamps[name] > (2 if name == "DTSTAMP" else 1):
+                    _refuse()
+                if name == "SEQUENCE":
+                    if not re.fullmatch(r"[0-9]{1,10}", value) or int(value) > 2147483647:
+                        _refuse()
+                else:
+                    _date(value)
+                # iCloud can emit two valid DTSTAMP values for an expansion.
+                # They are neither identity nor stable projection content.
+                continue
             if name not in allowed or name in destination:
                 _refuse()
             destination[name] = value
-    if event is not None or root.get("VERSION") != "2.0" or root.get("CALSCALE", "GREGORIAN") != "GREGORIAN":
+    if event is not None or root.get("CALSCALE", "GREGORIAN") != "GREGORIAN":
+        _refuse()
+    metadata = {name: root[name] for name in _EXPANDED if name in root}
+    if metadata:
+        if (master or source is None or set(metadata) != _EXPANDED or root["X-EXPANDED"] != "True"
+                or root["X-MASTER-DTSTART"] != source["DTSTART"]):
+            _refuse()
+        rule = re.sub(r"\\([;,])", r"\1", root["X-MASTER-RRULE"])
+        if "\\" in rule or rule != source["RRULE"]:
+            _refuse()
+        if root.get("VERSION", "2.0") != "2.0":
+            _refuse()
+    elif root.get("VERSION") != "2.0":
         _refuse()
     if not events or (master and len(events) != 1):
         _refuse()
@@ -162,9 +188,11 @@ def prove_occurrence(reader, collection, url, snapshot, occurrence_start):
     except OverflowError:
         _refuse()
     first, last = [value.strftime("%Y%m%dT%H%M%SZ") for value in (target, bound)]
-    body = ('<cal:calendar-multiget xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav">'
+    body = ('<cal:calendar-query xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav">'
             '<d:prop><d:getetag/><cal:calendar-data><cal:expand start="' + first + '" end="' + last +
-            '"/></cal:calendar-data></d:prop><d:href>' + escape(urlsplit(url).path) + '</d:href></cal:calendar-multiget>')
+            '"/></cal:calendar-data></d:prop><cal:filter><cal:comp-filter name="VCALENDAR">'
+            '<cal:comp-filter name="VEVENT"><cal:time-range start="' + first + '" end="' + last +
+            '"/></cal:comp-filter></cal:comp-filter></cal:filter></cal:calendar-query>')
     status, _, raw = reader.transport("REPORT", collection, body, 1)
     if status != 207:
         _refuse()
@@ -172,9 +200,30 @@ def prove_occurrence(reader, collection, url, snapshot, occurrence_start):
         root = xml_document(raw)
     except Exception:
         _refuse()
-    if root.tag != "{DAV:}multistatus" or len(root) != 1 or root[0].tag != "{DAV:}response":
+    if (root.tag != "{DAV:}multistatus" or not 1 <= len(root) <= 200
+            or any(row.tag != "{DAV:}response" for row in root)):
         _refuse()
-    row = root[0]
+    matches, identities = [], set()
+    for candidate in root:
+        hrefs = candidate.findall("d:href", NS)
+        if len(hrefs) != 1 or len(hrefs[0]) or not hrefs[0].text:
+            _refuse()
+        supplied_href = hrefs[0].text
+        if (any(ord(c) < 33 or ord(c) > 126 for c in supplied_href)
+                or any(segment in {".", ".."} for segment in urlsplit(supplied_href).path.split("/"))):
+            _refuse()
+        identity = urljoin(collection, hrefs[0].text)
+        apple_url(identity, "cal")
+        if (not identity.startswith(collection.rstrip("/") + "/") or identity in identities
+                or any(segment in {".", ".."} for segment in urlsplit(identity).path.split("/"))
+                or re.search(r"%2e|%2f|%5c", urlsplit(identity).path, re.I)):
+            _refuse()
+        identities.add(identity)
+        if identity == url:
+            matches.append(candidate)
+    if len(matches) != 1:
+        _refuse()
+    row = matches[0]
     hrefs, parts = row.findall("d:href", NS), row.findall("d:propstat", NS)
     if (len(hrefs) != 1 or len(hrefs[0]) or not hrefs[0].text
             or urljoin(collection, hrefs[0].text) != url or len(parts) != 1 or len(row) != 2
@@ -190,7 +239,7 @@ def prove_occurrence(reader, collection, url, snapshot, occurrence_start):
     projection = _text_property(part, "cal:calendar-data")
     if etag != snapshot["etag"]:
         _refuse()
-    instances = _parse(projection, master=False)
+    instances = _parse(projection, master=False, source=master)
     duration = _date(master["DTEND"]) - initial
     identities, selected = set(), None
     for instance in instances:

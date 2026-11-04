@@ -6,7 +6,6 @@ import os
 from pathlib import Path
 from types import SimpleNamespace
 import sys
-from urllib.parse import urlsplit
 from xml.sax.saxutils import escape
 
 events = []
@@ -76,21 +75,32 @@ def transport(self, method, url, body, depth):
                     '<cal:calendar-timezone>' + escape(TIMEZONE) + '</cal:calendar-timezone>'
                     '</d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>')
         return 207, {}, response.encode()
-    if method == "REPORT" and url == COLLECTION and depth == 1 and '<cal:calendar-multiget ' in body:
+    if method == "REPORT" and url == COLLECTION and depth == 1 and '<cal:calendar-query ' in body:
         requests["occurrence_reads"] += 1
-        matches = [resource for resource in objects if '<d:href>' + urlsplit(resource).path + '</d:href>' in body]
-        if len(matches) != 1 or 'start="20261116T160000Z"' not in body:
+        if ('<cal:expand start="20261116T160000Z" end="20261116T160001Z"/>' not in body
+                or '<cal:time-range start="20261116T160000Z" end="20261116T160001Z"/>' not in body):
             raise ValueError("Unexpected synthetic occurrence request")
-        resource = matches[0]
-        stored = objects[resource]
-        projection = replace_properties(unfold(stored["content"]), {
-            "RRULE": [], "RECURRENCE-ID": ["RECURRENCE-ID:20261116T160000Z"],
-            "DTSTART": ["DTSTART:20261116T160000Z"], "DTEND": ["DTEND:20261116T170000Z"]}, "END:VEVENT")
-        response = ('<d:multistatus xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav">'
-                    '<d:response><d:href>' + resource + '</d:href><d:propstat><d:prop><d:getetag>' +
-                    escape(stored['etag']) + '</d:getetag><cal:calendar-data>' + escape(projection) +
-                    '</cal:calendar-data></d:prop><d:status>HTTP/1.1 200 OK</d:status>'
-                    '</d:propstat></d:response></d:multistatus>')
+        rows = []
+        for resource, stored in objects.items():
+            lines = unfold(stored["content"])
+            starts = [line for line in lines if line.startswith("DTSTART:")]
+            rules = [line for line in lines if line.startswith("RRULE:")]
+            if lines.count("BEGIN:VEVENT") != 1 or len(starts) != 1 or len(rules) != 1 or not starts[0].endswith("Z"):
+                continue
+            projection = replace_properties(lines, {
+                "RRULE": [], "RECURRENCE-ID": ["RECURRENCE-ID:20261116T160000Z"],
+                "DTSTART": ["DTSTART:20261116T160000Z"], "DTEND": ["DTEND:20261116T170000Z"]}, "END:VEVENT")
+            metadata = ("X-EXPANDED:True\r\nX-MASTER-DTSTART:" + starts[0].split(":", 1)[1] +
+                        "\r\nX-MASTER-RRULE:" + rules[0].split(":", 1)[1].replace(";", "\\;").replace(",", "\\,") + "\r\n")
+            projection = projection.replace("VERSION:2.0\r\n", "").replace("BEGIN:VEVENT", metadata + "BEGIN:VEVENT")
+            # Match iCloud's two DTSTAMP values, varying between proof reads.
+            projection = projection.replace("END:VEVENT", "DTSTAMP:20261101T00000" + str(requests["occurrence_reads"]) + "Z\r\nEND:VEVENT")
+            rows.append('<d:response><d:href>' + resource + '</d:href><d:propstat><d:prop><d:getetag>' +
+                        escape(stored['etag']) + '</d:getetag><cal:calendar-data>' + escape(projection) +
+                        '</cal:calendar-data></d:prop><d:status>HTTP/1.1 200 OK</d:status>'
+                        '</d:propstat></d:response>')
+        response = ('<d:multistatus xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav">' +
+                    ''.join(rows) + '</d:multistatus>')
         return 207, {}, response.encode()
     if method != "GET":
         raise ValueError("Unexpected synthetic request")

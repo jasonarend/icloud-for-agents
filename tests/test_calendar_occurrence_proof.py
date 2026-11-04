@@ -37,6 +37,13 @@ def response(value=None, etag='"synthetic"'):
             '</d:propstat></d:response></d:multistatus>').encode()
 
 
+def apple_projection():
+    return (projection().replace("VERSION:2.0\r\n", "")
+            .replace("BEGIN:VEVENT", "X-EXPANDED:True\r\nX-MASTER-DTSTART:20261102T150000Z\r\n"
+                     "X-MASTER-RRULE:FREQ=WEEKLY\\;INTERVAL=1\\;COUNT=3\r\nBEGIN:VEVENT")
+            .replace("END:VEVENT", "DTSTAMP:20261103T000000Z\r\nEND:VEVENT"))
+
+
 class OccurrenceProofTests(unittest.TestCase):
     def setUp(self):
         self.snapshot = {"etag": '"synthetic"', "content": MASTER,
@@ -61,9 +68,10 @@ class OccurrenceProofTests(unittest.TestCase):
         self.assertFalse(proof["recurrence_completeness_verified"])
         call = self.reader.transport.call_args_list[0]
         self.assertEqual(call.args[:2], ("REPORT", COLLECTION))
-        self.assertIn("<cal:calendar-multiget", call.args[2])
+        self.assertIn("<cal:calendar-query", call.args[2])
         self.assertIn("<d:getetag/>", call.args[2])
-        self.assertIn("<d:href>/synthetic/event.ics</d:href>", call.args[2])
+        self.assertIn('<cal:time-range start="20261109T150000Z" end="20261109T150001Z"/>', call.args[2])
+        self.assertNotIn("<d:href>", call.args[2])
         self.assertEqual(self.reader.transport.call_args_list[1].args, ("GET", URL, "", 0))
 
     def test_initial_instance_may_omit_recurrence_id(self):
@@ -71,6 +79,53 @@ class OccurrenceProofTests(unittest.TestCase):
             self.reader.transport.side_effect = [(207, {}, response(projection("20261102T150000Z", identity=identity))),
                                                   (200, {"etag": '"synthetic"'}, MASTER.encode())]
             self.assertEqual(self.prove("2026-11-02T15:00:00Z")["start"], "20261102T150000Z")
+
+    def test_apple_metadata_and_two_timestamps_produce_stable_proof(self):
+        proofs = []
+        for stamp in ("20261103T000000Z", "20261104T000000Z"):
+            value = apple_projection().replace("20261103T000000Z", stamp)
+            self.reader.transport.side_effect = [(207, {}, response(value)),
+                                                  (200, {"etag": '"synthetic"'}, MASTER.encode())]
+            proofs.append(self.prove())
+        self.assertEqual(proofs[0], proofs[1])
+
+    def test_apple_projection_metadata_and_timestamp_ambiguities_refuse(self):
+        original = apple_projection()
+        cases = [original.replace("X-EXPANDED:True", "X-EXPANDED:False"),
+                 original.replace("X-MASTER-DTSTART:20261102T150000Z", "X-MASTER-DTSTART:20261102T160000Z"),
+                 original.replace("COUNT=3", "COUNT=4"),
+                 original.replace("X-EXPANDED:True\r\n", ""),
+                 original.replace("X-EXPANDED:True", "X-EXPANDED:True\r\nX-EXPANDED:True"),
+                 original.replace("BEGIN:VEVENT", "X-UNKNOWN:True\r\nBEGIN:VEVENT"),
+                 original.replace("DTSTAMP:20261103T000000Z", "DTSTAMP:invalid"),
+                 original.replace("DTSTAMP:20261103T000000Z", "DTSTAMP:20261103T000000Z\r\nDTSTAMP:20261104T000000Z"),
+                 original.replace("END:VEVENT", "CREATED:20261101T000000Z\r\nCREATED:20261102T000000Z\r\nEND:VEVENT"),
+                 original.replace("END:VEVENT", "SEQUENCE:-1\r\nEND:VEVENT"),
+                 original.replace("END:VEVENT", "UID:synthetic\r\nEND:VEVENT"),
+                 original.replace("END:VEVENT", "RRULE:FREQ=WEEKLY\r\nEND:VEVENT"),
+                 MASTER]
+        for value in cases:
+            with self.subTest(value=value):
+                self.reader.transport.side_effect = [(207, {}, response(value))]
+                with self.assertRaises(SafetyError):
+                    self.prove()
+
+    def test_unrelated_query_rows_are_not_used_as_proof(self):
+        own = response(apple_projection()).decode()
+        unrelated = response(projection().replace("UID:synthetic", "UID:other")).decode()
+        unrelated = unrelated[unrelated.index("<d:response>"):unrelated.index("</d:response>") + len("</d:response>")]
+        unrelated = unrelated.replace(URL, COLLECTION + "other.ics")
+        for xml in (own.replace("</d:multistatus>", unrelated + "</d:multistatus>"),
+                    own.replace("<d:response>", unrelated + "<d:response>", 1)):
+            self.reader.transport.side_effect = [(207, {}, xml.encode()), (200, {"etag": '"synthetic"'}, MASTER.encode())]
+            self.assertEqual(self.prove()["uid"], "synthetic")
+        for xml in (own.replace("</d:multistatus>", unrelated.replace("other.ics", "event.ics") + "</d:multistatus>"),
+                    own.replace(URL, COLLECTION + "other.ics"),
+                    own.replace("</d:multistatus>", unrelated * 200 + "</d:multistatus>"),
+                    own.replace(URL, "/synthetic/sub/../event.ics")):
+            self.reader.transport.side_effect = [(207, {}, xml.encode())]
+            with self.assertRaises(SafetyError):
+                self.prove()
 
     def test_later_instance_cannot_omit_original_identity(self):
         self.reader.transport.side_effect = [(207, {}, response(projection(identity=False)))]
