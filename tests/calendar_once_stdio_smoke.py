@@ -76,6 +76,35 @@ with patch("builtins.open",return_value=OwnerTTY()): approve_interactively(PlanS
                 assert result["completed"][0]["verification"] == "reviewed_recurring_event_readback"
                 created_urls.append(item["url"])
                 assert (await client.call_tool("dav_execute_approved", {"plan_id": plan_id})).is_error
+            occurrence_urls = []
+            for number in range(2):
+                change = {"operation": "create", "fields": {
+                    "summary": "Synthetic occurrence series " + str(number),
+                    "start": "2026-11-09T16:00:00Z", "end": "2026-11-09T17:00:00Z", "timezone": "UTC",
+                    "recurrence": {"frequency": "weekly", "count": 3}}}
+                proposal = content(await client.call_tool("calendar_prepare_once", {"calendar_url": COLLECTION, "changes": [change]}))
+                occurrence_urls.append(proposal["review"]["payload"]["changes"][0]["url"])
+                if mode == "local-receipt":
+                    approve(proposal["plan_id"])
+                assert content(await client.call_tool("dav_execute_approved", {"plan_id": proposal["plan_id"]}))["status"] == "applied"
+            for operation, resource in zip(("update", "delete_occurrence"), occurrence_urls):
+                change = {"operation": operation, "url": resource, "recurrence_scope": "occurrence",
+                          "occurrence_start": "2026-11-16T16:00:00Z"}
+                if operation == "update":
+                    change["fields"] = {"summary": "Updated synthetic occurrence"}
+                else:
+                    change["irreversible_confirmed"] = True
+                proposal = content(await client.call_tool("calendar_prepare_once", {"calendar_url": COLLECTION, "changes": [change]}))
+                item = proposal["review"]["payload"]["changes"][0]
+                assert item["occurrence_proof"]["recurrence_id"] == "20261116T160000Z"
+                assert item["occurrence_proof"]["recurrence_completeness_verified"] is False
+                needs_receipt = mode == "local-receipt" or operation == "delete_occurrence"
+                if needs_receipt:
+                    assert (await client.call_tool("dav_execute_approved", {"plan_id": proposal["plan_id"]})).is_error
+                    approve(proposal["plan_id"], irreversible=operation == "delete_occurrence")
+                result = content(await client.call_tool("dav_execute_approved", {"plan_id": proposal["plan_id"]}))
+                assert result["status"] == "applied" and result["completed"][0]["verification"] == "reviewed_occurrence_change_readback"
+                assert (await client.call_tool("dav_execute_approved", {"plan_id": proposal["plan_id"]})).is_error
             update = {"operation": "update", "url": created_urls[0], "recurrence_scope": "series",
                       "fields": {"summary": "Updated synthetic series"}}
             proposal = content(await client.call_tool("calendar_prepare_once", {"calendar_url": COLLECTION, "changes": [update]}))
@@ -97,8 +126,8 @@ with patch("builtins.open",return_value=OwnerTTY()): approve_interactively(PlanS
         assert audit["blocked_events"] == []
         # Each named-zone proposal reads the provider definition once at review
         # and once immediately before dispatch; each create gets exact readback.
-        assert audit["requests"] == {"timezone_reads": 2, "event_reads": 8, "writes": 4}, audit
-        print(mode + ": recurring creates, series update and receipt-gated deletion verified; replay refused")
+        assert audit["requests"] == {"timezone_reads": 2, "event_reads": 20, "occurrence_reads": 4, "writes": 8}, audit
+        print(mode + ": series and occurrence changes verified with scoped approval; replay refused")
 
 
 async def main():

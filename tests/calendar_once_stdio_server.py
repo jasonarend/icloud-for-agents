@@ -6,10 +6,11 @@ import os
 from pathlib import Path
 from types import SimpleNamespace
 import sys
+from urllib.parse import urlsplit
 from xml.sax.saxutils import escape
 
 events = []
-requests = {"timezone_reads": 0, "event_reads": 0, "writes": 0}
+requests = {"timezone_reads": 0, "event_reads": 0, "occurrence_reads": 0, "writes": 0}
 
 
 def audit(event, args):
@@ -33,7 +34,7 @@ credentials.credentials = no_credentials
 from icloud_for_agents import server
 from icloud_for_agents.approvals import PlanStore
 from icloud_for_agents.dav import DAVReader
-from icloud_for_agents.dav_changes import DAVChanges
+from icloud_for_agents.dav_changes import DAVChanges, replace_properties, unfold
 
 COLLECTION = "https://caldav.icloud.com/synthetic/"
 TIMEZONE = """BEGIN:VCALENDAR
@@ -75,6 +76,22 @@ def transport(self, method, url, body, depth):
                     '<cal:calendar-timezone>' + escape(TIMEZONE) + '</cal:calendar-timezone>'
                     '</d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>')
         return 207, {}, response.encode()
+    if method == "REPORT" and url == COLLECTION and depth == 1 and '<cal:calendar-multiget ' in body:
+        requests["occurrence_reads"] += 1
+        matches = [resource for resource in objects if '<d:href>' + urlsplit(resource).path + '</d:href>' in body]
+        if len(matches) != 1 or 'start="20261116T160000Z"' not in body:
+            raise ValueError("Unexpected synthetic occurrence request")
+        resource = matches[0]
+        stored = objects[resource]
+        projection = replace_properties(unfold(stored["content"]), {
+            "RRULE": [], "RECURRENCE-ID": ["RECURRENCE-ID:20261116T160000Z"],
+            "DTSTART": ["DTSTART:20261116T160000Z"], "DTEND": ["DTEND:20261116T170000Z"]}, "END:VEVENT")
+        response = ('<d:multistatus xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav">'
+                    '<d:response><d:href>' + resource + '</d:href><d:propstat><d:prop><d:getetag>' +
+                    escape(stored['etag']) + '</d:getetag><cal:calendar-data>' + escape(projection) +
+                    '</cal:calendar-data></d:prop><d:status>HTTP/1.1 200 OK</d:status>'
+                    '</d:propstat></d:response></d:multistatus>')
+        return 207, {}, response.encode()
     if method != "GET":
         raise ValueError("Unexpected synthetic request")
     requests["event_reads"] += 1
@@ -85,7 +102,7 @@ def transport(self, method, url, body, depth):
 
 
 def write(self, kind, item):
-    if kind != "cal" or item["operation"] not in {"create", "update", "delete"}:
+    if kind != "cal" or item["operation"] not in {"create", "update", "delete", "delete_occurrence"}:
         raise ValueError("Unexpected synthetic write")
     operation, url = item["operation"], item["url"]
     if operation == "create":

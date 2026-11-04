@@ -40,7 +40,7 @@ def authorization_path(plan):
     """Informational routing only; execution independently enforces every guard."""
     if plan['kind'] == 'trash' and os.environ.get('ICLOUD_CLEANUP_GRANT_ID'):
         return 'standing-cleanup', False
-    if any(item.get('operation') == 'delete' for item in plan['payload'].get('changes', [])):
+    if any(item.get('operation') in {'delete', 'delete_occurrence'} for item in plan['payload'].get('changes', [])):
         return 'local-receipt', True
     if plan['kind'] in {'notes_change','reminders_change'} and isinstance(plan['payload'].get('standing_grant'),dict):
         return 'standing-native', False
@@ -613,6 +613,18 @@ class PlanStore:
                 return self.read(revoked).get('grant_sha256')==digest(plan)
             return False
         result=self.read(path)
+        if result.get('status') == 'calendar_occurrence_refused_before_dispatch':
+            plan = self.read(self.path(plan_id, '.json'))
+            started = self.read(self.path(plan_id, '.started'))
+            changes = plan.get('payload', {}).get('changes', [])
+            return (plan.get('kind') == 'calendar_change' and len(changes) == 1
+                    and changes[0].get('operation') in {'update', 'delete_occurrence'}
+                    and changes[0].get('recurrence_scope') == 'occurrence'
+                    and isinstance(changes[0].get('occurrence_proof'), dict)
+                    and started.get('sha256') == result.get('plan_sha256') == digest(plan)
+                    and started.get('account') == plan['payload'].get('account')
+                    and result.get('completed') == [] and result.get('do_not_retry') is True
+                    and result.get('diagnostic', {}).get('phase') == 'occurrence_preflight')
         if result.get('status') == 'calendar_timezone_refused_before_dispatch':
             plan = self.read(self.path(plan_id, '.json'))
             started = self.read(self.path(plan_id, '.started'))
@@ -664,7 +676,7 @@ class PlanStore:
             plan = self.proposal(plan_id)
             if plan["payload"].get("account") != account:
                 raise SafetyError("Approval belongs to a different account")
-            irreversible = any(item.get("operation") == "delete" for item in plan["payload"].get("changes", []))
+            irreversible = any(item.get("operation") in {"delete", "delete_occurrence"} for item in plan["payload"].get("changes", []))
             trusted = policy == "trusted-client" and not irreversible
             if trusted:
                 if os.environ.get("ICLOUD_MAIL_ACCOUNT") != account:
@@ -755,7 +767,7 @@ def approve_interactively(store, plan_id):
     fingerprint = digest(plan)
     labels = {"trash": "TRASH", "send": "SEND", "calendar_change": "APPROVE CALENDAR", "contact_change": "APPROVE CONTACTS", "notes_change": "APPROVE NOTES", "reminders_change": "APPROVE REMINDERS", "notes_access":"ALLOW NOTES OS REQUEST", "reminders_access":"ALLOW REMINDERS OS REQUEST", "notes_recovery":"APPROVE NOTES RECOVERY", "notes_move_recovery":"ACCEPT OBSERVED NOTES MOVE", "notes_edit_recovery":"ACCEPT OBSERVED NOTES EDIT", "reminders_observation_recovery":"ACCEPT OBSERVED REMINDER", "notes_grant":"APPROVE NOTES GRANT", "reminders_grant":"APPROVE REMINDERS GRANT"}
     label = labels[plan["kind"]]
-    if any(item.get("operation") == "delete" for item in plan["payload"].get("changes", [])):
+    if any(item.get("operation") in {"delete", "delete_occurrence"} for item in plan["payload"].get("changes", [])):
         label = "IRREVERSIBLE DELETE " + label
     phrase = label + " " + plan_id
     with open("/dev/tty", "r+", encoding="utf-8") as terminal:

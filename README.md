@@ -21,7 +21,7 @@ All five services are optional and can be enabled independently. A new setup ena
 
 Mail cleanup moves messages to recoverable Trash. Permanent deletion and emptying Trash are intentionally excluded.
 
-Calendar supports personal events and a bounded set of recurring-event operations. Creating a local-time series requires a supported matching time-zone definition from the selected calendar. Individual-occurrence changes and other advanced series operations are not yet supported. Invitations, guests and scheduling responses are not included. iCloud Drive access is also not included.
+Calendar supports personal events and a bounded set of recurring-event operations, including selected changes to simple UTC occurrences. Creating a local-time series requires a supported matching time-zone definition from the selected calendar. Changes to local-time occurrences and other advanced series operations are not yet supported. Invitations, guests and scheduling responses are not included. iCloud Drive access is also not included.
 
 Some Notes and Reminders capabilities need a separately selected native backend and additional macOS access. Notes removal requires an accessible, verified Recently Deleted folder; an empty or hidden folder refuses safely. Reminders supports recoverable removal and restoration of individual root tasks and explicitly reviewed families with direct children. Rich editing, deeper hierarchies and other native operations have specific limits. See the [capability overview](docs/reference/native-support.md) and [Notes and Reminders setup](docs/getting-started/native-services.md).
 
