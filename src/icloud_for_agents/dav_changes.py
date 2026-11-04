@@ -163,7 +163,18 @@ def event_content(fields, before=None, *, recurring_master=False, timezone_defin
         if recurrence is not None:
             from .calendar_recurrence import detach_timezone
             from .calendar_occurrence_changes import EVENT_PROPERTIES
-            lines, _ = detach_timezone(lines)
+            lines, old_component = detach_timezone(lines)
+            if local_recurrence is not None and old_component:
+                from .calendar_timezone import timezone_verification_key
+                zone, local_start, local_end, component = local_recurrence
+                old_ids = [line[5:] for line in old_component if line.startswith('TZID:')]
+                if old_ids == [zone]:
+                    def wrapped(parts):
+                        return '\r\n'.join(['BEGIN:VCALENDAR', 'VERSION:2.0', *parts, 'END:VCALENDAR', ''])
+                    if timezone_verification_key(wrapped(old_component), zone) == timezone_verification_key(wrapped(component), zone):
+                        # Preserve valid provider history when the new calendar
+                        # definition has the same modern transition rules.
+                        local_recurrence = (zone, local_start, local_end, list(old_component))
             start, end = lines.index("BEGIN:VEVENT"), lines.index("END:VEVENT")
             if any(prop(line) not in EVENT_PROPERTIES for line in lines[start + 1:end]):
                 raise SafetyError("Series rescheduling requires supported simple event properties")

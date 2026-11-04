@@ -198,6 +198,19 @@ def verify_created(expected, observed):
                 # reorder parts without changing the reviewed recurrence.
                 line = "RRULE:" + ";".join(sorted(pieces))
             event.append(line)
+        if timezone_component:
+            from .calendar_timezone import timezone_verification_key, validate_timezone_event_start
+            identifiers = [line[5:] for line in timezone_component if line.startswith("TZID:")]
+            if len(identifiers) != 1:
+                raise SafetyError("Recurring event readback has an ambiguous timezone identity")
+            name = identifiers[0]
+            starts = [line for line in raw_event if line.startswith("DTSTART;TZID=" + name + ":")]
+            ends = [line for line in raw_event if line.startswith("DTEND;TZID=" + name + ":")]
+            if len(starts) != 1 or len(ends) != 1:
+                raise SafetyError("Recurring event readback does not use its validated timezone")
+            wrapped = "\r\n".join(["BEGIN:VCALENDAR", "VERSION:2.0", *timezone_component, "END:VCALENDAR", ""])
+            validate_timezone_event_start(wrapped, name, starts[0].split(":", 1)[1])
+            timezone_component = timezone_verification_key(wrapped, name)
         return Counter(event), timezone_component
 
     if event_lines(expected) != event_lines(observed):

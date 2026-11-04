@@ -11,7 +11,7 @@ from icloud_for_agents.calendar_recurrence import calendar_timezone, recurrence_
 from icloud_for_agents.core import SafetyError
 from icloud_for_agents.dav import DAVReader
 from icloud_for_agents.dav_changes import DAVChanges, event_content
-from test_calendar_timezone import CHICAGO
+from test_calendar_timezone import CHICAGO, with_history
 
 
 class RecurrenceRuleTests(unittest.TestCase):
@@ -109,6 +109,52 @@ class RecurrenceRuleTests(unittest.TestCase):
         verify_created(utc, utc)
         with self.assertRaises(SafetyError):
             verify_created(utc, utc.replace("COUNT=4", "COUNT=5"))
+
+    def test_historical_timezone_readback_is_equivalent_and_later_text_updates_preserve_it(self):
+        from icloud_for_agents.dav_changes import unfold
+        from icloud_for_agents.calendar_recurrence import detach_timezone
+        fields = {"summary": "Synthetic", "description": "Original description", "location": "Original location",
+                  "start": "2026-10-26T09:00:00-05:00", "end": "2026-10-26T10:00:00-05:00",
+                  "timezone": "America/Chicago", "recurrence": {"frequency": "weekly", "count": 3}}
+        expected = event_content(fields, timezone_definition=CHICAGO)
+        observed = event_content(fields, timezone_definition=with_history())
+        # Creation gives a new UID, so model a provider enrichment of the same
+        # resource instead of treating two separately created events as equal.
+        old_uid = next(line for line in unfold(expected) if line.startswith("UID:"))
+        new_uid = next(line for line in unfold(observed) if line.startswith("UID:"))
+        observed = observed.replace(new_uid, old_uid)
+        observed = observed.replace("END:VEVENT", "CREATED:20200101T000000Z\r\nLAST-MODIFIED:20261101T000000Z\r\nSEQUENCE:9\r\nEND:VEVENT")
+        verify_created(expected, observed)
+        validate_series_deletion(observed)
+        updated = event_content({"summary": "Updated synthetic"}, observed, recurring_master=True)
+        self.assertEqual(detach_timezone(unfold(updated))[1], detach_timezone(unfold(observed))[1])
+        self.assertIn("X-LIC-LOCATION:America/Chicago", updated)
+        self.assertIn("DTSTART:18831118T120000", updated)
+        self.assertIn("DESCRIPTION:Original description", updated)
+        self.assertIn("LOCATION:Original location", updated)
+        for native in ("CREATED:20200101T000000Z", "LAST-MODIFIED:20261101T000000Z", "SEQUENCE:9", old_uid):
+            self.assertIn(native, updated)
+        verify_created(updated, updated)
+        schedule = {"start": "2026-11-09T09:00:00-06:00", "end": "2026-11-09T10:00:00-06:00",
+                    "timezone": "America/Chicago", "recurrence": {"frequency": "weekly", "count": 5}}
+        rescheduled = event_content(schedule, observed, recurring_master=True, timezone_definition=CHICAGO)
+        self.assertEqual(detach_timezone(unfold(rescheduled))[1], detach_timezone(unfold(observed))[1])
+        self.assertIn("RRULE:FREQ=WEEKLY;INTERVAL=1;COUNT=5", rescheduled)
+        self.assertIn("DTSTART:18831118T120000", rescheduled)
+        verify_created(rescheduled, rescheduled)
+        for changed in (observed.replace("TZNAME:CDT", "TZNAME:CHANGED"),
+                        observed.replace("COUNT=3", "COUNT=4"),
+                        observed.replace("X-LIC-LOCATION:America/Chicago", "X-LIC-LOCATION:Europe/Berlin")):
+            with self.assertRaises(SafetyError):
+                verify_created(expected, changed)
+
+    def test_timezone_history_equivalence_refuses_event_before_modern_coverage(self):
+        fields = {"summary": "Synthetic", "start": "2026-10-26T09:00:00-05:00", "end": "2026-10-26T10:00:00-05:00",
+                  "timezone": "America/Chicago", "recurrence": {"frequency": "weekly", "count": 3}}
+        value = event_content(fields, timezone_definition=with_history())
+        before = value.replace("20261026T090000", "20061030T090000").replace("20261026T100000", "20061030T100000")
+        with self.assertRaises(SafetyError):
+            verify_created(before, before)
 
     def test_series_rescheduling_refuses_unknown_properties_and_existing_exceptions(self):
         before = event_content(dict(self.fields, summary="Synthetic"))

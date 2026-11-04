@@ -3,7 +3,9 @@
 import unittest
 from datetime import datetime, timezone
 
-from icloud_for_agents.calendar_timezone import extract_timezone_definition, validate_timezone_coverage, validate_wall_duration
+from icloud_for_agents.calendar_timezone import (extract_timezone_definition, validate_timezone_coverage,
+                                                validate_wall_duration, timezone_verification_key,
+                                                validate_timezone_event_start)
 from icloud_for_agents.core import SafetyError
 
 
@@ -44,6 +46,138 @@ END:STANDARD
 END:VTIMEZONE
 END:VCALENDAR
 """
+
+HISTORY = """BEGIN:STANDARD
+DTSTART:18831118T120000
+TZOFFSETFROM:-055036
+TZOFFSETTO:-0600
+TZNAME:CST
+END:STANDARD
+BEGIN:DAYLIGHT
+DTSTART:20060402T020000
+TZOFFSETFROM:-0600
+TZOFFSETTO:-0500
+RRULE:FREQ=YEARLY;BYMONTH=4;BYDAY=1SU;UNTIL=20060402T080000Z
+TZNAME:CDT
+END:DAYLIGHT
+BEGIN:STANDARD
+DTSTART:20061029T020000
+TZOFFSETFROM:-0500
+TZOFFSETTO:-0600
+RDATE:20061029T020000
+TZNAME:CST
+END:STANDARD
+"""
+
+
+def with_history(history=HISTORY):
+    return CHICAGO.replace("TZID:America/Chicago\n", "TZID:America/Chicago\nX-LIC-LOCATION:America/Chicago\n" + history)
+
+
+class HistoricalTimezoneTests(unittest.TestCase):
+    def test_retains_full_history_but_normalizes_only_verification_evidence(self):
+        expanded = with_history()
+        lines = extract_timezone_definition(expanded, "America/Chicago")
+        self.assertIn("DTSTART:18831118T120000", lines)
+        self.assertIn("TZOFFSETFROM:-055036", lines)
+        self.assertIn("X-LIC-LOCATION:America/Chicago", lines)
+        self.assertEqual(lines.count("BEGIN:STANDARD"), 3)
+        self.assertEqual(timezone_verification_key(expanded, "America/Chicago"),
+                         timezone_verification_key(CHICAGO, "America/Chicago"))
+        start = datetime.fromisoformat("2026-11-09T09:00:00-06:00")
+        self.assertEqual(validate_timezone_coverage(expanded, "America/Chicago", start),
+                         validate_timezone_coverage(CHICAGO, "America/Chicago", start))
+
+    def test_twenty_one_historical_observances_remain_bounded_and_preserved(self):
+        additional = "".join("BEGIN:STANDARD\nDTSTART:" + str(year) + "0101T000000\n"
+                             "TZOFFSETFROM:-0600\nTZOFFSETTO:-0600\nTZNAME:CST\nEND:STANDARD\n"
+                             for year in range(1884, 1902))
+        expanded = with_history(HISTORY + additional)
+        lines = extract_timezone_definition(expanded, "America/Chicago")
+        self.assertEqual(lines.count("BEGIN:STANDARD") + lines.count("BEGIN:DAYLIGHT"), 23)
+        self.assertEqual(timezone_verification_key(expanded, "America/Chicago"),
+                         timezone_verification_key(CHICAGO, "America/Chicago"))
+
+    def test_finite_month_day_history_is_validated_without_inventing_rules(self):
+        additional = ("BEGIN:STANDARD\nDTSTART:19000101T000000\nTZOFFSETFROM:-0600\nTZOFFSETTO:-0600\n"
+                      "RRULE:FREQ=YEARLY;BYMONTH=1;BYMONTHDAY=1;UNTIL=19020101T060000Z\nEND:STANDARD\n")
+        self.assertEqual(timezone_verification_key(with_history(HISTORY + additional), "America/Chicago"),
+                         timezone_verification_key(CHICAGO, "America/Chicago"))
+
+    def test_repeated_historical_rdates_are_bounded_and_preserved(self):
+        additional = ("BEGIN:STANDARD\nDTSTART:19000101T000000\nTZOFFSETFROM:-0600\nTZOFFSETTO:-0600\n"
+                      "RDATE:19200101T000000\nRDATE:19420101T000000\nRDATE:19460101T000000\n"
+                      "RDATE:19670101T000000\nEND:STANDARD\n")
+        expanded = with_history(HISTORY + additional)
+        lines = extract_timezone_definition(expanded, "America/Chicago")
+        for value in ("19200101T000000", "19420101T000000", "19460101T000000", "19670101T000000"):
+            self.assertIn("RDATE:" + value, lines)
+        self.assertEqual(timezone_verification_key(expanded, "America/Chicago"),
+                         timezone_verification_key(CHICAGO, "America/Chicago"))
+        # A repeated identical onset within one component is a set duplicate;
+        # competing components at the same UTC instant are ambiguous.
+        duplicate_date = additional.replace("RDATE:19200101T000000", "RDATE:19000101T000000\nRDATE:19200101T000000")
+        extract_timezone_definition(with_history(HISTORY + duplicate_date), "America/Chicago")
+        for extra in (additional + additional,
+                      additional.replace("RDATE:19670101T000000", "RDATE:20260101T000000"),
+                      additional.replace("RDATE:19200101T000000", "RDATE:" + ",".join(["19200101T000000"] * 129))):
+            with self.assertRaises(SafetyError):
+                extract_timezone_definition(with_history(HISTORY + extra), "America/Chicago")
+
+    def test_modern_rule_part_order_is_not_a_semantic_change(self):
+        reordered = with_history().replace("FREQ=YEARLY;BYMONTH=3;BYDAY=2SU", "BYDAY=2SU;BYMONTH=3;FREQ=YEARLY")
+        self.assertEqual(timezone_verification_key(reordered, "America/Chicago"),
+                         timezone_verification_key(CHICAGO, "America/Chicago"))
+
+    def test_historical_dtstart_can_be_a_one_off_before_later_yearly_onsets(self):
+        additional = ("BEGIN:DAYLIGHT\nDTSTART:19360405T020000\nTZOFFSETFROM:-0600\nTZOFFSETTO:-0500\n"
+                      "RRULE:FREQ=YEARLY;UNTIL=19410406T080000Z;BYMONTH=4;BYDAY=1SU\nEND:DAYLIGHT\n"
+                      "BEGIN:STANDARD\nDTSTART:19361115T020000\nTZOFFSETFROM:-0500\nTZOFFSETTO:-0600\n"
+                      "RRULE:FREQ=YEARLY;UNTIL=19410928T070000Z;BYMONTH=9;BYDAY=-1SU\nEND:STANDARD\n")
+        expanded = with_history(HISTORY + additional)
+        self.assertIn("DTSTART:19361115T020000", extract_timezone_definition(expanded, "America/Chicago"))
+        self.assertEqual(timezone_verification_key(expanded, "America/Chicago"),
+                         timezone_verification_key(CHICAGO, "America/Chicago"))
+
+    def test_future_modern_properties_are_never_ignored(self):
+        original = timezone_verification_key(CHICAGO, "America/Chicago")
+        for changed in (CHICAGO.replace("BYMONTH=3;BYDAY=2SU", "BYMONTH=3;BYDAY=1SU").replace("20070311", "20070304"),
+                        CHICAGO.replace("20070311T020000", "20070311T030000"),
+                        CHICAGO.replace("TZNAME:CDT", "TZNAME:SUMMER")):
+            self.assertNotEqual(timezone_verification_key(changed, "America/Chicago"), original)
+
+    def test_history_cannot_reach_modern_cutoff_or_hide_later_onsets(self):
+        extras = [
+            "BEGIN:STANDARD\nDTSTART:20070311T020000\nTZOFFSETFROM:-0600\nTZOFFSETTO:-0600\nEND:STANDARD\n",
+            # Earlier local time still occurs later in UTC: compare instants.
+            "BEGIN:STANDARD\nDTSTART:20070311T010000\nTZOFFSETFROM:-0800\nTZOFFSETTO:-0600\nEND:STANDARD\n",
+            "BEGIN:STANDARD\nDTSTART:20060101T000000\nTZOFFSETFROM:-0600\nTZOFFSETTO:-0600\nRDATE:20260101T000000\nEND:STANDARD\n",
+        ]
+        for history in [HISTORY + item for item in extras] + [
+                HISTORY.replace("UNTIL=20060402T080000Z", "UNTIL=20070311T080000Z"),
+                HISTORY.replace("UNTIL=20060402T080000Z", "COUNT=2"),
+                HISTORY.replace(";UNTIL=20060402T080000Z", ""),
+                HISTORY.replace("UNTIL=20060402T080000Z", "UNTIL=20060402T080000"),
+                HISTORY.replace("RDATE:20061029T020000", "RDATE:20061029T020000Z"),
+                HISTORY + HISTORY,
+                HISTORY.replace("TZOFFSETFROM:-0600\nTZOFFSETTO:-0500", "TZOFFSETFROM:-0400\nTZOFFSETTO:-0500"),
+                HISTORY.replace("BYMONTH=4", "BYMONTH=4;BYMONTH=5")]:
+            with self.subTest(history=history), self.assertRaises(SafetyError):
+                extract_timezone_definition(with_history(history), "America/Chicago")
+
+    def test_timezone_metadata_and_unknown_properties_refuse(self):
+        for value in (with_history().replace("X-LIC-LOCATION:America/Chicago", "X-LIC-LOCATION:Europe/Berlin"),
+                      with_history().replace("X-LIC-LOCATION:America/Chicago", "X-LIC-LOCATION:America/Chicago\nX-LIC-LOCATION:America/Chicago"),
+                      with_history().replace("X-LIC-LOCATION:America/Chicago", "TZURL:https://example.invalid/zone"),
+                      with_history().replace("RDATE:20061029T020000", "RDATE:20061029T020000\nATTENDEE:mailto:other@example.invalid")):
+            with self.subTest(value=value), self.assertRaises(SafetyError):
+                extract_timezone_definition(value, "America/Chicago")
+
+    def test_comparison_domain_requires_both_modern_origins_to_be_active(self):
+        validate_timezone_event_start(with_history(), "America/Chicago", "20261109T090000")
+        for value in ("20061030T090000", "20070312T090000", "20261101T013000", "20260308T023000"):
+            with self.subTest(value=value), self.assertRaises(SafetyError):
+                validate_timezone_event_start(with_history(), "America/Chicago", value)
 
 
 class CalendarTimezoneTests(unittest.TestCase):

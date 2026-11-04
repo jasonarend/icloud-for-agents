@@ -84,7 +84,8 @@ def extract_timezone_definition(raw: str, timezone_name: str) -> list[str]:
 
     Accepted definitions contain either a fixed-offset STANDARD observance or
     one STANDARD and one DAYLIGHT with reciprocal offsets and open-ended yearly
-    month/ordinal-weekday rules. Unknown properties and rule forms refuse.
+    month/ordinal-weekday rules. Finite historical observances may precede both
+    modern origins; matching X-LIC-LOCATION metadata is retained. Unknown forms refuse.
     """
     if (not isinstance(timezone_name, str) or not 1 <= len(timezone_name) <= 255
             or not re.fullmatch(r"[A-Za-z0-9_+.-]+(?:/[A-Za-z0-9_+.-]+)*", timezone_name)
@@ -110,7 +111,7 @@ def extract_timezone_definition(raw: str, timezone_name: str) -> list[str]:
         lines.pop()
     if not lines or len(lines) > MAX_LINES:
         _refuse()
-    stack, result, root, timezone, observations = [], [], {}, {}, {}
+    stack, result, root, timezone, observations = [], [], {}, {}, []
     seen_calendar = seen_timezone = False
     current = None
     for line in lines:
@@ -126,7 +127,7 @@ def extract_timezone_definition(raw: str, timezone_name: str) -> list[str]:
             allowed = ((not stack and not seen_calendar and component == "VCALENDAR") or
                        (stack == ["VCALENDAR"] and not seen_timezone and component == "VTIMEZONE") or
                        (stack == ["VCALENDAR", "VTIMEZONE"] and component in {"STANDARD", "DAYLIGHT"}
-                        and component not in observations))
+                        and len(observations) < 40))
             if not allowed:
                 _refuse()
             stack.append(component)
@@ -136,7 +137,7 @@ def extract_timezone_definition(raw: str, timezone_name: str) -> list[str]:
                 seen_timezone = True
             else:
                 current = {}
-                observations[component] = current
+                observations.append((component, current))
             if len(stack) > 1:
                 result.append("BEGIN:" + component)
         elif key == "END":
@@ -151,44 +152,186 @@ def extract_timezone_definition(raw: str, timezone_name: str) -> list[str]:
             if stack == ["VCALENDAR"]:
                 target, allowed = root, {"VERSION", "PRODID", "CALSCALE"}
             elif stack == ["VCALENDAR", "VTIMEZONE"]:
-                target, allowed = timezone, {"TZID"}
+                target, allowed = timezone, {"TZID", "X-LIC-LOCATION"}
             elif len(stack) == 3 and current is not None:
-                target, allowed = current, {"DTSTART", "TZOFFSETFROM", "TZOFFSETTO", "RRULE", "TZNAME"}
+                target, allowed = current, {"DTSTART", "TZOFFSETFROM", "TZOFFSETTO", "RRULE", "RDATE", "TZNAME"}
             else:
                 _refuse()
-            if key not in allowed or key in target:
+            repeated_date = key == "RDATE" and len(stack) == 3 and current is not None
+            if key not in allowed or (key in target and not repeated_date):
                 _refuse()
-            target[key] = value
+            target[key] = target[key] + "," + value if repeated_date and key in target else value
             if len(stack) > 1:
                 result.append(key + ":" + value)
     if (stack or not seen_calendar or not seen_timezone or root.get("VERSION") != "2.0"
             or root.get("CALSCALE", "GREGORIAN").upper() != "GREGORIAN"
-            or timezone.get("TZID") != timezone_name or "STANDARD" not in observations):
+            or timezone.get("TZID") != timezone_name
+            or timezone.get("X-LIC-LOCATION", timezone_name) != timezone_name):
         _refuse()
-    standard = _observance(observations["STANDARD"])
-    if "DAYLIGHT" in observations:
-        daylight = _observance(observations["DAYLIGHT"])
-        if not standard[2] or not daylight[2] or standard[:2] != daylight[1::-1]:
-            _refuse()
-    elif standard[2]:
-        _refuse()
+    _partition_observances(observations)
     return result
 
 
-def _definition_observances(lines):
-    """Read the observances after strict extraction, without interpreting other data."""
-    result, current = {}, None
+def _definition_components(lines):
+    result, current = [], None
     for line in lines:
         name, value = line.split(":", 1)
         if name == "BEGIN" and value in {"STANDARD", "DAYLIGHT"}:
             current = {}
-            result[value] = current
+            result.append((value, current))
         elif name == "END" and value in {"STANDARD", "DAYLIGHT"}:
             current = None
         elif current is not None:
-            current[name] = value
+            current[name] = current[name] + "," + value if name == "RDATE" and name in current else value
     return result
 
+
+def _origin(values):
+    try:
+        return (_start(values["DTSTART"]) - timedelta(seconds=_offset(values["TZOFFSETFROM"]))).replace(tzinfo=timezone.utc)
+    except (ValueError, OverflowError):
+        _refuse()
+
+
+def _historical_transitions(values):
+    required = {"DTSTART", "TZOFFSETFROM", "TZOFFSETTO"}
+    if not required <= values.keys() or values.keys() - required - {"RRULE", "RDATE", "TZNAME"}:
+        _refuse()
+    if "TZNAME" in values and not re.fullmatch(r"[A-Za-z0-9 _+\-]{1,64}", values["TZNAME"]):
+        _refuse()
+    start = _start(values["DTSTART"])
+    before, after = _offset(values["TZOFFSETFROM"]), _offset(values["TZOFFSETTO"])
+    dates = {start}
+    if "RDATE" in values:
+        items = values["RDATE"].split(",")
+        if not 1 <= len(items) <= 128:
+            _refuse()
+        dates.update(_start(item) for item in items)
+    if "RRULE" in values:
+        pieces = values["RRULE"].upper().split(";")
+        if any(piece.count("=") != 1 for piece in pieces):
+            _refuse()
+        parts = dict(piece.split("=", 1) for piece in pieces)
+        if (len(parts) != len(pieces) or not {"FREQ", "UNTIL", "BYMONTH"} <= parts.keys()
+                or parts.keys() - {"FREQ", "UNTIL", "BYMONTH", "BYDAY", "BYMONTHDAY", "INTERVAL"}
+                or parts["FREQ"] != "YEARLY" or parts.get("INTERVAL", "1") != "1"
+                or ("BYDAY" in parts) == ("BYMONTHDAY" in parts)
+                or not re.fullmatch(r"(?:[1-9]|1[0-2])", parts["BYMONTH"])
+                or not re.fullmatch(r"[0-9]{8}T[0-9]{6}Z", parts["UNTIL"])):
+            _refuse()
+        until = _start(parts["UNTIL"][:-1]).replace(tzinfo=timezone.utc)
+        if until < _origin(values):
+            _refuse()
+        if "BYDAY" in parts and not re.fullmatch(r"(-?[1-5])(MO|TU|WE|TH|FR|SA|SU)", parts["BYDAY"]):
+            _refuse()
+        if "BYMONTHDAY" in parts and not re.fullmatch(r"(?:[1-9]|[12][0-9]|3[01])", parts["BYMONTHDAY"]):
+            _refuse()
+        if until.year - start.year > 2048:
+            _refuse()
+        for year in range(start.year, min(9999, until.year + 1) + 1):
+            if "BYDAY" in parts:
+                candidate_values = dict(values, RRULE=";".join(k + "=" + v for k, v in parts.items() if k != "UNTIL"))
+                try:
+                    local, instant, _, _ = _yearly_transition(candidate_values, year)
+                except SafetyError:
+                    # A fifth weekday need not exist in every historical year.
+                    continue
+            else:
+                try:
+                    local = datetime(year, int(parts["BYMONTH"]), int(parts["BYMONTHDAY"]), start.hour, start.minute, start.second)
+                except ValueError:
+                    continue
+                instant = (local - timedelta(seconds=before)).replace(tzinfo=timezone.utc)
+            if local >= start and instant <= until:
+                dates.add(local)
+    result = []
+    for local in dates:
+        try:
+            result.append(((local - timedelta(seconds=before)).replace(tzinfo=timezone.utc), before, after))
+        except (ValueError, OverflowError):
+            _refuse()
+    return result
+
+
+def _partition_observances(components):
+    # A single fixed definition retains its original strict subset. Historical
+    # enrichment is admitted only around an unchanged open-ended modern pair.
+    if len(components) == 1 and components[0][0] == "STANDARD":
+        if _observance(components[0][1])[2]:
+            _refuse()
+        return {"STANDARD": components[0][1]}
+    modern, historical = {}, []
+    for kind, values in components:
+        if "RRULE" in values and not re.search(r"(?:^|;)UNTIL=", values["RRULE"], re.I):
+            _observance(values)
+            if kind in modern:
+                _refuse()
+            modern[kind] = values
+        else:
+            historical.append(values)
+    if set(modern) != {"STANDARD", "DAYLIGHT"}:
+        _refuse()
+    standard, daylight = _observance(modern["STANDARD"]), _observance(modern["DAYLIGHT"])
+    if not standard[2] or not daylight[2] or standard[:2] != daylight[1::-1]:
+        _refuse()
+    first = min((_origin(values), _offset(values["TZOFFSETFROM"])) for values in modern.values())
+    transitions = []
+    for values in historical:
+        if "RRULE" in values:
+            match = re.search(r"(?:^|;)UNTIL=([0-9]{8}T[0-9]{6}Z)(?:;|$)", values["RRULE"], re.I)
+            if match is None or _start(match[1][:-1]).replace(tzinfo=timezone.utc) >= first[0]:
+                _refuse()
+        added = _historical_transitions(values)
+        if any(instant >= first[0] for instant, _, _ in added) or len(transitions) + len(added) > 4096:
+            _refuse()
+        transitions.extend(added)
+    transitions.sort()
+    if (any(current[0] <= previous[0] or current[1] != previous[2]
+            for previous, current in zip(transitions, transitions[1:]))
+            or (transitions and transitions[-1][2] != first[1])):
+        _refuse()
+    return modern
+
+
+def _definition_observances(lines):
+    """Only modern rules may determine future coverage and duration evidence."""
+    return _partition_observances(_definition_components(lines))
+
+
+def timezone_verification_key(raw: str, timezone_name: str) -> tuple:
+    """Normalize comparison evidence only; never use this key as write content.
+
+    Valid finite historical additions precede both modern rule origins in UTC.
+    Exact modern property sets, including their DTSTART and offsets, remain in
+    the comparison. No external metadata or unknown properties are ignored.
+    """
+    lines = extract_timezone_definition(raw, timezone_name)
+    modern = _definition_observances(lines)
+    components = []
+    for kind, values in sorted(modern.items()):
+        canonical = dict(values)
+        if "RRULE" in canonical:
+            canonical["RRULE"] = ";".join(sorted(canonical["RRULE"].upper().split(";")))
+        components.append((kind, tuple(sorted(canonical.items()))))
+    return timezone_name, tuple(components)
+
+
+def validate_timezone_event_start(raw: str, timezone_name: str, local_start: str):
+    """Require the event to start after both modern observances became active."""
+    modern = _definition_observances(extract_timezone_definition(raw, timezone_name))
+    wall = _start(local_start)
+    if any(wall < _start(values["DTSTART"]) for values in modern.values()):
+        _refuse()
+    zone = ZoneInfo(timezone_name)
+    supplied = wall.replace(tzinfo=zone)
+    try:
+        instant = supplied.astimezone(timezone.utc)
+        if (supplied.utcoffset() != wall.replace(tzinfo=zone, fold=1).utcoffset()
+                or instant.astimezone(zone).replace(tzinfo=None) != wall
+                or any(instant < _origin(values) for values in modern.values())):
+            _refuse()
+    except (ValueError, OverflowError):
+        _refuse()
 
 def _yearly_transition(values, year):
     start = _start(values["DTSTART"])
