@@ -613,6 +613,17 @@ class PlanStore:
                 return self.read(revoked).get('grant_sha256')==digest(plan)
             return False
         result=self.read(path)
+        if result.get('status') == 'calendar_timezone_refused_before_dispatch':
+            plan = self.read(self.path(plan_id, '.json'))
+            started = self.read(self.path(plan_id, '.started'))
+            changes = plan.get('payload', {}).get('changes', [])
+            return (plan.get('kind') == 'calendar_change' and len(changes) == 1
+                    and changes[0].get('operation') == 'create' and isinstance(changes[0].get('timezone_binding'), dict)
+                    and isinstance(changes[0].get('fields'), dict) and 'recurrence' in changes[0]['fields']
+                    and started.get('sha256') == result.get('plan_sha256') == digest(plan)
+                    and started.get('account') == plan['payload'].get('account')
+                    and result.get('completed') == [] and result.get('do_not_retry') is True
+                    and result.get('diagnostic', {}).get('phase') == 'timezone_preflight')
         if self._native_stopped_completed(plan_id) or self._native_move_recovery_completed(plan_id) or self._native_edit_recovery_completed(plan_id) or self._native_reminder_recovery_completed(plan_id):return True
         if result.get('status')=='stopped_before_dispatch':
             return result.get('pre_dispatch_evidence')==self.native_predispatch_proof(plan_id,result)

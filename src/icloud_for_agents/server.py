@@ -27,6 +27,8 @@ proposals; an exact standing mail-cleanup grant can cover recoverable Trash batc
 These client/grant paths are not independent proof of human approval. Sending still
 requires owner approval of recipients/content. No MCP tool mints independent human approval receipts.
 Irreversible calendar/contact deletion always requires an exact local-owner receipt.
+Calendar can prepare one exact temporary action from read-only access; it does not
+change saved permissions, and irreversible deletion still requires a local receipt.
 Optional managed mail exceptions never authorize DAV changes or permanent purge.
 Never invoke the operator approval CLI yourself; the user reviews and runs it locally.
 Native Notes and Reminders have independent opt-ins, exact source allowlists and
@@ -80,6 +82,7 @@ def safe(fn):
     def wrapped(*args, **kwargs):
         with _lock:
             try:
+                temporary_calendar = False
                 service_name = ("mail" if fn.__name__.startswith("email_") else
                                 "calendar" if fn.__name__.startswith("calendar_") else
                                 "contacts" if fn.__name__.startswith("contacts_") else None)
@@ -90,6 +93,9 @@ def safe(fn):
                     target = {"calendar_change": "calendar", "contact_change": "contacts"}.get(candidate["kind"])
                     if target is None or not enabled(target):
                         raise SafetyError("Plan targets a disabled or unsupported service")
+                    temporary_calendar = (candidate['kind'] == 'calendar_change' and
+                                          candidate['payload'].get('kind') == 'cal' and
+                                          candidate['payload'].get('temporary_elevation') == 'calendar-exact-batch-once')
                 mode = os.environ.get("ICLOUD_MAIL_ACCESS", "read-only")
                 if mode not in {"disabled", "read-only", "write-enabled"}:
                     raise SafetyError("Unknown access mode; use disabled, read-only, or separately approved write-enabled")
@@ -97,9 +103,9 @@ def safe(fn):
                     raise SafetyError("All backend access is disabled")
                 if mode == "read-only" and fn.__name__ not in {
                     "email_list_folders", "email_page", "email_inspect", "email_plan_status",
-                    "calendar_list", "calendar_events", "contacts_addressbooks", "contacts_list", "contacts_get", "policy_status"
-                }:
-                    raise SafetyError("This runtime is read-only: mail mutations, sends and write proposals are disabled")
+                    "calendar_list", "calendar_events", "calendar_prepare_once", "contacts_addressbooks", "contacts_list", "contacts_get", "policy_status"
+                } and not (fn.__name__ == 'dav_execute_approved' and temporary_calendar):
+                    raise SafetyError("This runtime is read-only: ordinary mutations, sends and write proposals are disabled")
                 return fn(*args, **kwargs)
             except SafetyError as exc:
                 raise ToolError(str(exc)) from None

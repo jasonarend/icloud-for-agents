@@ -61,7 +61,7 @@ def run(native=False):
                             "email_archive", "email_prepare_trash", "email_restore_from_trash",
                             "email_prepare_send", "email_execute_approved", "email_plan_status",
                             "calendar_list", "calendar_events", "contacts_addressbooks", "contacts_list", "contacts_get",
-                            "calendar_prepare_changes", "contacts_prepare_changes", "dav_execute_approved"}
+                            "calendar_prepare_changes", "calendar_prepare_once", "contacts_prepare_changes", "dav_execute_approved"}
                 if native:
                     expected.add('notes_native_checklist')
                     expected.add('notes_ocr_image_attachment')

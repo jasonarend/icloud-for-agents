@@ -13,7 +13,9 @@ The launcher reads the policy only from validated private settings, never an inh
 OpenAI documents context-dependent client write confirmations in [custom MCP connections](https://help.openai.com/en/articles/12584461-connecting-custom-mcp-servers-in-chatgpt). Standard [MCP elicitation](https://modelcontextprotocol.io/specification/2025-06-18/client/elicitation) requires client capability support. Actual elicitation support through this ChatGPT tunnel has not been established; this policy does not claim it has.
 
 
-## Notes and Reminders permissions
+## Calendar, Notes and Reminders permissions
+
+From read-only access, your agent can use `calendar_prepare_once` to prepare one exact Calendar batch without changing saved access. The configured strict-receipt or trusted-client policy still applies, and Calendar deletion always requires a local owner receipt. Disabled Calendar access cannot be elevated. Calendar does not yet have scoped standing grants.
 
 Each native service has its own enabled state, selected sources and read/write mode. An OS permission lets the helper reach the app; it does not authorize a content change. From read-only access, your agent can prepare one exact action with `notes_prepare_once` or `reminders_prepare_once`, or propose a scoped ongoing grant for a scenario you approve. The selected strict-receipt or trusted-client policy still applies. A disabled service cannot be elevated by a one-time plan.
 
