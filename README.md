@@ -91,4 +91,4 @@ The test suite uses synthetic accounts and credential-free stdio discovery. Clau
 
 The upstream MIT notice is preserved in [LICENSE](LICENSE). iCloud for Agents is informed by [mike-tih/icloud-mcp](https://github.com/mike-tih/icloud-mcp); it uses a separate runtime package and does not bundle or execute that server. See [licensing and provenance](docs/contributing/licensing.md) for the exact revision, dependency inventory and scope of attribution.
 
-[![M8ven Score](https://m8ven.ai/badge/mcp/jasonarend/icloud-for-agents)](https://m8ven.ai/mcp/jasonarend/icloud-for-agents?s=readme)
+[![M8ven Score](https://m8ven.ai/badge/mcp/jasonarend-icloud-for-agents-1a9ogy?v=f5fd4cc8e6a4cdc1f68bf7bba89d54d4)](https://m8ven.ai/mcp/jasonarend-icloud-for-agents-1a9ogy?s=readme)
