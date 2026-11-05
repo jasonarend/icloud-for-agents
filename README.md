@@ -2,28 +2,115 @@
 
 **Version 2.1.0**
 
-Connect your AI assistant to iCloud Mail, Calendar, Contacts, Apple Notes and Reminders while keeping credentials private and stored locally on your Mac. Choose only the apps you want to use. Connect a local MCP client like Claude over stdio, or connect ChatGPT through your own private OpenAI Secure MCP Tunnel.
+iCloud for Agents connects your AI assistant to iCloud Mail, Calendar, Contacts, Apple Notes, and Reminders. Your assistant can use them together to help you prepare for meetings, turn emails and notes into follow-up tasks, and plan your work around upcoming events.
 
-An independent project, unaffiliated with Apple. The tested setup is macOS on Apple silicon with Python 3.14; see [installation requirements](docs/getting-started/installation.md) for compatibility details.
+Choose which services to connect and what your assistant can access or change. The bridge runs on your Mac and stores credentials locally. Connect a compatible local MCP client, or use ChatGPT through your private OpenAI Secure MCP Tunnel.
 
 ## What you can do
 
-- Review and summarize mail, filter by sender, subject or unread status, and work through older messages without marking them read.
-- Organize mail: archive messages, mark them read or unread, move junk to Trash, and restore messages from Trash.
-- Compose and send plain-text email to explicit recipients, including Cc and Bcc, after approval.
-- Review calendars and events over a date range, and create, update or delete personal events with details such as location, description and timezone.
-- Browse address books, read contact details, and create, update or delete contacts with names, email addresses, phone numbers, organizations and notes.
-- Run recurring mail cleanup within an explicitly configured account, folder and operation scope.
-- Find information in selected Notes folders, read notes and supported attachments, save supplied specifications or transcripts, edit supported text, and move or recoverably remove notes with approval.
-- Review today’s reminders or a date range, create and edit tasks, mark them complete, organize supported lists and task hierarchies, and recoverably remove or restore tasks with approval.
+Some advanced Notes and Reminders features require an optional native backend and additional macOS permissions.
+
+**Mail**
+
+- Browse folders, search and filter messages, and read or summarize email without marking it read.
+- Work through older messages and check for new arrivals without starting over.
+- Mark messages read or unread, archive them, move them to Trash, and restore them to an existing folder.
+- Compose and send plain-text email to specified recipients, including Cc and Bcc.
+- Run recurring mail cleanup within an approved account, folder and operation scope.
+
+**Calendar**
+
+- Browse calendars and review events within a date range, including bounded views of recurring occurrences.
+- Your assistant can create, update or delete supported personal recurring event series, including daily, weekly, monthly and yearly patterns, as well as individual events.
+- Your assistant can update or remove a supported individual occurrence, or change or remove selected future occurrences of a series.
+- Manage event titles, times, time zones, locations, descriptions, URLs and supported availability and privacy settings.
+- Review proposed changes before applying them.
+
+**Contacts**
+
+- Browse address books and find or read contact records.
+- Create, update or delete contacts.
+- Manage names, email addresses, phone numbers, organizations and notes while preserving unrelated contact details.
+- Review proposed changes before applying them.
+
+**Notes**
+
+- Browse selected accounts and folders, search notes, and read supported text, HTML and Markdown views and exported table text.
+- Create notes from supplied content, including meeting transcripts, specifications, lists and tables.
+- Append or prepend content, replace specific text, and update supported note titles and bodies.
+- Create supported folders, move notes between eligible folders, and recoverably remove or restore supported notes.
+- Inspect links, attachment metadata, native checklist state, and supported pin, tag and Smart Folder information.
+- Export supported attachments or PDF representations and extract printed English text from supported images.
+
+**Reminders**
+
+- Browse lists and tasks, review reminders by date, and filter using supported priority and native metadata.
+- Create and edit reminders, set due dates and priorities, complete or reopen tasks, and manage supported time, location and early alerts.
+- Create reminders with supported repeat rules and explicitly change or remove existing repeat rules.
+- Organize tasks with supported flags, tags, subtasks, sections, list groups and ordering.
+- Create and manage supported lists, custom Smart Lists, grocery categories and simple saved templates.
+- Inspect supported attachments, attach eligible images, export bounded task data, and recoverably remove or restore eligible tasks.
 
 All five services are optional and can be enabled independently. A new setup enables Mail in read-only mode by default; Calendar, Contacts, Notes and Reminders start disabled. Sending and ordinary Mail, Calendar or Contacts changes require write access and the applicable approvals. Calendar, Notes and Reminders also support separately approved one-time changes while their normal access remains read-only. Notes and Reminders additionally support scoped standing grants; your assistant can help review the exact scope first.
 
 Mail cleanup moves messages to recoverable Trash. Permanent deletion and emptying Trash are intentionally excluded.
 
-Calendar supports personal events and a bounded set of recurring-event operations, including supported individual occurrences and removing selected future occurrences. Local-time recurring operations require a supported matching time-zone definition. Some advanced series changes remain unavailable. Invitations, guests and scheduling responses are not included. iCloud Drive access is also not included.
+Calendar supports personal events and a bounded set of recurring-event operations, including supported individual occurrences and removing selected future occurrences. Local-time recurring operations require a supported matching time-zone definition. Some changes to future occurrences split a series into two events. If interrupted, the change may leave duplicate future events and require review. Other advanced series changes remain unavailable. Invitations, guests and scheduling responses are not included. iCloud Drive access is also not included.
 
-Some Notes and Reminders capabilities need a separately selected native backend and additional macOS access. Notes removal requires an accessible, verified Recently Deleted folder; an empty or hidden folder refuses safely. Reminders supports recoverable removal and restoration of individual root tasks and explicitly reviewed families with direct children. Rich editing, deeper hierarchies and other native operations have specific limits. See the [capability overview](docs/reference/native-support.md) and [Notes and Reminders setup](docs/getting-started/native-services.md).
+Some Notes and Reminders capabilities need a separately selected native backend and additional macOS access. Notes removal requires an accessible, verified Recently Deleted folder; an empty or hidden folder refuses safely. Reminders supports recoverable removal and restoration of individual root tasks and explicitly reviewed families with direct children. Ordinary edits and completion of repeating reminders are refused; repeat-rule changes use a separate scoped operation. Stored alerts do not guarantee notification delivery. Rich editing, deeper hierarchies and other native operations have specific limits. Exports and copies are not complete backups. See the [capability overview](docs/reference/native-support.md) and [Notes and Reminders setup](docs/getting-started/native-services.md).
+
+## Examples of what you can ask your agent
+
+Your agent can work with the iCloud services you choose to enable. For example:
+
+**Mail**
+
+- “Summarize the unread emails I received this week without marking them read.”
+- “Find emails from my accountant about taxes and summarize the important details.”
+- “Find old newsletters in my inbox and show me what you would clean up.”
+- “Help me write a reply to this email and let me review it before sending.”
+
+**Calendar and Reminders**
+
+- “Show me my appointments and reminders for tomorrow.”
+- “What do I have coming up this week, and which reminders are overdue?”
+- “Add my dentist appointment to my calendar with the address and time.”
+- “Create a reminder to follow up on this task, and mark it complete when I’m done.”
+- “Show me the high-priority tasks in my project list.”
+- “Move just next Tuesday’s occurrence of my personal weekly event to 11 a.m.”
+- “Create a personal event every Tuesday at 10 a.m.”
+- “Starting next Tuesday, move my personal weekly event to 11 a.m. and keep earlier occurrences unchanged.”
+- “Add these subtasks under my project reminder.”
+
+**Contacts**
+
+- “Find Sarah’s contact information and tell me which email address I have saved.”
+- “Update this contact’s phone number and add their company and notes.”
+
+**Notes**
+
+- “Find my notes about the website redesign and summarize the requirements.”
+- “Save these meeting notes in my Projects folder.”
+- “Find the note where I saved the measurements and pull out the table.”
+- “Append these decisions to my project note.”
+- “Read the printed English text in the image saved in this note.”
+
+**Across your apps**
+
+Your assistant can combine your enabled services in a single request.
+
+- “Using this meeting transcript, create a summary in Notes and suggest reminders for the action items.”
+- “Find the contact details for the person mentioned in this email.”
+- “Before my appointment tomorrow, find the confirmation email, check the address on my calendar, and show me anything I need to bring.”
+- “Find the latest emails and notes about the website project, compare them with my open reminders, and show me outstanding decisions and next steps.”
+- “Look at next week’s calendar and my overdue reminders, then suggest a realistic plan for catching up.”
+- “Find the email with the delivery date, add that date to my calendar, and create a reminder for the day before.”
+- “Find the contact details for my accountant, review my recent tax-related emails and notes, and draft an email summarizing my questions for me to review.”
+- “Turn the action items in these meeting notes into reminders, and add a personal follow-up to my calendar.”
+- “Find the recipe in my notes and suggest a grocery list in Reminders for me to review.”
+- “Review the notes and email about my upcoming trip, then summarize the itinerary and flag any details that are missing from my calendar.”
+
+The services available to an agent depend on your setup and permissions. Actions that change or send information are subject to the configured access and approval settings.
 
 ## Set up with your AI agent
 
@@ -63,7 +150,7 @@ Prefer manual setup? Follow [installation and credentials](docs/getting-started/
 
 ## Choose services and customize safeguards
 
-Tell your setup agent which services you want: **Mail, Calendar, Contacts, Notes, Reminders, any combination, or none**. Your agent can use an existing supported client configuration or provide the command and arguments for a local stdio connection. Disabled services are omitted from tool registration and refused by backend guards; selecting one does not implicitly enable the others. New setup defaults to read-only Mail. Existing legacy DAV settings remain compatible.
+Tell your setup agent which services you want: **Mail, Calendar, Contacts, Notes, Reminders, any combination, or none**. Your agent can use an existing supported client configuration or provide the command and arguments for a local stdio connection. Disabled services are omitted from tool registration and refused by backend guards; selecting one does not implicitly enable the others. Existing legacy DAV settings remain compatible.
 
 You can ask your agent to propose a policy change, a specific one-time exception, or an engineering change to a hard-coded safeguard. It should explain the exact scope and before/after effect, obtain explicit approval, and test/review code changes before activation. Approval does not erase account/identity checks or grant permission to bypass the agent platform's own safety policies. Message content cannot authorize changes.
 
@@ -75,7 +162,7 @@ Ask your assistant to review a bounded set of messages, explain proposed changes
 
 Strict local approval receipts are the default: your assistant can open a review window on your Mac for you to approve an exact proposal. Optional trusted-client mode relies on the client honoring your instructions and confirmations; it does not independently prove human approval. Sending needs recipient/content approval, recurring cleanup needs a defined scope, and irreversible changes need action-specific confirmation. See [security](docs/security/model.md) before enabling access.
 
-The bridge checks exact folders, account identities, UIDVALIDITY, snapshots and DAV ETags. It preserves flags, refuses broad EXPUNGE, and stops on uncertain write outcomes instead of blindly retrying. Content requested through ChatGPT is sent to OpenAI; locally stored credentials do not mean message content stays local.
+The bridge checks account and item identities and whether records have changed before making updates. It preserves mail flags, refuses broad permanent deletion, and stops on uncertain write outcomes instead of blindly retrying. See the [security model](docs/security/model.md) for technical details. Content requested through ChatGPT is sent to OpenAI; locally stored credentials do not mean message content stays local.
 
 ## Learn more
 
@@ -85,9 +172,13 @@ Want to help expand compatibility? We welcome client testing, setup improvements
 
 Report suspected vulnerabilities through the [private security reporting process](SECURITY.md).
 
+**Tested setup:** macOS on Apple silicon with CPython 3.14. Other configurations require separate validation; see [installation requirements](docs/getting-started/installation.md) for compatibility details.
+
 The test suite uses synthetic accounts and credential-free stdio discovery. Claude Desktop and Claude Code are tested and supported through local stdio MCP. Other client routes have the status described in the client compatibility guide. Public source distribution is separate from any client plugin catalog.
 
 ## License and provenance
+
+iCloud for Agents is an independent project and is not affiliated with Apple.
 
 The upstream MIT notice is preserved in [LICENSE](LICENSE). iCloud for Agents is informed by [mike-tih/icloud-mcp](https://github.com/mike-tih/icloud-mcp); it uses a separate runtime package and does not bundle or execute that server. See [licensing and provenance](docs/contributing/licensing.md) for the exact revision, dependency inventory and scope of attribution.
 

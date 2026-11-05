@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.1.0 — 2026-11-04
+## 2.1.0 — 2026-11-05
 
 - Add bounded recurring Calendar reads and approved creation, whole-series updates and deletion.
 - Support approved individual occurrence changes, including supported local-time moves and existing exceptions, and removal of selected future occurrences.
