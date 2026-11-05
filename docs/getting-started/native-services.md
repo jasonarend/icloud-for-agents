@@ -129,7 +129,7 @@ Temporary authority covers only the exact consumed batch. It exists around each 
 
 ## Ongoing and scenario permissions
 
-Use the service’s `prepare_grant` tool to propose a scenario scope, then `activate_grant` after review. Strict mode requires the exact independent receipt from `icloud-agents-approve`; owner-selected trusted-client mode uses the existing client authorization policy. The activation review explicitly grants future batches inside its rules without another per-batch receipt. Mail grants never authorize native services.
+Use the service’s `prepare_grant` tool to propose a scenario scope, then `activate_grant` after review. In strict mode, your assistant requests a local review window where you can approve the exact scope; owner-selected trusted-client mode uses the existing client authorization policy. The activation review explicitly grants future batches inside its rules without another per-batch receipt. Mail grants never authorize native services.
 
 A scope contains `scenario`, `rules`, `max_batch`, `max_24h` and `expires`. The scenario is a human-readable reference, not a natural-language content filter. Each rule specifies one exact `operation`, `source_id`, `container_id`, allowed input `fields`, and `destinations`. Use an empty destination array for ordinary operations; moves require exact destination IDs, while `create_subtask` requires exact parent reminder IDs in `destinations`. Current rules cover the service’s implemented ordinary operations only. Unsupported operations, permanent deletion, collaboration changes, invitations, lock/password changes, recording and external export are excluded.
 

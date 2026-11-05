@@ -25,7 +25,8 @@ Strict local-receipt mode requires an exact Send/Trash receipt. Explicitly enabl
 trusted-client mode instead relies on client-enforced owner authorization for ordinary
 proposals; an exact standing mail-cleanup grant can cover recoverable Trash batches.
 These client/grant paths are not independent proof of human approval. Sending still
-requires owner approval of recipients/content. No MCP tool mints independent human approval receipts.
+requires owner approval of recipients/content. The fixed local review window records
+a receipt only after the person acts there; a client assertion is not that receipt.
 Irreversible contact deletion and ordinary Calendar deletion require an exact local-owner receipt.
 Calendar can prepare one exact temporary action from read-only access without changing
 saved permissions. For an exact one-time Calendar deletion, only after the owner
@@ -33,7 +34,10 @@ explicitly approves its target and irreversible consequences, an already enabled
 trusted-client policy can rely on that client authorization instead of a receipt.
 The server cannot verify a human approved the assertion; never invent owner consent.
 Optional managed mail exceptions never authorize DAV changes or permanent purge.
-Never invoke the operator approval CLI yourself; the user reviews and runs it locally.
+When a proposal requires a local owner receipt, request the fixed local review window
+with owner_request_review; the human reviews and chooses in that window. Poll
+owner_review_status, then execute only the exact approved proposal. Never operate the
+optional operator CLI or invent a local receipt.
 Native Notes and Reminders have independent opt-ins, exact source allowlists and
 application access modes. Native consent tools propose one user-handled macOS dialog;
 OS access does not enable application writes. Native standing grants authorize only supported exact rules; unsupported operations are refused.
@@ -49,6 +53,7 @@ not a provider-returned creation identity or independent human proof in trusted 
 _lock = threading.RLock()
 _service = None
 _dav_owner = None
+_owner_reviews = None
 
 
 def service():
@@ -106,7 +111,9 @@ def safe(fn):
                     raise SafetyError("All backend access is disabled")
                 if mode == "read-only" and fn.__name__ not in {
                     "email_list_folders", "email_page", "email_inspect", "email_plan_status",
-                    "calendar_list", "calendar_events", "calendar_prepare_once", "contacts_addressbooks", "contacts_list", "contacts_get", "policy_status"
+                    "email_cleanup_grant_status", "email_revoke_cleanup_grant",
+                    "calendar_list", "calendar_events", "calendar_prepare_once", "contacts_addressbooks", "contacts_list", "contacts_get", "policy_status",
+                    "owner_request_review", "owner_review_status"
                 } and not (fn.__name__ == 'dav_execute_approved' and temporary_calendar):
                     raise SafetyError("This runtime is read-only: ordinary mutations, sends and write proposals are disabled")
                 return fn(*args, **kwargs)
@@ -121,6 +128,35 @@ def safe(fn):
 
 READ = {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True}
 WRITE = {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": True}
+
+
+def owner_reviews():
+    global _owner_reviews
+    if _owner_reviews is None:
+        from .owner_review import OwnerReview
+        _owner_reviews = OwnerReview()
+    return _owner_reviews
+
+
+if any(enabled(name) for name in ('mail', 'calendar', 'contacts', 'notes', 'reminders')):
+    @mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": False})
+    @safe
+    def owner_request_review(plan_id: str, scope: str = 'service') -> dict:
+        """Ask the owner to review one exact stored proposal in a local Mac window.
+
+        The owner chooses Approve or Cancel in the window; the client cannot
+        supply its contents or approve it. This records a receipt only after
+        local approval, never executes the action, and returns immediately.
+        Use scope="managed-policy" for a managed Mail policy proposal. Poll
+        owner_review_status, then execute only the exact approved plan.
+        """
+        return owner_reviews().request(plan_id, scope)
+
+    @mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False})
+    @safe
+    def owner_review_status(plan_id: str, scope: str = 'service') -> dict:
+        """Check an exact local owner-review request without repeating it."""
+        return owner_reviews().status(plan_id, scope)
 
 
 @mail_tool(annotations=READ)
@@ -196,6 +232,45 @@ def email_execute_approved(plan_id: str) -> dict:
 def email_plan_status(plan_id: str) -> dict:
     """Inspect recorded mutation outcome without replay or network access."""
     return PlanStore().status(plan_id)
+
+
+def cleanup_setup():
+    from .cleanup_setup import CleanupSetup, configured_root
+    return CleanupSetup(configured_root(), os.environ.get('ICLOUD_MAIL_ACCOUNT', ''), PlanStore())
+
+
+@mail_tool(annotations=WRITE)
+@safe
+def email_prepare_cleanup_grant(request: dict) -> dict:
+    """Review one exact ongoing Mail cleanup scope without enabling it.
+
+    The scope names account, operations, exact folders/destinations, batch and
+    optional rolling limits, days or null, and a rules reference. It cannot send,
+    permanently delete, change DAV, or override starred-message protections.
+    The selected owner approval policy applies before activation.
+    """
+    return cleanup_setup().prepare(request)
+
+
+@mail_tool(annotations=WRITE)
+@safe
+def email_activate_cleanup_grant(plan_id: str) -> dict:
+    """Activate only the exact approved cleanup scope; does not change Mail."""
+    return cleanup_setup().activate(plan_id)
+
+
+@mail_tool(annotations=READ)
+@safe
+def email_cleanup_grant_status() -> dict:
+    """Inspect this installation's standing Mail cleanup scope and status."""
+    return cleanup_setup().status()
+
+
+@mail_tool(annotations=WRITE)
+@safe
+def email_revoke_cleanup_grant(grant_id: str) -> dict:
+    """Revoke the exact installed cleanup grant; cannot recall an in-flight action."""
+    return cleanup_setup().revoke(grant_id)
 
 
 # Register calendar and contact tools only for explicitly enabled services.

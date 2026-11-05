@@ -1,13 +1,10 @@
 """Exact proposal admission and the local-owner receipt interface.
 
 Strict receipts are the default; trusted-client routing is explicit configuration.
-The receipt interface is never registered as an MCP tool.
-
-    icloud-agents-approve PLAN_ID
-
-Reads the immutable proposal, displays exact batch/content, and requires an explicit
-confirmation through /dev/tty. Protect runtime directory from other users. This is an
-operator workflow boundary, NOT isolation from a process with the same OS identity.
+The owner may review the immutable proposal in a local window requested through MCP;
+the optional command-line interface also supports confirmation through /dev/tty.
+Protect the runtime directory from other users. This is an operator workflow
+boundary, not isolation from a process with the same OS identity.
 """
 
 import fcntl
@@ -24,7 +21,7 @@ import uuid
 from .core import SafetyError, canonical, digest
 
 
-PLAN_KINDS = frozenset({"trash", "send", "calendar_change", "contact_change", "notes_change", "reminders_change", "notes_access", "reminders_access", "notes_recovery", "notes_grant", "reminders_grant", "notes_move_recovery", "notes_edit_recovery", "reminders_observation_recovery"})
+PLAN_KINDS = frozenset({"trash", "send", "cleanup_grant", "calendar_change", "contact_change", "notes_change", "reminders_change", "notes_access", "reminders_access", "notes_recovery", "notes_grant", "reminders_grant", "notes_move_recovery", "notes_edit_recovery", "reminders_observation_recovery"})
 
 
 def runtime_root():
@@ -142,10 +139,13 @@ class PlanStore:
             raise SafetyError("Oversized plan file")
         return json.loads(raw)
 
-    def prepare(self, kind, payload):
+    def prepare(self, kind, payload, *, plan_id=None):
         if kind not in PLAN_KINDS:
             raise SafetyError("Unsupported approval proposal kind")
-        plan_id = uuid.uuid4().hex
+        if plan_id is None:
+            plan_id = uuid.uuid4().hex
+        elif not isinstance(plan_id, str) or not re.fullmatch(r"[0-9a-f]{32}", plan_id):
+            raise SafetyError("Invalid proposal ID")
         plan = {"plan_id": plan_id, "kind": kind, "created": self.clock(),
                 "expires": self.clock() + 1800, "payload": payload}
         self.write_once(self.path(plan_id, ".json"), plan)
@@ -153,7 +153,8 @@ class PlanStore:
         return {"plan_id": plan_id, "review": plan, "sha256": digest(plan),
                 "approval_required": True, "authorization_path": path,
                 "local_receipt_required": receipt_required,
-                "operator_command": "icloud-agents-approve " + plan_id if receipt_required else None}
+                "review_tool": "owner_request_review" if receipt_required else None,
+                "operator_command": None}
 
     def proposal(self, plan_id):
         plan = self.read(self.path(plan_id, ".json"))
@@ -1041,7 +1042,7 @@ def approve_interactively(store, plan_id):
     # Escape all controls in mail-derived text before rendering it in a terminal.
     review = json.dumps(plan, ensure_ascii=True, indent=2)
     fingerprint = digest(plan)
-    labels = {"trash": "TRASH", "send": "SEND", "calendar_change": "APPROVE CALENDAR", "contact_change": "APPROVE CONTACTS", "notes_change": "APPROVE NOTES", "reminders_change": "APPROVE REMINDERS", "notes_access":"ALLOW NOTES OS REQUEST", "reminders_access":"ALLOW REMINDERS OS REQUEST", "notes_recovery":"APPROVE NOTES RECOVERY", "notes_move_recovery":"ACCEPT OBSERVED NOTES MOVE", "notes_edit_recovery":"ACCEPT OBSERVED NOTES EDIT", "reminders_observation_recovery":"ACCEPT OBSERVED REMINDER", "notes_grant":"APPROVE NOTES GRANT", "reminders_grant":"APPROVE REMINDERS GRANT"}
+    labels = {"trash": "TRASH", "send": "SEND", "cleanup_grant": "APPROVE MAIL CLEANUP", "calendar_change": "APPROVE CALENDAR", "contact_change": "APPROVE CONTACTS", "notes_change": "APPROVE NOTES", "reminders_change": "APPROVE REMINDERS", "notes_access":"ALLOW NOTES OS REQUEST", "reminders_access":"ALLOW REMINDERS OS REQUEST", "notes_recovery":"APPROVE NOTES RECOVERY", "notes_move_recovery":"ACCEPT OBSERVED NOTES MOVE", "notes_edit_recovery":"ACCEPT OBSERVED NOTES EDIT", "reminders_observation_recovery":"ACCEPT OBSERVED REMINDER", "notes_grant":"APPROVE NOTES GRANT", "reminders_grant":"APPROVE REMINDERS GRANT"}
     label = labels[plan["kind"]]
     if any(item.get("operation") in {"delete", "delete_occurrence"} for item in plan["payload"].get("changes", [])):
         label = "IRREVERSIBLE DELETE " + label

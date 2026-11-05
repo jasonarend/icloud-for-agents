@@ -1,7 +1,8 @@
 """Disabled-by-default, owner-installed standing MAIL cleanup authorization.
 
-No MCP tool creates/activates a grant. Local owned files are a workflow boundary,
-not protection against another process already running as the same OS user.
+New assistant-prepared grants require a completed activation journal before use.
+Local owned files are a workflow boundary, not protection against another process
+already running as the same OS user.
 """
 import math
 import fcntl
@@ -13,15 +14,19 @@ from pathlib import Path
 import time
 import uuid
 from .approvals import PlanStore, runtime_root
-from .core import SafetyError, batch, canonical, uid
+from .core import SafetyError, batch, canonical, digest, uid
 
 ALLOWED = {'archive', 'mark_read', 'trash'}
 
 
 def validate(scope, account, now):
     keys={'grant_id','account','operations','source_folders','destinations','max_batch','max_24h','issued','expires','rules_reference'}
-    if not isinstance(scope,dict) or set(scope)!=keys or scope['account']!=account:
+    if (not isinstance(scope,dict) or set(scope) not in (keys,keys|{'activation_plan'})
+            or scope['account']!=account):
         raise SafetyError('Standing cleanup account/schema mismatch')
+    if 'activation_plan' in scope and (not isinstance(scope['activation_plan'],str)
+            or len(scope['activation_plan'])!=32 or any(c not in '0123456789abcdef' for c in scope['activation_plan'])):
+        raise SafetyError('Standing cleanup activation identity is invalid')
     ops=scope['operations'];folders=scope['source_folders'];dest=scope['destinations']
     if not isinstance(ops,list) or not ops or len(set(ops))!=len(ops) or set(ops)-ALLOWED:
         raise SafetyError('Standing cleanup never covers send, DAV or purge')
@@ -49,6 +54,7 @@ class CleanupAccess:
     def __init__(self, grant_id, account, root=None, clock=time.time):
         self.grant_id,self.account,self.clock=grant_id,account,clock
         base=Path(root) if root is not None else runtime_root()
+        self.activation=PlanStore(base,clock=clock)
         self.authority=PlanStore(base/'cleanup-authority',clock=clock)
         self.audit=PlanStore(base/'cleanup-audit',clock=clock)
 
@@ -56,8 +62,45 @@ class CleanupAccess:
         if self.authority.path(self.grant_id,'.revoked').exists():
             raise SafetyError('Standing cleanup revoked')
         value=self.authority.read(self.authority.path(self.grant_id,'.json'))
-        if value.get('grant_id')!=self.grant_id:raise SafetyError('Standing cleanup identity mismatch')
-        return validate(value,self.account,self.clock())
+        if not isinstance(value,dict) or value.get('grant_id')!=self.grant_id:raise SafetyError('Standing cleanup identity mismatch')
+        validate(value,self.account,self.clock())
+        self.require_completed_activation(value)
+        return value
+
+    def require_completed_activation(self, scope):
+        """New MCP grants activate only after their exact journal completes.
+
+        The legacy owner-installed scope schema intentionally has no activation
+        link. A scope which has one cannot fall back to that legacy authority.
+        """
+        if 'activation_plan' not in scope:
+            return
+        identity=scope['activation_plan']
+        try:
+            plan=self.activation.read(self.activation.path(identity,'.json'))
+            started=self.activation.read(self.activation.path(identity,'.started'))
+            result=self.activation.read(self.activation.path(identity,'.result'))
+            payload=plan.get('payload',{})
+            expected_hash=digest(plan)
+            authority=started.get('authorization')
+            if (plan.get('plan_id')!=identity or plan.get('kind')!='cleanup_grant'
+                    or not isinstance(payload,dict) or payload.get('account')!=self.account
+                    or payload.get('scope')!=scope or scope.get('grant_id')!=self.grant_id
+                    or started.get('sha256')!=expected_hash or started.get('account')!=self.account
+                    or authority not in {'local-receipt','trusted-client-policy; not an independent human receipt'}
+                    or self.activation.path(identity,'.cancelled').exists()
+                    or result.get('status')!='applied' or result.get('grant_id')!=self.grant_id
+                    or result.get('activation_plan')!=identity or result.get('activation_plan_sha256')!=expected_hash
+                    or result.get('scope_sha256')!=digest(scope) or result.get('settings_updated') is not True
+                    or result.get('mail_changed') is not False or result.get('effective_for_next_batch') is not True
+                    or result.get('do_not_retry') is not True):
+                raise SafetyError('Standing cleanup activation is incomplete or mismatched')
+            if authority=='local-receipt':
+                receipt=self.activation.read(self.activation.path(identity,'.approved'))
+                if receipt.get('plan_id')!=identity or receipt.get('sha256')!=expected_hash:
+                    raise SafetyError('Standing cleanup activation receipt does not match')
+        except (OSError,ValueError,TypeError,KeyError,AttributeError):
+            raise SafetyError('Standing cleanup activation is incomplete or mismatched') from None
 
     def check(self, operation, folder, uids, destination=None):
         scope=self.scope();uids=batch(uids)

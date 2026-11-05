@@ -32,6 +32,7 @@ jobs:
           .venv/bin/python tests/stdio_smoke.py
           .venv/bin/python tests/modern_stdio_smoke.py
           .venv/bin/python tests/calendar_once_stdio_smoke.py
+          .venv/bin/python tests/owner_review_stdio_smoke.py
           .venv/bin/python tests/policy_stdio_smoke.py
           .venv/bin/python tests/native_stdio_smoke.py
           .venv/bin/python tests/native_markdown_stdio_smoke.py

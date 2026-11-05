@@ -348,9 +348,9 @@ class SurfaceTests(unittest.TestCase):
         source = (Path(__file__).parents[1] / "src/icloud_for_agents/server.py").read_text()
         tree = ast.parse(source)
         tools = [node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
-                 and any(isinstance(d, ast.Call) and ((isinstance(d.func, ast.Attribute) and d.func.attr == "tool") or (isinstance(d.func, ast.Name) and d.func.id == "mail_tool"))
+                 and any(isinstance(d, ast.Call) and isinstance(d.func, ast.Name) and d.func.id == "mail_tool"
                          for d in node.decorator_list)]
-        self.assertEqual(len(tools), 10)
+        self.assertEqual(len(tools), 14)
         self.assertTrue(all(name.startswith("email_") for name in tools))
         self.assertFalse(any(any(word in name for word in ("purge", "empty", "permanent", "calendar", "contact"))
                              for name in tools))

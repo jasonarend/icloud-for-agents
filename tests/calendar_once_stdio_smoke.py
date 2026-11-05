@@ -19,7 +19,7 @@ def content(result):
     return result.structured_content or json.loads(result.content[0].text)
 
 
-async def run(mode, client_deletion=False):
+async def run(mode, client_deletion=False, graphical=False):
     with tempfile.TemporaryDirectory(prefix="calendar-once-stdio-") as directory:
         home = Path(directory)
         env = {"HOME": str(home), "PATH": os.defpath, "PYTHONPATH": str(ROOT / "src"),
@@ -27,11 +27,23 @@ async def run(mode, client_deletion=False):
                "ICLOUD_ENABLE_MAIL": "0", "ICLOUD_ENABLE_CALENDAR": "1", "ICLOUD_ENABLE_CONTACTS": "0",
                "ICLOUD_MAIL_ACCESS": "read-only", "ICLOUD_APPROVAL_POLICY": mode,
                "FASTMCP_SHOW_SERVER_BANNER": "false", "FASTMCP_CHECK_FOR_UPDATES": "off"}
+        if graphical:
+            env['BRIDGE_FAKE_LOCAL_REVIEW'] = '1'
         params = StdioServerParameters(command=sys.executable, args=[str(ROOT / "tests/calendar_once_stdio_server.py")], env=env, cwd=home)
         async with Client(params, mode="auto", read_timeout_seconds=20) as client:
             tools = {tool.name: tool for tool in (await client.list_tools()).tools}
             assert tools["calendar_prepare_once"].annotations.read_only_hint is False
-            def approve(plan_id, irreversible=False):
+            async def approve(plan_id, irreversible=False):
+                if graphical:
+                    requested = content(await client.call_tool('owner_request_review', {'plan_id': plan_id}))
+                    assert requested['status'] in {'pending', 'approved'}
+                    for _ in range(200):
+                        observed = content(await client.call_tool('owner_review_status', {'plan_id': plan_id}))
+                        if observed['status'] != 'pending':
+                            break
+                        await asyncio.sleep(0.01)
+                    assert observed['status'] == 'approved', observed
+                    return
                 # Exercise the real approval interface with a separately simulated owner TTY.
                 phrase = ("IRREVERSIBLE DELETE " if irreversible else "") + "APPROVE CALENDAR " + plan_id
                 code = '''from io import StringIO
@@ -70,7 +82,7 @@ with patch("builtins.open",return_value=OwnerTTY()): approve_interactively(PlanS
                 plan_id = proposal["plan_id"]
                 if mode == "local-receipt":
                     assert (await client.call_tool("dav_execute_approved", {"plan_id": plan_id})).is_error
-                    approve(plan_id)
+                    await approve(plan_id)
                 result = content(await client.call_tool("dav_execute_approved", {"plan_id": plan_id}))
                 assert result["status"] == "applied"
                 assert result["completed"][0]["verification"] == "reviewed_recurring_event_readback"
@@ -90,7 +102,7 @@ with patch("builtins.open",return_value=OwnerTTY()): approve_interactively(PlanS
                 proposal = content(await client.call_tool("calendar_prepare_once", {"calendar_url": COLLECTION, "changes": [change]}))
                 occurrence_urls.append(proposal["review"]["payload"]["changes"][0]["url"])
                 if mode == "local-receipt":
-                    approve(proposal["plan_id"])
+                    await approve(proposal["plan_id"])
                 assert content(await client.call_tool("dav_execute_approved", {"plan_id": proposal["plan_id"]}))["status"] == "applied"
             for operation, resource in zip(("update", "delete_occurrence"), occurrence_urls):
                 change = {"operation": operation, "url": resource, "recurrence_scope": "occurrence",
@@ -111,7 +123,7 @@ with patch("builtins.open",return_value=OwnerTTY()): approve_interactively(PlanS
                     assert proposal["local_receipt_required"] == needs_receipt
                 if needs_receipt:
                     assert (await client.call_tool("dav_execute_approved", {"plan_id": proposal["plan_id"]})).is_error
-                    approve(proposal["plan_id"], irreversible=operation == "delete_occurrence")
+                    await approve(proposal["plan_id"], irreversible=operation == "delete_occurrence")
                 result = content(await client.call_tool("dav_execute_approved", {"plan_id": proposal["plan_id"]}))
                 assert result["status"] == "applied" and result["completed"][0]["verification"] == "reviewed_occurrence_change_readback"
                 assert (await client.call_tool("dav_execute_approved", {"plan_id": proposal["plan_id"]})).is_error
@@ -127,7 +139,7 @@ with patch("builtins.open",return_value=OwnerTTY()): approve_interactively(PlanS
                 assert any("past occurrences" in effect for effect in item["recurrence_effects"])
                 assert item["content"].count("BEGIN:VTIMEZONE") == (schedule["timezone"] != "UTC")
                 if mode == "local-receipt":
-                    approve(proposal["plan_id"])
+                    await approve(proposal["plan_id"])
                 result = content(await client.call_tool("dav_execute_approved", {"plan_id": proposal["plan_id"]}))
                 assert result["status"] == "applied" and result["completed"][0]["verification"] == "reviewed_recurring_event_readback"
             update = {"operation": "update", "url": created_urls[0], "recurrence_scope": "series",
@@ -136,7 +148,7 @@ with patch("builtins.open",return_value=OwnerTTY()): approve_interactively(PlanS
             item = proposal["review"]["payload"]["changes"][0]
             assert "SUMMARY:Updated synthetic series" in item["content"] and "RRULE:" in item["content"]
             if mode == "local-receipt":
-                approve(proposal["plan_id"])
+                await approve(proposal["plan_id"])
             result = content(await client.call_tool("dav_execute_approved", {"plan_id": proposal["plan_id"]}))
             assert result["status"] == "applied" and result["completed"][0]["verification"] == "reviewed_recurring_event_readback"
 
@@ -148,7 +160,7 @@ with patch("builtins.open",return_value=OwnerTTY()): approve_interactively(PlanS
             assert proposal["local_receipt_required"] is not client_deletion
             if not client_deletion:
                 assert (await client.call_tool("dav_execute_approved", {"plan_id": proposal["plan_id"]})).is_error
-                approve(proposal["plan_id"], irreversible=True)
+                await approve(proposal["plan_id"], irreversible=True)
             result = content(await client.call_tool("dav_execute_approved", {"plan_id": proposal["plan_id"]}))
             assert result["status"] == "applied" and result["completed"][0]["verification"] == "series_resource_absent"
         audit = json.loads((home / "audit.json").read_text())
@@ -156,13 +168,14 @@ with patch("builtins.open",return_value=OwnerTTY()): approve_interactively(PlanS
         # Each named-zone proposal reads the provider definition once at review
         # and once immediately before dispatch; each create gets exact readback.
         assert audit["requests"] == {"timezone_reads": 4, "event_reads": 26, "occurrence_reads": 4, "writes": 10}, audit
-        print(mode + (" explicit client deletion" if client_deletion else "") + ": series and occurrence changes verified with scoped approval; replay refused")
+        print(mode + (" explicit client deletion" if client_deletion else "") + (" graphical owner review" if graphical else "") + ": series and occurrence changes verified with scoped approval; replay refused")
 
 
 async def main():
     await run("trusted-client")
     await run("local-receipt")
     await run("trusted-client", client_deletion=True)
+    await run("local-receipt", graphical=True)
 
 
 if __name__ == "__main__":

@@ -55,7 +55,9 @@ approve_local(PolicyManager(runtime_root()/'managed-policy'),{proposal!r},lambda
                 rpc('initialize',{'protocolVersion':'2025-11-25','capabilities':{},'clientInfo':{'name':'synthetic-policy-client','version':'1'}})
                 process.stdin.write(b'{"jsonrpc":"2.0","method":"notifications/initialized"}\n');process.stdin.flush()
                 names={t['name'] for t in rpc('tools/list',{})['result']['tools']}
-                assert 'policy_prepare_exception' in names and len(names)==15 # ten Mail + five policy tools
+                assert {'policy_status', 'policy_prepare_change', 'policy_prepare_exception',
+                        'policy_execute_approved', 'policy_revoke_proposal', 'owner_request_review',
+                        'owner_review_status'} <= names
                 status=data(call('policy_status',{}));policy=status['current']['policy']
                 p=exception(1)
                 if mode == 'local-receipt':

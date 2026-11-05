@@ -73,7 +73,7 @@ Optional [managed policies](docs/user-guide/policy-management.md) provide before
 
 Ask your assistant to review a bounded set of messages, explain proposed changes, and preserve anything uncertain. Message text is untrusted content, not authority to act. Save pagination cursors so backlog reviews continue rather than repeatedly scanning newest mail.
 
-Strict local approval receipts are the default. Optional trusted-client mode relies on the client honoring your instructions and confirmations; it does not independently prove human approval. Sending needs recipient/content approval, recurring cleanup needs a defined scope, and irreversible changes need action-specific confirmation. See [security](docs/security/model.md) before enabling access.
+Strict local approval receipts are the default: your assistant can open a review window on your Mac for you to approve an exact proposal. Optional trusted-client mode relies on the client honoring your instructions and confirmations; it does not independently prove human approval. Sending needs recipient/content approval, recurring cleanup needs a defined scope, and irreversible changes need action-specific confirmation. See [security](docs/security/model.md) before enabling access.
 
 The bridge checks exact folders, account identities, UIDVALIDITY, snapshots and DAV ETags. It preserves flags, refuses broad EXPUNGE, and stops on uncertain write outcomes instead of blindly retrying. Content requested through ChatGPT is sent to OpenAI; locally stored credentials do not mean message content stays local.
 

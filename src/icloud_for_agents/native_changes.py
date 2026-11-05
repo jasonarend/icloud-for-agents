@@ -214,7 +214,8 @@ class NativeChanges:
             from .approvals import authorization_path
             path,receipt=authorization_path(correction)
             return {'plan_id':correction_id,'review':correction,'sha256':digest(correction),
-                    'approval_required':True,'authorization_path':path,'local_receipt_required':receipt}
+                    'approval_required':True,'authorization_path':path,'local_receipt_required':receipt,
+                    'review_tool':'owner_request_review' if receipt else None}
 
     def prepare_folder_rename_correction(self,original_id,target='before'):
         if self.name!='notes' or target not in {'requested','before'}:raise SafetyError('Known Notes folder-title correction required')
@@ -235,7 +236,7 @@ class NativeChanges:
             self.store.write_once(self.store.path(identity,'.json'),plan)
             from .approvals import authorization_path
             path,receipt=authorization_path(plan)
-            return {'plan_id':identity,'review':plan,'sha256':digest(plan),'approval_required':True,'authorization_path':path,'local_receipt_required':receipt}
+            return {'plan_id':identity,'review':plan,'sha256':digest(plan),'approval_required':True,'authorization_path':path,'local_receipt_required':receipt,'review_tool':'owner_request_review' if receipt else None}
 
     def reconcile_correction(self,correction_id):
         """Verify the explicitly chosen requested/before outcome; preserve both audits."""

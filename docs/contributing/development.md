@@ -22,7 +22,7 @@ Reports go to ignored `build/reports/`, not the root. The offline runner isolate
 
 After building a source distribution, check its full validation workflow with `.venv/bin/python scripts/check-sdist.py dist/icloud_for_agents-VERSION.tar.gz`. Run the validation commands above again from an extracted copy using its own installed environment. The full current source-check list lives in `.github/workflows/checks.yml`; successful tests in the original checkout do not prove that the archive includes the required runners and fixtures.
 
-Run `tests/policy_stdio_smoke.py` as well to exercise the opt-in production-policy tools through real JSON-RPC with fake IMAP and an isolated home. Strict owner receipts are tested with a simulated TTY; trusted-client admission is labeled as an assertion, not an authenticated human interaction. Test reports provide the current counts and failure details.
+Run `tests/policy_stdio_smoke.py` as well to exercise the opt-in production-policy tools through real JSON-RPC with fake IMAP and an isolated home. `tests/owner_review_stdio_smoke.py` exercises the local-review workflow with a simulated window; command-line receipt tests use a simulated TTY. Trusted-client admission is labeled as an assertion, not an authenticated human interaction. Test reports provide the current counts and failure details.
 
 Preserve exact accounts, folder/UIDVALIDITY and ETag identity checks, snapshot hashes, durable one-shot markers and uncertainty reconciliation. Do not retry writes blindly or treat tool annotations/model booleans as human authorization. Changes that widen access or destructive scope require separate review and owner authorization.
 

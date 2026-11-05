@@ -1,7 +1,9 @@
 # Tools and everyday workflows
 
 
-Mail registers ten tools when selected. Calendar registers two reads and two preparation tools; Contacts registers three reads and one preparation tool. The shared DAV execution tool registers if either DAV service is enabled, and refuses plans targeting the disabled service. Those three services together give 19 schemas; independently enabled Notes and Reminders add their own tools. See [native-service setup](../getting-started/native-services.md) for their current operations, permission model and limitations. Explicit Mail/Calendar/Contacts switches override the legacy combined DAV fallback. `ICLOUD_MAIL_ACCESS=read-only` permits the four mail reads/status, five DAV reads and exact Calendar one-time proposals under the configured approval policy; ordinary Mail and DAV writes remain refused. Native services have separate access and approval controls. Do not mistake an advertised write tool for permission or an enabled capability.
+Each selected service registers its own tools. Calendar and Contacts share a DAV execution tool, which refuses plans targeting a disabled service. Local owner-review tools are available when any service is selected. See [native-service setup](../getting-started/native-services.md) for Notes and Reminders operations and permissions. Explicit Mail/Calendar/Contacts switches override the legacy combined DAV fallback. In read-only mode, ordinary Mail and DAV writes remain refused; exact Calendar one-time proposals and local approval reviews remain available under their configured policies. Native services have separate access and approval controls. An advertised write tool does not itself grant permission.
+
+When a proposal requires a local owner receipt, `owner_request_review` opens a fixed review window on the Mac. The owner reviews the complete proposal and chooses Approve or Cancel; `owner_review_status` reports the outcome. Approval covers only that exact proposal and does not execute it. For an optional managed Mail policy proposal, use `scope: "managed-policy"` with both tools. The connected client cannot supply the review contents or approve the window itself.
 
 ## Mail tools
 
@@ -17,6 +19,10 @@ Mail registers ten tools when selected. Calendar registers two reads and two pre
 | `email_prepare_trash` | Create a local proposal for an exact 1–100-message Trash batch and reason; moves nothing | Refused |
 | `email_prepare_send` | Create a local exact-recipient, plain-text send proposal; sends nothing | Refused |
 | `email_execute_approved` | Execute the exact plan once under the selected approval/standing policy | Refused |
+| `email_prepare_cleanup_grant` | Review an exact standing Mail cleanup scope without activating it | Refused |
+| `email_activate_cleanup_grant` | Activate the exact approved standing scope without changing messages | Refused |
+| `email_cleanup_grant_status` | Inspect the installed standing scope | Allowed |
+| `email_revoke_cleanup_grant` | Revoke the exact installed scope for future batches | Allowed |
 
 In a separately approved write-enabled runtime, read-state/archive/restore do not require the special local receipt. They still need human task authorization and any client confirmation. Send and Trash require appropriate task authorization and the selected strict receipt, trusted-client or standing-cleanup path; see [approval policies](../user-guide/approvals.md). Standing cleanup refuses stars and out-of-scope folders before ordinary receipt handling. Do not enable writes as an incidental setup repair.
 
@@ -34,14 +40,14 @@ Inspection fetches at most 256 KiB with BODY.PEEK and returns at most 50,000 tex
 
 ## Review and execute a send or Trash batch
 
-This strict-mode sequence applies only after write access and that action are approved. Preparing a proposal does not authorize or execute it. Explicitly enabled trusted-client mode relies on client authorization instead of the second Terminal step; it is not proof of independently authenticated human approval.
+This strict-mode sequence applies only after write access and that action are approved. Preparing a proposal does not authorize or execute it. Explicitly enabled trusted-client mode relies on client authorization instead of a local receipt; it is not proof of independently authenticated human approval.
 
 1. Prepare exact recipients/content or exact Trash message identities and reason. Review the returned proposal and its plan ID.
-2. The human personally runs `icloud-agents-approve PLAN_ID` in a trusted local Terminal. The command displays escaped details and a hash, then asks for the exact `SEND PLAN_ID` or `TRASH PLAN_ID` phrase. A general yes is not a receipt.
+2. The assistant calls `owner_request_review` for that plan. Review the complete proposal in the Mac window and choose Approve or Cancel. The assistant can check `owner_review_status`; a chat message alone does not create a strict receipt.
 3. Call `email_execute_approved` with that same plan ID. The receipt binds the proposal, account, and 30-minute proposal expiry. It cannot authorize another batch, edited recipient, or future action.
 4. After interruption or an uncertain result, inspect `email_plan_status` before doing anything else. Never resend/re-trash by replaying the plan or creating an automatic replacement.
 
-The assistant must not run the approval CLI, synthesize the typed phrase, or write receipt files. Read-only mode refuses this sequence even if a receipt exists; a local approval does not override the launch mode.
+The assistant must not click the owner's approval button, synthesize a decision, or write receipt files. Read-only mode refuses execution even if a receipt exists; local approval does not override the launch mode.
 
 Successful moves return destination UIDVALIDITY and source-to-destination UID mappings. Use destination identities when inspecting or restoring. A failed MOVE verification may occur after the server moved mail, and a lost SMTP response may follow delivery. Local replay protection does not prove an external action never happened. Reconcile source/destination or Sent and, when appropriate, the recipient before authorizing a replacement.
 
@@ -69,7 +75,7 @@ For a bounded view of repeating events, `calendar_events` accepts `expand_recurr
 
 Each update/deletion binds a strong ETag and private before-content snapshot; conditional If-Match protects against drift. Create uses an assigned resource URL and If-None-Match: *. One exact approval covers the bounded batch, not a new question per item. Interrupted or partially completed batches are never retried/rolled back automatically. Check exact resources and completed outcomes before a replacement plan.
 
-DAV has no protocol Trash here. Deletion requires explicit owner approval and `irreversible_confirmed: true`. The local-receipt route also requires the human's `IRREVERSIBLE DELETE ...` phrase; the one-time trusted-client route relies on client confirmation instead. The snapshot is retained privately for review/manual recovery, not a promise of server undo. Prefer update over deletion when possible. Provider-native recovery availability is not verified.
+DAV has no protocol Trash here. Deletion requires explicit owner approval and `irreversible_confirmed: true`. The local-receipt route uses the owner's Mac review window; the one-time trusted-client route relies on client confirmation instead. The snapshot is retained privately for review/manual recovery, not a promise of server undo. Prefer update over deletion when possible. Provider-native recovery availability is not verified.
 
 Personal single-event changes support summary/start/end/description/location/timezone/url/free/private. Named IANA timezone is validated against explicit offsets; UTC timestamps plus X-ICLOUD-MCP-TIMEZONE metadata are stored, not a native VTIMEZONE component.
 

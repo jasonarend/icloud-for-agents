@@ -1,6 +1,7 @@
-"""Genuine local-owner policy receipt interface; never registered as an MCP tool.
+"""Optional command-line local-owner policy receipt interface.
 
-TTY confirmation is an operator workflow boundary, not an OS-user sandbox.
+The separate graphical reviewer can be requested through MCP. Both workflows are
+operator boundaries, not OS-user sandboxes.
 """
 import json
 from .core import SafetyError, digest

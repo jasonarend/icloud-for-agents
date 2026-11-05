@@ -31,6 +31,10 @@ def no_credentials():
 
 credentials.credentials = no_credentials
 from icloud_for_agents import server
+if os.environ.get('BRIDGE_FAKE_LOCAL_REVIEW') == '1':
+    # Test-only stand-in for a local person clicking the fixed owner window.
+    from icloud_for_agents import owner_dialog
+    owner_dialog.request_owner_decision = lambda review, heading: 'approved'
 from icloud_for_agents.approvals import PlanStore
 from icloud_for_agents.dav import DAVReader
 from icloud_for_agents.dav_changes import DAVChanges, replace_properties, unfold

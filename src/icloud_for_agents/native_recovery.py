@@ -106,7 +106,8 @@ class NotesCreationRecovery:
             self.store.write_once(self.store.path(identifier,'.json'),plan)
             path,receipt=authorization_path(plan)
             return {'plan_id':identifier,'review':plan,'sha256':digest(plan),'approval_required':True,
-                    'authorization_path':path,'local_receipt_required':receipt}
+                    'authorization_path':path,'local_receipt_required':receipt,
+                    'review_tool':'owner_request_review' if receipt else None}
 
     def execute(self,recovery_id):
         with self.engine.serialized():

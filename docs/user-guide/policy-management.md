@@ -16,15 +16,9 @@ All exceptions are **recoverable Trash only**: exact account, original plan hash
 
 ## Approval modes
 
-**Strict local receipt** is the default. The human reviews the exact proposal and confirms it through:
+**Strict local receipt** is the default. The assistant requests `owner_request_review` with the exact proposal ID and `scope: "managed-policy"`. The owner reviews the complete proposal in the local Mac window and chooses Approve or Cancel; `owner_review_status` reports the result. Approval does not execute the policy change. An agent must not click the owner's approval button or forge the receipt. This is a local-owner workflow boundary, not a cryptographic defense against another process with the same OS identity.
 
-```sh
-.venv/bin/python scripts/approve-policy.py PROPOSAL_ID
-```
-
-The command opens the local TTY, displays escaped proposal details and requires the exact proposal ID/hash phrase. An agent must not run the human approval step or forge the receipt. This is a local-owner workflow boundary, not a cryptographic defense against another process with the same OS identity.
-
-**Trusted-client mode** deliberately relies on the connected client to enforce the owner's chat instructions and confirmations. Execution takes the exact proposal ID/hash and an authorization reference for audit. That reference is a **client assertion**, not independently authenticated owner consent. There is no model-supplied approval boolean or remote receipt-minting tool. Clients sharing this instance share its configured authority; there is no per-client user isolation.
+**Trusted-client mode** deliberately relies on the connected client to enforce the owner's chat instructions and confirmations. Execution takes the exact proposal ID/hash and an authorization reference for audit. That reference is a **client assertion**, not independently authenticated owner consent. There is no model-supplied approval boolean; strict receipts require the local Mac review. Clients sharing this instance share its configured authority; there is no per-client user isolation.
 
 ## Tools
 
@@ -41,8 +35,8 @@ Management, mail-admission and cleanup-ledger locks serialize updates and action
 Activation is a separate persistent-access decision. It would allow the connected client to request persistent mail-policy edits and one-use exceptions for previously protected starred/source-folder batches. Approving a particular later proposal still does not authorize other targets.
 
 1. Review the existing account, base grant, selected services and strict/trusted approval mode. Enable Mail and separately authorize write capability first.
-2. After explicit owner approval, initialize a separate managed-policy workspace from that base grant using `scripts/initialize-policy.py --initialize`. The initializer creates no credentials and does not enable the feature.
-3. Deliberately set `policy_management_enabled: true` in the owner-only settings and reload the idle instance once. No inherited client environment can opt in through the validated wrapper. Refresh client tools through its supported controls.
+2. After explicit owner approval, the assistant initializes a separate managed-policy workspace from that base grant using the documented initializer. It creates no credentials and does not enable the feature; the owner does not need to run a command.
+3. The assistant sets `policy_management_enabled: true` in the owner-only settings and reloads the idle instance after approval. No inherited client environment can opt in through the validated wrapper. Refresh client tools through its supported controls.
 4. Verify status and a synthetic/read-only workflow before considering separately approved real mutations. Base-grant revocation remains effective for every managed action.
 
 Without activation the five tools are absent and direct managed execution is refused. A missing, invalid, expired or revoked managed profile fails closed; it does not silently fall back to the original grant. Disabling the feature intentionally returns to the separately installed base grant, so review that scope before changing the switch.
