@@ -30,6 +30,50 @@ class RecurrenceRuleTests(unittest.TestCase):
         self.fields["recurrence"] = {"frequency": "daily", "until": "2026-11-10T15:00:00+00:00"}
         self.assertEqual(recurrence_rule(self.fields), "FREQ=DAILY;INTERVAL=1;UNTIL=20261110T150000Z")
 
+    def test_monthly_and_yearly_calendar_patterns_bind_the_first_occurrence(self):
+        cases = [
+            ({"frequency": "monthly", "month_days": [2, -1]}, "FREQ=MONTHLY;INTERVAL=1;BYMONTHDAY=-1,2"),
+            ({"frequency": "monthly", "ordinal_weekday": {"weekday": "MO", "ordinal": 1}}, "FREQ=MONTHLY;INTERVAL=1;BYDAY=1MO"),
+            ({"frequency": "yearly", "ordinal_weekday": {"weekday": "MO", "ordinal": 1}}, "FREQ=YEARLY;INTERVAL=1;BYMONTH=11;BYDAY=1MO"),
+            ({"frequency": "yearly", "months": [11, 3], "month_days": [2]}, "FREQ=YEARLY;INTERVAL=1;BYMONTH=3,11;BYMONTHDAY=2"),
+            ({"frequency": "yearly", "month_days": [2]}, "FREQ=YEARLY;INTERVAL=1;BYMONTH=11;BYMONTHDAY=2"),
+        ]
+        for rule, expected in cases:
+            with self.subTest(rule=rule):
+                self.assertEqual(recurrence_rule(dict(self.fields, recurrence=rule)), expected)
+                content = event_content(dict(self.fields, recurrence=rule, summary="Synthetic"))
+                self.assertIn("RRULE:" + expected, content)
+                verify_created(content, content)
+        invalid = [
+            {"frequency": "monthly", "month_days": [3]},
+            {"frequency": "weekly", "month_days": [2]},
+            {"frequency": "monthly", "month_days": [2, True]},
+            {"frequency": "yearly", "months": [3]},
+            {"frequency": "yearly", "months": [11, 11]},
+            {"frequency": "monthly", "ordinal_weekday": {"weekday": "TU", "ordinal": 1}},
+            {"frequency": "monthly", "ordinal_weekday": {"weekday": "MO", "ordinal": 0}},
+            {"frequency": "monthly", "month_days": [2], "ordinal_weekday": {"weekday": "MO", "ordinal": 1}},
+        ]
+        for rule in invalid:
+            with self.subTest(rule=rule), self.assertRaises(SafetyError):
+                recurrence_rule(dict(self.fields, recurrence=rule))
+
+    def test_series_updates_preserve_and_verify_existing_alarms(self):
+        before = event_content(dict(self.fields, summary="Synthetic"))
+        alarm = "BEGIN:VALARM\r\nACTION:DISPLAY\r\nDESCRIPTION:Alert\r\nTRIGGER:-PT15M\r\nEND:VALARM\r\n"
+        before = before.replace("END:VEVENT", alarm + "END:VEVENT")
+        updated = event_content({"summary": "Changed"}, before, recurring_master=True)
+        self.assertIn(alarm, updated)
+        verify_created(updated, updated)
+        rescheduled = event_content({"start": "2026-11-09T15:00:00Z", "end": "2026-11-09T16:00:00Z",
+            "timezone": "UTC", "recurrence": {"frequency": "weekly"}}, before, recurring_master=True)
+        self.assertIn(alarm, rescheduled)
+        verify_created(rescheduled, rescheduled)
+        with self.assertRaises(SafetyError):
+            verify_created(updated, updated.replace("TRIGGER:-PT15M", "TRIGGER:-PT30M"))
+        with self.assertRaises(SafetyError):
+            verify_created(updated, updated.replace("END:VALARM", "END:OTHER"))
+
     def test_local_wall_time_requires_a_matching_provider_definition(self):
         fields = dict(self.fields, timezone="America/Chicago", start="2026-11-02T09:00:00-06:00",
                       end="2026-11-02T10:00:00-06:00", summary="Synthetic")

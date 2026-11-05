@@ -177,7 +177,15 @@ def event_content(fields, before=None, *, recurring_master=False, timezone_defin
                         # definition has the same modern transition rules.
                         local_recurrence = (zone, local_start, local_end, list(old_component))
             start, end = lines.index("BEGIN:VEVENT"), lines.index("END:VEVENT")
-            if any(prop(line) not in EVENT_PROPERTIES for line in lines[start + 1:end]):
+            event_properties, in_alarm = [], False
+            for line in lines[start + 1:end]:
+                if line.upper() == "BEGIN:VALARM":
+                    in_alarm = True
+                elif line.upper() == "END:VALARM":
+                    in_alarm = False
+                elif not in_alarm:
+                    event_properties.append(line)
+            if any(prop(line) not in EVENT_PROPERTIES for line in event_properties):
                 raise SafetyError("Series rescheduling requires supported simple event properties")
     else:
         lines = personal_event(before)

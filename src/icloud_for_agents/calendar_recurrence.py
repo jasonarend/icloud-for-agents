@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 from collections import Counter
+from calendar import monthrange
 import re
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -87,7 +88,7 @@ def recurrence_rule(fields):
     start = zoned_datetime(fields.get("start"), fields["timezone"])
     zoned_datetime(fields.get("end"), fields["timezone"])
     rule = fields.get("recurrence")
-    if not isinstance(rule, dict) or set(rule) - {"frequency", "interval", "count", "until", "weekdays"}:
+    if not isinstance(rule, dict) or set(rule) - {"frequency", "interval", "count", "until", "weekdays", "month_days", "months", "ordinal_weekday"}:
         raise SafetyError("Use an explicit supported recurrence rule")
     frequency = rule.get("frequency")
     if not isinstance(frequency, str) or frequency not in FREQUENCIES:
@@ -116,6 +117,41 @@ def recurrence_rule(fields):
                 or len(set(weekdays)) != len(weekdays) or WEEKDAYS[start.weekday()] not in weekdays):
             raise SafetyError("Weekly weekdays must be distinct MO..SU values including the first occurrence")
         parts.append("BYDAY=" + ",".join(day for day in WEEKDAYS if day in weekdays))
+    months = rule.get("months")
+    if months is not None:
+        if (frequency != "yearly" or not isinstance(months, list) or not 1 <= len(months) <= 12
+                or any(type(month) is not int or not 1 <= month <= 12 for month in months)
+                or len(set(months)) != len(months) or start.month not in months):
+            raise SafetyError("Yearly months must be distinct months including the first occurrence")
+        parts.append("BYMONTH=" + ",".join(str(month) for month in sorted(months)))
+    month_days = rule.get("month_days")
+    ordinal = rule.get("ordinal_weekday")
+    if month_days is not None:
+        if (frequency not in {"monthly", "yearly"} or not isinstance(month_days, list)
+                or not 1 <= len(month_days) <= 31 or any(type(day) is not int or day == 0 or not -31 <= day <= 31 for day in month_days)
+                or len(set(month_days)) != len(month_days) or ordinal is not None):
+            raise SafetyError("Month days must be distinct nonzero values from -31 to 31 without an ordinal weekday")
+        last_day = monthrange(start.year, start.month)[1]
+        if start.day not in month_days and start.day - last_day - 1 not in month_days:
+            raise SafetyError("Month days must include the first occurrence")
+        if frequency == "yearly" and months is None:
+            parts.append("BYMONTH=" + str(start.month))
+        parts.append("BYMONTHDAY=" + ",".join(str(day) for day in sorted(month_days)))
+    if ordinal is not None:
+        if (frequency not in {"monthly", "yearly"} or not isinstance(ordinal, dict)
+                or set(ordinal) != {"weekday", "ordinal"} or ordinal.get("weekday") not in WEEKDAYS
+                or type(ordinal.get("ordinal")) is not int or ordinal["ordinal"] == 0
+                or not -5 <= ordinal["ordinal"] <= 5 or weekdays is not None):
+            raise SafetyError("Use one ordinal weekday from first through fifth or last through fifth-last")
+        # Yearly ordinal BYDAY without BYMONTH means ordinal within a year,
+        # rather than within the starting month. Make the latter explicit.
+        if frequency == "yearly" and months is None:
+            parts.append("BYMONTH=" + str(start.month))
+        index = (start.day - 1) // 7 + 1
+        reverse_index = -((monthrange(start.year, start.month)[1] - start.day) // 7 + 1)
+        if ordinal["weekday"] != WEEKDAYS[start.weekday()] or ordinal["ordinal"] not in {index, reverse_index}:
+            raise SafetyError("Ordinal weekday must include the first occurrence")
+        parts.append("BYDAY=" + str(ordinal["ordinal"]) + ordinal["weekday"])
     return ";".join(parts)
 
 
@@ -161,8 +197,8 @@ def verify_created(expected, observed):
                 or normalized.count("BEGIN:VEVENT") != 1 or normalized.count("END:VEVENT") != 1):
             raise SafetyError("Recurring event readback contains an unexpected component structure")
         start, end = normalized.index("BEGIN:VEVENT"), normalized.index("END:VEVENT")
-        if start >= end or any(prop(line) in {"BEGIN", "END"} for line in lines[start + 1:end]):
-            raise SafetyError("Recurring event readback contains nested or malformed components")
+        if start >= end:
+            raise SafetyError("Recurring event readback contains malformed components")
         outside = lines[1:start] + lines[end + 1:-1]
         if (sum(line.upper() == "VERSION:2.0" for line in outside) != 1
                 or any(prop(line) not in {"VERSION", "PRODID", "CALSCALE"} for line in outside)
@@ -170,7 +206,26 @@ def verify_created(expected, observed):
                 or any(prop(line) == "CALSCALE" and line.upper() != "CALSCALE:GREGORIAN" for line in outside)
                 or any(sum(prop(line) == name for line in outside) > 1 for name in {"VERSION", "PRODID", "CALSCALE"})):
             raise SafetyError("Recurring event readback contains an unexpected calendar component")
-        raw_event = lines[start + 1:end]
+        # Preserve alarms byte-for-byte while comparing event properties. A
+        # provider change to an alarm remains an uncertain readback, and no
+        # nested or unfamiliar component is silently discarded.
+        raw_event, alarms, alarm = [], [], None
+        for line in lines[start + 1:end]:
+            boundary = line.upper()
+            if boundary == "BEGIN:VALARM" and alarm is None:
+                alarm = [line]
+            elif boundary == "END:VALARM" and alarm is not None:
+                alarm.append(line)
+                alarms.append(tuple(alarm))
+                alarm = None
+            elif prop(line) in {"BEGIN", "END"}:
+                raise SafetyError("Recurring event readback contains an unsupported nested component")
+            elif alarm is not None:
+                alarm.append(line)
+            else:
+                raw_event.append(line)
+        if alarm is not None:
+            raise SafetyError("Recurring event readback contains an unbalanced alarm")
         raw_names = [prop(line) for line in raw_event]
         if len(raw_names) != len(set(raw_names)):
             raise SafetyError("Recurring event readback contains duplicate properties")
@@ -211,7 +266,7 @@ def verify_created(expected, observed):
             wrapped = "\r\n".join(["BEGIN:VCALENDAR", "VERSION:2.0", *timezone_component, "END:VCALENDAR", ""])
             validate_timezone_event_start(wrapped, name, starts[0].split(":", 1)[1])
             timezone_component = timezone_verification_key(wrapped, name)
-        return Counter(event), timezone_component
+        return Counter(event), timezone_component, tuple(alarms)
 
     if event_lines(expected) != event_lines(observed):
         raise SafetyError("Recurring event readback does not match the reviewed event")
