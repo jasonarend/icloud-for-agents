@@ -116,7 +116,7 @@ def transport(self, method, url, body, depth):
 
 
 def write(self, kind, item):
-    if kind != "cal" or item["operation"] not in {"create", "update", "delete", "delete_occurrence"}:
+    if kind != "cal" or item["operation"] not in {"create", "update", "delete", "delete_occurrence", "delete_future_occurrences"}:
         raise ValueError("Unexpected synthetic write")
     operation, url = item["operation"], item["url"]
     if operation == "create":

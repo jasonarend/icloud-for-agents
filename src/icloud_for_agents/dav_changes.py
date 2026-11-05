@@ -55,9 +55,9 @@ def replace_properties(lines, replacements, end):
         if active and depth == 1 and prop(line) in replacements:
             continue
         result.append(line)
-        if active and line.startswith("BEGIN:"):
+        if active and line.upper().startswith("BEGIN:"):
             depth += 1
-        elif active and line.startswith("END:"):
+        elif active and line.upper().startswith("END:"):
             depth -= 1
     folded = []
     for line in result:
@@ -253,7 +253,7 @@ class DAVChanges:
             raise SafetyError("Use the configured local receipt or explicit trusted-client deletion authorization")
         if deletion_authorization == 'trusted-client':
             if (not temporary or kind != 'cal' or len(changes) != 1 or not isinstance(changes[0], dict)
-                    or changes[0].get('operation') not in {'delete', 'delete_occurrence'}
+                    or changes[0].get('operation') not in {'delete', 'delete_occurrence', 'delete_future_occurrences'}
                     or changes[0].get('irreversible_confirmed') is not True
                     or os.environ.get('ICLOUD_APPROVAL_POLICY', 'local-receipt') != 'trusted-client'):
                 raise SafetyError("Client-authorized deletion requires one exact Calendar deletion and an enabled trusted-client policy")
@@ -269,17 +269,19 @@ class DAVChanges:
             if not isinstance(change, dict) or set(change)-{"operation", "url", "fields", "irreversible_confirmed", "recurrence_scope", "occurrence_start"}:
                 raise SafetyError("Invalid DAV change fields")
             operation = change.get("operation")
-            if operation not in {"create", "update", "delete", "delete_occurrence"}:
+            if operation not in {"create", "update", "delete", "delete_occurrence", "delete_future_occurrences"}:
                 raise SafetyError("DAV operation must be create, update, or delete")
             recurrence_scope = change.get("recurrence_scope")
             if "recurrence_scope" in change and (kind != "cal" or
                     not ((recurrence_scope == "series" and operation in {"update", "delete"}) or
-                         (recurrence_scope == "occurrence" and operation in {"update", "delete_occurrence"}))):
-                raise SafetyError("Use an explicit supported series or occurrence operation")
+                         (recurrence_scope == "occurrence" and operation in {"update", "delete_occurrence"}) or
+                         (recurrence_scope == "future" and operation in {"update", "delete_future_occurrences"}))):
+                raise SafetyError("Use an explicit supported series, occurrence or future operation")
             if (operation == "delete_occurrence" and recurrence_scope != "occurrence") or (
-                    "occurrence_start" in change and recurrence_scope != "occurrence"):
+                    operation == "delete_future_occurrences" and recurrence_scope != "future") or (
+                    "occurrence_start" in change and recurrence_scope not in {"occurrence", "future"}):
                 raise SafetyError("Occurrence changes require explicit occurrence scope and identity")
-            if recurrence_scope == "occurrence" and (len(changes) != 1 or not isinstance(change.get("occurrence_start"), str)):
+            if recurrence_scope in {"occurrence", "future"} and (len(changes) != 1 or not isinstance(change.get("occurrence_start"), str)):
                 raise SafetyError("Prepare one occurrence change with its original UTC start")
             if recurrence_scope == "series" and operation == "update":
                 fields = change.get("fields")
@@ -288,7 +290,7 @@ class DAVChanges:
                 if (not isinstance(fields, dict) or not fields or set(fields) - allowed - schedule
                         or (set(fields) & schedule and not schedule <= set(fields))):
                     raise SafetyError("Whole-series rescheduling requires complete start, end, timezone and recurrence fields")
-            if operation in {"delete", "delete_occurrence"} and change.get("irreversible_confirmed") is not True:
+            if operation in {"delete", "delete_occurrence", "delete_future_occurrences"} and change.get("irreversible_confirmed") is not True:
                 raise SafetyError("DAV deletion has no protocol Trash; explicitly acknowledge irreversible deletion before human review")
             if operation == "create" and change.get("url") is not None:
                 raise SafetyError("Create resource identity is assigned by the reviewed proposal")
@@ -301,14 +303,29 @@ class DAVChanges:
             identities.add(url)
             before = None if operation=='create' else self.resource(kind, url)
             if before and kind=='cal':
-                if recurrence_scope in {"series", "occurrence"}:
+                if recurrence_scope in {"series", "future"}:
                     from .calendar_recurrence import validate_series_deletion
-                    validate_series_deletion(before['content'])
+                    try:
+                        validate_series_deletion(before['content'])
+                    except SafetyError:
+                        if recurrence_scope != 'series':
+                            raise
+                        from .calendar_occurrence_changes import validate_occurrence_resource
+                        validate_occurrence_resource(before['content'])
+                        if operation != 'delete' and (operation != 'update' or
+                                not isinstance(change.get('fields'), dict) or
+                                set(change['fields']) - {'summary', 'description', 'location', 'url', 'free', 'private'}):
+                            raise SafetyError('A series with exceptions supports content-only updates or exact whole-series deletion')
+                elif recurrence_scope == "occurrence":
+                    from .calendar_occurrence_changes import validate_occurrence_resource
+                    validate_occurrence_resource(before['content'])
                 else:
                     personal_event(before['content'])
             content = None
             timezone_binding = None
             occurrence_proof = None
+            future_split = None
+            series_exception_update = None
             if operation != 'delete':
                 if kind == 'cal':
                     timezone_definition = None
@@ -318,6 +335,22 @@ class DAVChanges:
                         from .calendar_occurrence_changes import occurrence_content
                         occurrence_proof = prove_occurrence(self.reader, collection, url, before, change['occurrence_start'])
                         content = occurrence_content(before['content'], operation, change['occurrence_start'], fields)
+                    elif recurrence_scope == 'future':
+                        from .calendar_occurrence_proof import prove_occurrence
+                        occurrence_proof = prove_occurrence(self.reader, collection, url, before, change['occurrence_start'])
+                        if operation == 'update':
+                            from .calendar_future_split import split_future
+                            split = split_future(before['content'], change['occurrence_start'], fields, uuid.uuid4().hex)
+                            content = split.pop('original_content')
+                            new_content = split.pop('future_content')
+                            new_url = collection.rstrip('/') + '/' + uuid.uuid4().hex + '.ics'
+                            future_split = dict(split, new_resource={'operation': 'create', 'url': new_url,
+                                                                   'before': None, 'content': new_content})
+                        else:
+                            if fields is not None:
+                                raise SafetyError('Future occurrence deletion does not accept replacement fields')
+                            from .calendar_future_changes import truncate_before
+                            content = truncate_before(before['content'], change['occurrence_start'])
                     if (isinstance(fields, dict) and 'recurrence' in fields
                             and isinstance(fields.get('timezone'), str) and fields['timezone'] not in {'UTC', 'Etc/UTC'}):
                         from .calendar_recurrence import calendar_timezone, recurrence_rule, zoned_datetime
@@ -330,16 +363,27 @@ class DAVChanges:
                                             'duration': validate_wall_duration(timezone_definition, fields['timezone'],
                                                                                zoned_datetime(fields['start'], fields['timezone']),
                                                                                zoned_datetime(fields['end'], fields['timezone']))}
-                    if recurrence_scope != 'occurrence':
-                        content = event_content(change.get('fields'), before['content'] if before else None,
-                                                recurring_master=recurrence_scope == 'series',
-                                                timezone_definition=timezone_definition)
+                    if recurrence_scope not in {'occurrence', 'future'}:
+                        if recurrence_scope == 'series':
+                            from .calendar_recurrence import validate_series_deletion
+                            try:
+                                validate_series_deletion(before['content'])
+                            except SafetyError:
+                                from .calendar_series_exceptions import series_exception_content, series_exception_review
+                                content = series_exception_content(before['content'], change.get('fields'))
+                                series_exception_update = series_exception_review(before['content'], change['fields'])
+                        if series_exception_update is None:
+                            content = event_content(change.get('fields'), before['content'] if before else None,
+                                                    recurring_master=recurrence_scope == 'series',
+                                                    timezone_definition=timezone_definition)
                 else:
                     content = contact_content(change.get('fields'), before['content'] if before else None)
             item = {"operation": operation, "url": url, "fields": change.get('fields'),
                     "before": before, "content": content,
                     "deletion": ("irreversible exclusion of one occurrence using DAV PUT; private pre-change snapshot retained"
                                  if operation == 'delete_occurrence' else
+                                 "irreversible removal of the selected occurrence and all later occurrences; earlier occurrences retained"
+                                 if operation == 'delete_future_occurrences' else
                                  "irreversible DAV DELETE of the entire recurring series; private pre-change snapshot retained"
                                  if recurrence_scope == "series" and operation == 'delete' else
                                  "irreversible DAV DELETE; private pre-change snapshot retained" if operation=='delete' else None)}
@@ -350,6 +394,10 @@ class DAVChanges:
             if occurrence_proof is not None:
                 item['occurrence_start'] = change['occurrence_start']
                 item['occurrence_proof'] = occurrence_proof
+            if series_exception_update is not None:
+                item['series_exception_update'] = series_exception_update
+            if future_split is not None:
+                item['future_split'] = future_split
             if timezone_binding is not None:
                 item['timezone_binding'] = timezone_binding
             if (kind == 'cal' and isinstance(change.get('fields'), dict)
@@ -374,6 +422,31 @@ class DAVChanges:
             payload['calendar_deletion_authority_effect'] = ('The connected client must obtain the owner approval for this exact irreversible deletion; '
                                                              'this is not an independently verified human receipt.')
         return self.store.prepare('calendar_change' if kind=='cal' else 'contact_change', payload)
+
+    def _validate_future_split(self, collection, item):
+        """Reconstruct both reviewed resources before allowing a two-write split."""
+        from .calendar_future_split import split_future
+        from .calendar_recurrence import verify_created
+        split = item.get('future_split')
+        keys = {'future_uid', 'preceding_occurrences', 'remaining_count', 'original_until', 'timezone', 'timezone_validation', 'time_change', 'effects', 'new_resource'}
+        if (item.get('operation') != 'update' or item.get('recurrence_scope') != 'future'
+                or not isinstance(split, dict) or set(split) != keys):
+            raise SafetyError('Invalid reviewed future-series split')
+        created = split['new_resource']
+        if (not isinstance(created, dict) or set(created) != {'operation', 'url', 'before', 'content'}
+                or created['operation'] != 'create' or created['before'] is not None):
+            raise SafetyError('Invalid future-series creation request')
+        url = apple_url(created['url'], 'cal')
+        if (url == item['url'] or not url.startswith(collection.rstrip('/') + '/')
+                or any(part in {'.', '..'} for part in urlsplit(url).path.split('/'))
+                or re.search(r'%2e|%2f|%5c', urlsplit(url).path, re.I)):
+            raise SafetyError('Future series must use a new resource in the reviewed calendar')
+        expected = split_future(item['before']['content'], item['occurrence_start'], item['fields'], split['future_uid'])
+        verify_created(expected.pop('original_content'), item['content'])
+        verify_created(expected.pop('future_content'), created['content'])
+        if expected != {key: value for key, value in split.items() if key != 'new_resource'}:
+            raise SafetyError('Future-series split metadata differs from the reviewed resources')
+        return created
 
     def _write(self, kind, item):
         url = apple_url(item['url'], kind)
@@ -422,6 +495,23 @@ class DAVChanges:
                     if prove_occurrence(self.reader, payload['collection'], item['url'], item['before'], item['occurrence_start']) != item['occurrence_proof']:
                         raise SafetyError("Occurrence evidence changed since review; prepare a new proposal")
                     phase = 'identity_preflight'
+                if item.get('future_split') is not None:
+                    phase = 'future_split_preflight'
+                    created = self._validate_future_split(payload['collection'], item)
+                    status, _, _ = self.reader.transport('GET', created['url'], '', 0)
+                    if status != 404:
+                        raise SafetyError('New future-series resource is not definitely absent')
+                    phase = 'identity_preflight'
+                if item.get('series_exception_update') is not None:
+                    phase = 'series_exception_preflight'
+                    from .calendar_series_exceptions import series_exception_content, series_exception_review
+                    from .calendar_occurrence_changes import verify_occurrence_write
+                    marker = item['series_exception_update']
+                    expected_marker = series_exception_review(item['before']['content'], item['fields'])
+                    if item.get('operation') != 'update' or item.get('recurrence_scope') != 'series' or marker != expected_marker:
+                        raise SafetyError('Invalid whole-series exception content review')
+                    verify_occurrence_write(series_exception_content(item['before']['content'], item['fields']), item['content'])
+                    phase = 'identity_preflight'
                 if item.get('timezone_binding'):
                     phase = "timezone_preflight"
                     from .calendar_recurrence import calendar_timezone, zoned_datetime
@@ -446,9 +536,45 @@ class DAVChanges:
                     raise SafetyError("Reconciled resource not definitely absent; no retry")
             phase="conditional_write"
             for item in payload['changes']:
+                if item.get('future_split') is not None:
+                    from .calendar_recurrence import verify_created
+                    from .calendar_occurrence_proof import prove_occurrence
+                    created = item['future_split']['new_resource']
+                    phase = 'future_split_create'
+                    written = self.writer(kind, created)
+                    completed.append(dict(written, split_step='new_future_series_created'))
+                    phase = 'future_split_new_readback'
+                    verify_created(created['content'], self.resource(kind, created['url'])['content'])
+                    completed[-1] = dict(completed[-1], verification='reviewed_future_series_readback')
+                    # The original remains unchanged until creation is verified.
+                    # A race here leaves duplicates and an unsettled result, never
+                    # an overwrite, automatic rollback or repeat creation.
+                    phase = 'future_split_original_preflight'
+                    if self.resource(kind, item['url']) != item['before']:
+                        raise SafetyError('Original series changed after future creation; do not replay')
+                    if prove_occurrence(self.reader, payload['collection'], item['url'], item['before'], item['occurrence_start']) != item['occurrence_proof']:
+                        raise SafetyError('Original occurrence changed after future creation; do not replay')
+                    phase = 'future_split_truncate'
+                    written = self.writer(kind, item)
+                    completed.append(dict(written, split_step='original_history_truncated'))
+                    phase = 'future_split_original_readback'
+                    verify_created(item['content'], self.resource(kind, item['url'])['content'])
+                    completed[-1] = dict(completed[-1], verification='reviewed_original_history_readback')
+                    phase = 'future_split_final_readback'
+                    verify_created(created['content'], self.resource(kind, created['url'])['content'])
+                    continue
                 phase = "conditional_write"
                 written = self.writer(kind,item)
-                if kind == 'cal' and item.get('recurrence_scope') == 'occurrence':
+                if kind == 'cal' and item.get('series_exception_update') is not None:
+                    phase = 'series_exception_readback'
+                    try:
+                        from .calendar_occurrence_changes import verify_occurrence_write
+                        verify_occurrence_write(item['content'], self.resource(kind, item['url'])['content'])
+                    except Exception:
+                        completed.append(dict(written, status='write_returned_readback_unverified'))
+                        raise
+                    written = dict(written, verification='reviewed_whole_series_exception_content_readback')
+                elif kind == 'cal' and item.get('recurrence_scope') == 'occurrence':
                     phase = 'occurrence_readback'
                     try:
                         from .calendar_occurrence_changes import verify_occurrence_write
@@ -459,7 +585,8 @@ class DAVChanges:
                     written = dict(written, verification='reviewed_occurrence_change_readback')
                 elif (kind == 'cal' and ((item['operation'] == 'create'
                         and isinstance(item.get('fields'), dict) and 'recurrence' in item['fields'])
-                        or (item['operation'] == 'update' and item.get('recurrence_scope') == 'series'))):
+                        or (item['operation'] == 'update' and item.get('recurrence_scope') == 'series')
+                        or item['operation'] == 'delete_future_occurrences')):
                     phase = "recurring_readback"
                     try:
                         from .calendar_recurrence import verify_created
@@ -489,6 +616,16 @@ class DAVChanges:
                 result={"status":"calendar_timezone_refused_before_dispatch","completed":[],"do_not_retry":True,
                         "plan_sha256":digest(plan),"diagnostic":diagnostic,
                         "message":"No event write was attempted. Review a fresh proposal after resolving the timezone check."}
+            elif phase == 'series_exception_preflight' and completed == []:
+                from .core import digest
+                result={"status":"calendar_series_exception_refused_before_dispatch","completed":[],"do_not_retry":True,
+                        "plan_sha256":digest(plan),"diagnostic":diagnostic,
+                        "message":"No write was attempted. Review a fresh proposal after resolving the whole-series exception check."}
+            elif phase == 'future_split_preflight' and completed == []:
+                from .core import digest
+                result={"status":"calendar_future_split_refused_before_dispatch","completed":[],"do_not_retry":True,
+                        "plan_sha256":digest(plan),"diagnostic":diagnostic,
+                        "message":"No write was attempted. Review a fresh proposal after resolving the future-series check."}
             elif phase == 'occurrence_preflight' and completed == []:
                 from .core import digest
                 result={"status":"calendar_occurrence_refused_before_dispatch","completed":[],"do_not_retry":True,
@@ -515,25 +652,40 @@ def register_change_tools(mcp, safe, service, *, calendar=True, contacts=True):
 
         Recurring creation is a separate one-event proposal: provide explicit
         start/end with offsets, timezone, and recurrence with frequency daily/weekly/
-        monthly/yearly, optional interval, count or UTC until, and optional weekly
-        weekdays MO..SU including the start day. Named-zone creation requires a
+        monthly/yearly, optional interval, count or UTC until, weekly weekdays,
+        monthly/yearly month_days or ordinal_weekday, and yearly months. Every
+        explicit pattern must include its first event. Named-zone creation requires a
         matching supported timezone definition from the selected calendar; its
         sampled agreement and future limits are included in review. Named-zone
         events must start and end on the same day without overlapping a clock
         transition. Ambiguous or nonexistent initial local times refuse. For a supported single-component
-        series without participants, exceptions, alarms or unsupported timezones,
-        update summary/description/location/url/free/private with recurrence_scope=
-        "series". To replace its whole schedule, provide start, end, timezone and
+        series without participants or unsupported timezones, update
+        summary/description/location/url/free/private with recurrence_scope="series".
+        For supported bounded exceptions without alarms, content fields apply to
+        the master and every detached exception; their times and identities remain.
+        Schedule changes with exceptions remain refused. To replace its whole schedule, provide start, end, timezone and
         recurrence together in a separate series update. This changes past and
         future occurrences; count starts from the new first occurrence. Delete a supported series with recurrence_scope="series" and
         irreversible_confirmed=true; the entire series is removed. For a single
-        simple UTC occurrence, use recurrence_scope="occurrence", its original
-        whole-second UTC occurrence_start, and an update of the same text fields.
+        supported occurrence, use recurrence_scope="occurrence", its original
+        whole-second UTC occurrence_start, and text fields or paired start/end
+        with an optional unchanged timezone. Supported named zones and existing
+        bounded exceptions are retained and rechecked.
         To exclude just that occurrence use operation="delete_occurrence" and
         irreversible_confirmed=true; this ordinary path requires a local owner receipt.
         Occurrence changes require a matching provider expansion and unchanged
-        resource, have no attendees, alarms or prior exceptions, and are one per
-        proposal. Future-only and individual-occurrence time edits are not supported.
+        resource, have no attendees or alarms, and are one per proposal. For a
+        supported UTC or named-local-time series without exceptions or alarms, remove one occurrence
+        and all later ones using operation="delete_future_occurrences",
+        recurrence_scope="future", its original UTC occurrence_start, and
+        irreversible_confirmed=true. Earlier occurrences remain. For a supported
+        daily/weekly series without exceptions or alarms, operation="update" with
+        recurrence_scope="future" and content fields creates a new future series
+        before truncating the original. COUNT or indefinite series can also change
+        future start/end together on the selected original local date, with matching
+        offsets and optional unchanged timezone. Dates, recurrence-rule changes
+        and UNTIL-bounded time changes are refused. Review the new identity and
+        two-write partial-failure risk; there is no automatic rollback or replay.
         """
         return editor().prepare('cal',calendar_url,changes)
 

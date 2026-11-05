@@ -73,7 +73,8 @@ def trusted_calendar_deletion(plan):
     if item.get('operation') == 'delete':
         return item.get('recurrence_scope') in (None, 'series') and item.get('content') is None
     proof = item.get('occurrence_proof')
-    return (item.get('operation') == 'delete_occurrence' and item.get('recurrence_scope') == 'occurrence'
+    return ((item.get('operation'), item.get('recurrence_scope')) in {
+                ('delete_occurrence', 'occurrence'), ('delete_future_occurrences', 'future')}
             and isinstance(item.get('content'), str) and isinstance(proof, dict)
             and proof.get('url') == url and proof.get('collection') == collection
             and proof.get('etag') == before['etag'] and proof.get('snapshot_sha256') == before['sha256'])
@@ -83,7 +84,7 @@ def authorization_path(plan):
     """Informational routing only; execution independently enforces every guard."""
     if plan['kind'] == 'trash' and os.environ.get('ICLOUD_CLEANUP_GRANT_ID'):
         return 'standing-cleanup', False
-    if any(item.get('operation') in {'delete', 'delete_occurrence'} for item in plan['payload'].get('changes', [])):
+    if any(item.get('operation') in {'delete', 'delete_occurrence', 'delete_future_occurrences'} for item in plan['payload'].get('changes', [])):
         if os.environ.get('ICLOUD_APPROVAL_POLICY', 'local-receipt') == 'trusted-client' and trusted_calendar_deletion(plan):
             return 'trusted-client', False
         return 'local-receipt', True
@@ -362,12 +363,15 @@ class PlanStore:
         result = self.read(self.path(plan_id, '.result'))
         payload = plan.get('payload', {})
         changes, completed = payload.get('changes', []), result.get('completed', [])
+        candidate = changes[0] if isinstance(changes, list) and len(changes) == 1 and isinstance(changes[0], dict) else {}
+        exception_update = isinstance(candidate.get('series_exception_update'), dict)
+        expected_phase = 'series_exception_readback' if exception_update else 'recurring_readback'
         if (plan.get('plan_id') != plan_id or plan.get('kind') != 'calendar_change'
                 or payload.get('kind') != 'cal' or not isinstance(changes, list) or len(changes) != 1
                 or not isinstance(changes[0], dict) or changes[0].get('operation') != 'update'
                 or changes[0].get('recurrence_scope') != 'series'
                 or not isinstance(changes[0].get('fields'), dict)
-                or not isinstance(changes[0]['fields'].get('recurrence'), dict)
+                or (not exception_update and not isinstance(changes[0]['fields'].get('recurrence'), dict))
                 or not isinstance(changes[0].get('before'), dict)
                 or not isinstance(changes[0]['before'].get('content'), str)
                 or not isinstance(changes[0].get('content'), str)
@@ -376,12 +380,12 @@ class PlanStore:
                 or started.get('authorization') not in {'local-receipt', 'trusted-client-policy; not an independent human receipt'}
                 or self.path(plan_id, '.cancelled').exists()
                 or result.get('status') != 'failed_or_uncertain' or result.get('do_not_retry') is not True
-                or result.get('diagnostic') != {'phase': 'recurring_readback', 'category': 'safety_precondition'}
+                or result.get('diagnostic') != {'phase': expected_phase, 'category': 'safety_precondition'}
                 or not isinstance(completed, list) or len(completed) != 1
                 or not isinstance(completed[0], dict) or set(completed[0]) != {'url', 'operation', 'status'}
                 or completed[0].get('status') != 'write_returned_readback_unverified'
                 or completed[0].get('operation') != 'update' or completed[0].get('url') != changes[0].get('url')):
-            raise SafetyError('Only an exact whole-series reschedule with returned write success can be reconciled')
+            raise SafetyError('Only an exact whole-series change with returned write success can be reconciled')
         item = changes[0]
         collection, url = payload.get('collection'), item.get('url')
         apple_url(collection, 'cal')
@@ -394,10 +398,19 @@ class PlanStore:
         if (not isinstance(before.get('etag'), str) or not re.fullmatch(r'"[^"\r\n]{1,200}"', before['etag'])
                 or hashlib.sha256(before['content'].encode('utf-8')).hexdigest() != before.get('sha256')):
             raise SafetyError('Original Calendar snapshot is invalid')
-        validate_series_deletion(before['content'])
-        verify_created(before['content'], before['content'])
-        validate_series_deletion(item['content'])
-        verify_created(item['content'], item['content'])
+        if exception_update:
+            from .calendar_series_exceptions import series_exception_content, series_exception_review
+            from .calendar_occurrence_changes import verify_occurrence_write
+            expected_marker = series_exception_review(before['content'], item['fields'])
+            if item['series_exception_update'] != expected_marker:
+                raise SafetyError('Whole-series exception review metadata changed')
+            expected = series_exception_content(before['content'], item['fields'])
+            verify_occurrence_write(expected, item['content'])
+        else:
+            validate_series_deletion(before['content'])
+            verify_created(before['content'], before['content'])
+            validate_series_deletion(item['content'])
+            verify_created(item['content'], item['content'])
         old_uid = next(line[4:] for line in unfold(before['content']) if line.startswith('UID:'))
         uid = next(line[4:] for line in unfold(item['content']) if line.startswith('UID:'))
         if uid != old_uid:
@@ -408,12 +421,15 @@ class PlanStore:
                 or hashlib.sha256(observation['content'].encode('utf-8')).hexdigest() != observation['sha256']
                 or type(observed_at) not in (int, float) or not 0 <= observed_at <= self.clock()):
             raise SafetyError('Calendar readback observation does not bind an exact provider resource')
-        verify_created(item['content'], observation['content'])
+        if exception_update:
+            verify_occurrence_write(item['content'], observation['content'])
+        else:
+            verify_created(item['content'], observation['content'])
         record = {'status': 'calendar_series_update_verified_after_readback', 'original_id': plan_id,
                   'original_sha256': digest(plan), 'started_sha256': digest(started),
                   'original_result_sha256': digest(result), 'account': payload['account'], 'url': url,
                   'uid': uid, 'observation': observation, 'observed_at': observed_at,
-                  'verification': 'full_reviewed_series_update_readback', 'mutation_attempted': False,
+                  'verification': ('full_reviewed_series_exception_content_readback' if exception_update else 'full_reviewed_series_update_readback'), 'mutation_attempted': False,
                   'original_uncertainty_retained': True, 'do_not_retry': True}
         record['proof_sha256'] = digest(record)
         return record
@@ -887,13 +903,42 @@ class PlanStore:
             started = self.read(self.path(plan_id, '.started'))
             changes = plan.get('payload', {}).get('changes', [])
             return (plan.get('kind') == 'calendar_change' and len(changes) == 1
-                    and changes[0].get('operation') in {'update', 'delete_occurrence'}
-                    and changes[0].get('recurrence_scope') == 'occurrence'
+                    and ((changes[0].get('operation') in {'update', 'delete_occurrence'} and changes[0].get('recurrence_scope') == 'occurrence')
+                         or (changes[0].get('operation') == 'delete_future_occurrences' and changes[0].get('recurrence_scope') == 'future')
+                         or (changes[0].get('operation') == 'update' and changes[0].get('recurrence_scope') == 'future'
+                             and isinstance(changes[0].get('future_split'), dict)))
                     and isinstance(changes[0].get('occurrence_proof'), dict)
                     and started.get('sha256') == result.get('plan_sha256') == digest(plan)
                     and started.get('account') == plan['payload'].get('account')
                     and result.get('completed') == [] and result.get('do_not_retry') is True
                     and result.get('diagnostic', {}).get('phase') == 'occurrence_preflight')
+        if result.get('status') == 'calendar_series_exception_refused_before_dispatch':
+            plan = self.read(self.path(plan_id, '.json'))
+            started = self.read(self.path(plan_id, '.started'))
+            changes = plan.get('payload', {}).get('changes', [])
+            return (plan.get('kind') == 'calendar_change' and len(changes) == 1
+                    and changes[0].get('operation') == 'update' and changes[0].get('recurrence_scope') == 'series'
+                    and isinstance(changes[0].get('series_exception_update'), dict)
+                    and isinstance(changes[0].get('fields'), dict)
+                    and not set(changes[0]['fields']) - {'summary', 'description', 'location', 'url', 'free', 'private'}
+                    and isinstance(changes[0].get('before'), dict) and isinstance(changes[0].get('content'), str)
+                    and started.get('sha256') == result.get('plan_sha256') == digest(plan)
+                    and started.get('account') == plan['payload'].get('account')
+                    and started.get('authorization') in {'local-receipt', 'trusted-client-policy; not an independent human receipt'}
+                    and result.get('completed') == [] and result.get('do_not_retry') is True
+                    and result.get('diagnostic', {}).get('phase') == 'series_exception_preflight')
+        if result.get('status') == 'calendar_future_split_refused_before_dispatch':
+            plan = self.read(self.path(plan_id, '.json'))
+            started = self.read(self.path(plan_id, '.started'))
+            changes = plan.get('payload', {}).get('changes', [])
+            return (plan.get('kind') == 'calendar_change' and len(changes) == 1
+                    and changes[0].get('operation') == 'update' and changes[0].get('recurrence_scope') == 'future'
+                    and isinstance(changes[0].get('future_split'), dict)
+                    and isinstance(changes[0].get('occurrence_proof'), dict)
+                    and started.get('sha256') == result.get('plan_sha256') == digest(plan)
+                    and started.get('account') == plan['payload'].get('account')
+                    and result.get('completed') == [] and result.get('do_not_retry') is True
+                    and result.get('diagnostic', {}).get('phase') == 'future_split_preflight')
         if result.get('status') == 'calendar_timezone_refused_before_dispatch':
             plan = self.read(self.path(plan_id, '.json'))
             started = self.read(self.path(plan_id, '.started'))
@@ -947,8 +992,19 @@ class PlanStore:
             plan = self.proposal(plan_id)
             if plan["payload"].get("account") != account:
                 raise SafetyError("Approval belongs to a different account")
-            irreversible = any(item.get("operation") in {"delete", "delete_occurrence"} for item in plan["payload"].get("changes", []))
+            irreversible = any(item.get("operation") in {"delete", "delete_occurrence", "delete_future_occurrences"} for item in plan["payload"].get("changes", []))
             trusted = policy == "trusted-client" and (not irreversible or trusted_calendar_deletion(plan))
+            future_split = any(item.get('operation') == 'update' and item.get('recurrence_scope') == 'future'
+                               and isinstance(item.get('future_split'), dict) for item in plan['payload'].get('changes', []))
+            if future_split and not trusted:
+                # Even a fresh independent receipt cannot turn a partial split
+                # into a safe repeat. Resolve prior account writes first.
+                for started in self.root.glob('*.started'):
+                    previous = self.read(self.path(started.stem, '.json'))
+                    if previous['payload'].get('account') != account:
+                        continue
+                    if not self.operation_settled(started.stem) and not self._reconciliation_completed(started.stem):
+                        raise SafetyError('Prior write unfinished or uncertain; reconcile before a future-series split')
             if trusted:
                 if os.environ.get("ICLOUD_MAIL_ACCOUNT") != account:
                     raise SafetyError("Trusted-client policy account mismatch")
@@ -1044,7 +1100,7 @@ def approve_interactively(store, plan_id):
     fingerprint = digest(plan)
     labels = {"trash": "TRASH", "send": "SEND", "cleanup_grant": "APPROVE MAIL CLEANUP", "calendar_change": "APPROVE CALENDAR", "contact_change": "APPROVE CONTACTS", "notes_change": "APPROVE NOTES", "reminders_change": "APPROVE REMINDERS", "notes_access":"ALLOW NOTES OS REQUEST", "reminders_access":"ALLOW REMINDERS OS REQUEST", "notes_recovery":"APPROVE NOTES RECOVERY", "notes_move_recovery":"ACCEPT OBSERVED NOTES MOVE", "notes_edit_recovery":"ACCEPT OBSERVED NOTES EDIT", "reminders_observation_recovery":"ACCEPT OBSERVED REMINDER", "notes_grant":"APPROVE NOTES GRANT", "reminders_grant":"APPROVE REMINDERS GRANT"}
     label = labels[plan["kind"]]
-    if any(item.get("operation") in {"delete", "delete_occurrence"} for item in plan["payload"].get("changes", [])):
+    if any(item.get("operation") in {"delete", "delete_occurrence", "delete_future_occurrences"} for item in plan["payload"].get("changes", [])):
         label = "IRREVERSIBLE DELETE " + label
     phrase = label + " " + plan_id
     with open("/dev/tty", "r+", encoding="utf-8") as terminal:

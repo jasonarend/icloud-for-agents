@@ -73,6 +73,16 @@ class RecurrenceRuleTests(unittest.TestCase):
             verify_created(updated, updated.replace("TRIGGER:-PT15M", "TRIGGER:-PT30M"))
         with self.assertRaises(SafetyError):
             verify_created(updated, updated.replace("END:VALARM", "END:OTHER"))
+        lower_alarm = alarm.replace("BEGIN:VALARM", "begin:valarm").replace("END:VALARM", "end:valarm")
+        lower_before = before.replace(alarm, lower_alarm)
+        changed = event_content({"description": "Changed event description"}, lower_before, recurring_master=True)
+        self.assertIn(lower_alarm, changed)
+        self.assertIn("DESCRIPTION:Changed event description", changed)
+        verify_created(changed, changed)
+        moved = event_content({"start": "2026-11-09T15:00:00Z", "end": "2026-11-09T16:00:00Z",
+            "timezone": "UTC", "recurrence": {"frequency": "weekly"}}, lower_before, recurring_master=True)
+        self.assertIn(lower_alarm, moved)
+        verify_created(moved, moved)
 
     def test_local_wall_time_requires_a_matching_provider_definition(self):
         fields = dict(self.fields, timezone="America/Chicago", start="2026-11-02T09:00:00-06:00",
