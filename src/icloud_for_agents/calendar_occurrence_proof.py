@@ -1,4 +1,4 @@
-"""Read-only identity evidence for a narrow UTC recurring-event workflow.
+"""Read-only identity evidence for bounded personal recurring-event changes.
 
 The provider attests recurrence membership. This module checks its exact resource,
 version, and instance identity; it does not prove provider expansion completeness.
@@ -53,6 +53,7 @@ def _parse(raw, *, master, source=None):
             or lines[-1] != "END:VCALENDAR"):
         _refuse()
     root, events, event, timestamps = {}, [], None, {}
+    local_timestamps_used = False
     for line in lines[1:-1]:
         if not line or len(line.encode()) > 16384 or "\r" in line or "\t" in line or ":" not in line:
             _refuse()
@@ -66,7 +67,20 @@ def _parse(raw, *, master, source=None):
             if len(events) > 200:
                 _refuse()
         else:
-            allowed = (_COMMON | ({"RRULE"} if master else {"RECURRENCE-ID"})) if event is not None else ({"VERSION", "PRODID", "CALSCALE"} | (set() if master else _EXPANDED))
+            # Apple's expanded local-zone projections can retain TZID on start
+            # and end despite RFC 4791 requiring UTC. Admit only this exact
+            # source-bound representation and normalize it before identity checks.
+            if event is not None and not master and source is not None:
+                zone = source.get('_zone')
+                for base in ('DTSTART', 'DTEND', 'RECURRENCE-ID'):
+                    if zone not in (None, 'UTC', 'Etc/UTC') and name == base + ';TZID=' + zone:
+                        from .calendar_occurrence_changes import _date_line
+                        local, _ = _date_line(line, base, zone)
+                        name = base
+                        value = local.astimezone(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+                        local_timestamps_used = True
+                        break
+            allowed = (_COMMON | ({"RRULE"} if master else {"RECURRENCE-ID", "X-RECURRENCE-EXCEPTION"})) if event is not None else ({"VERSION", "PRODID", "CALSCALE"} | (set() if master else _EXPANDED))
             destination = event if event is not None else root
             if event is not None and not master and name in _MANAGED:
                 timestamps[name] = timestamps.get(name, 0) + 1
@@ -88,14 +102,14 @@ def _parse(raw, *, master, source=None):
     metadata = {name: root[name] for name in _EXPANDED if name in root}
     if metadata:
         if (master or source is None or set(metadata) != _EXPANDED or root["X-EXPANDED"] != "True"
-                or root["X-MASTER-DTSTART"] != source["DTSTART"]):
+                or root["X-MASTER-DTSTART"] not in {source["DTSTART"], source.get("_raw_start", source["DTSTART"])}):
             _refuse()
         rule = re.sub(r"\\([;,])", r"\1", root["X-MASTER-RRULE"])
         if "\\" in rule or rule != source["RRULE"]:
             _refuse()
         if root.get("VERSION", "2.0") != "2.0":
             _refuse()
-    elif root.get("VERSION") != "2.0":
+    elif root.get("VERSION") != "2.0" or local_timestamps_used:
         _refuse()
     if not events or (master and len(events) != 1):
         _refuse()
@@ -105,22 +119,31 @@ def _parse(raw, *, master, source=None):
         start, end = _date(item["DTSTART"]), _date(item["DTEND"])
         if not timedelta(0) < end - start <= timedelta(days=366):
             _refuse()
-        if item.get("X-ICLOUD-MCP-TIMEZONE", "UTC") not in {"UTC", "Etc/UTC"}:
+        if item.get("X-ICLOUD-MCP-TIMEZONE", "UTC") not in {"UTC", "Etc/UTC", (source or {}).get("X-ICLOUD-MCP-TIMEZONE", "UTC")}:
             _refuse()
         if "RECURRENCE-ID" in item:
             _date(item["RECURRENCE-ID"])
+        marker = item.pop('X-RECURRENCE-EXCEPTION', None)
+        if marker is not None and (marker != 'True' or 'RECURRENCE-ID' not in item or not metadata):
+            _refuse()
     return events
 
 
 def _master(raw):
-    event = _parse(raw, master=True)[0]
+    from .calendar_occurrence_changes import _resource
+    master = _resource(raw)[2][None]
+    event = {name: line.split(':', 1)[1] for name, line in master['values'].items()}
+    event['DTSTART'] = master['start'].astimezone(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+    event['DTEND'] = master['end'].astimezone(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+    event['_raw_start'] = master['values']['DTSTART'].split(':', 1)[1]
+    event['_zone'] = master['zone']
     rule = event.get("RRULE", "")
     fields = {}
     for part in rule.split(";"):
         if part.count("=") != 1:
             _refuse()
         key, value = part.split("=")
-        if key in fields or key not in {"FREQ", "INTERVAL", "COUNT", "UNTIL", "BYDAY"}:
+        if key in fields or key not in {"FREQ", "INTERVAL", "COUNT", "UNTIL", "BYDAY", "BYMONTH", "BYMONTHDAY"}:
             _refuse()
         fields[key] = value
     recurrence = {"frequency": fields.get("FREQ", "").lower()}
@@ -131,12 +154,24 @@ def _master(raw):
             recurrence[name] = int(fields[key])
     if "UNTIL" in fields:
         recurrence["until"] = _date(fields["UNTIL"]).isoformat()
+    if "BYMONTH" in fields:
+        values = fields["BYMONTH"].split(",")
+        if any(not re.fullmatch(r"[1-9][0-9]?", value) for value in values):
+            _refuse()
+        recurrence["months"] = [int(value) for value in values]
+    if "BYMONTHDAY" in fields:
+        values = fields["BYMONTHDAY"].split(",")
+        if any(not re.fullmatch(r"-?[1-9][0-9]?", value) for value in values):
+            _refuse()
+        recurrence["month_days"] = [int(value) for value in values]
     if "BYDAY" in fields:
-        recurrence["weekdays"] = fields["BYDAY"].split(",")
-    # Reuse the supported authoring grammar; accepting a projection never adds
-    # permission to mutate an unfamiliar master recurrence representation.
-    recurrence_rule({"timezone": "UTC", "start": _date(event["DTSTART"]).isoformat(),
-                     "end": _date(event["DTEND"]).isoformat(), "recurrence": recurrence})
+        ordinal = re.fullmatch(r"(-?[1-5])(MO|TU|WE|TH|FR|SA|SU)", fields["BYDAY"])
+        if ordinal:
+            recurrence["ordinal_weekday"] = {"ordinal": int(ordinal.group(1)), "weekday": ordinal.group(2)}
+        else:
+            recurrence["weekdays"] = fields["BYDAY"].split(",")
+    recurrence_rule({"timezone": master['zone'], "start": master['start'].isoformat(),
+                     "end": master['end'].isoformat(), "recurrence": recurrence})
     return event
 
 
@@ -179,9 +214,12 @@ def prove_occurrence(reader, collection, url, snapshot, occurrence_start):
         _refuse()
     _snapshot(snapshot)
     master = _master(snapshot["content"])
-    target = utc_datetime(occurrence_start)
+    original_target = utc_datetime(occurrence_start)
+    from .calendar_occurrence_changes import occurrence_source
+    _, _, _, expected_instance = occurrence_source(snapshot['content'], occurrence_start)
+    target = _date(expected_instance['DTSTART'])
     initial = _date(master["DTSTART"])
-    if target < initial:
+    if original_target < initial:
         _refuse()
     try:
         bound = target + timedelta(seconds=1)
@@ -240,33 +278,33 @@ def prove_occurrence(reader, collection, url, snapshot, occurrence_start):
     if etag != snapshot["etag"]:
         _refuse()
     instances = _parse(projection, master=False, source=master)
-    duration = _date(master["DTEND"]) - initial
+    duration = _date(expected_instance["DTEND"]) - target
     identities, selected = set(), None
     for instance in instances:
         start = _date(instance["DTSTART"])
         original = _date(instance.get("RECURRENCE-ID", master["DTSTART"]))
-        if (instance["UID"] != master["UID"] or start != original or start < initial
+        if (instance["UID"] != master["UID"] or original < initial
                 or ("RECURRENCE-ID" not in instance and start != initial)
                 or _date(instance["DTEND"]) - start != duration
                 or not (start < bound and _date(instance["DTEND"]) > target)
                 or original in identities):
             _refuse()
         identities.add(original)
-        if start == target:
+        if start == target and original == original_target:
             selected = instance
     if selected is None:
         _refuse()
     # A projection may carry altered text. Require the unmodified simple-master
     # content as well as matching identity/timing before authorizing an override.
-    ignored = {"RRULE", "RECURRENCE-ID", "DTSTART", "DTEND", "DTSTAMP", "CREATED", "LAST-MODIFIED", "SEQUENCE"}
-    if {k: v for k, v in selected.items() if k not in ignored} != {k: v for k, v in master.items() if k not in ignored}:
+    ignored = {"RRULE", "RECURRENCE-ID", "DTSTART", "DTEND", "DTSTAMP", "CREATED", "LAST-MODIFIED", "SEQUENCE", "_raw_start"}
+    if {k: v for k, v in selected.items() if k not in ignored} != {k: v for k, v in expected_instance.items() if k not in ignored}:
         _refuse()
     status, headers, current = reader.transport("GET", url, "", 0)
     if (status != 200 or headers.get("etag") != snapshot["etag"] or not isinstance(current, bytes)
             or len(current) > _LIMIT or current != snapshot["content"].encode("utf-8")):
         _refuse()
     return {"collection": collection, "url": url, "etag": etag, "snapshot_sha256": snapshot["sha256"],
-            "uid": master["UID"], "recurrence_id": first, "start": selected["DTSTART"], "end": selected["DTEND"],
+            "uid": master["UID"], "recurrence_id": original_target.strftime("%Y%m%dT%H%M%SZ"), "start": selected["DTSTART"], "end": selected["DTEND"],
             "window_start": first, "window_end": last, "selected_sha256": digest(selected),
             "projection_sha256": digest(instances), "projection_instances": len(instances),
-            "membership": "provider_attested_original_utc_instance", "recurrence_completeness_verified": False}
+            "membership": "provider_attested_original_instance", "recurrence_completeness_verified": False}

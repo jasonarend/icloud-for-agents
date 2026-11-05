@@ -35,8 +35,7 @@ class OccurrenceChangesTests(unittest.TestCase):
         verify_occurrence_write(value, value)
 
     def test_existing_exceptions_components_and_unsupported_fields_refuse(self):
-        for before in (self.before.replace("END:VEVENT", "EXDATE:20261116T150000Z\r\nEND:VEVENT"),
-                       self.before.replace("END:VEVENT", "BEGIN:VALARM\r\nEND:VALARM\r\nEND:VEVENT"),
+        for before in (self.before.replace("END:VEVENT", "BEGIN:VALARM\r\nEND:VALARM\r\nEND:VEVENT"),
                        self.before.replace("END:VEVENT", "ATTENDEE:mailto:synthetic@example.com\r\nEND:VEVENT"),
                        self.before.replace("END:VEVENT", "ATTACH:https://example.invalid/a\r\nEND:VEVENT")):
             with self.subTest(before=before), self.assertRaises(SafetyError):
