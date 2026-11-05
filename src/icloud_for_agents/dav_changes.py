@@ -3,6 +3,7 @@ import base64
 from datetime import datetime, timezone
 import hashlib
 import http.client
+import os
 import re
 import ssl
 from urllib.parse import urlsplit
@@ -235,11 +236,19 @@ class DAVChanges:
             raise SafetyError("A strong current ETag is required for safe conditional DAV changes")
         return {"etag": etag, "sha256": hashlib.sha256(raw).hexdigest(), "content": raw.decode("utf-8")}
 
-    def prepare(self, kind, collection, changes, *, temporary=False):
+    def prepare(self, kind, collection, changes, *, temporary=False, deletion_authorization='local-receipt'):
         if type(temporary) is not bool or (temporary and kind != 'cal'):
             raise SafetyError("Temporary approval is available only for an exact Calendar proposal")
         if kind not in {"cal", "card"} or not isinstance(changes, list) or not 1 <= len(changes) <= 20:
             raise SafetyError("Prepare one explicit batch of 1..20 calendar/contact changes")
+        if not isinstance(deletion_authorization, str) or deletion_authorization not in {'local-receipt', 'trusted-client'}:
+            raise SafetyError("Use the configured local receipt or explicit trusted-client deletion authorization")
+        if deletion_authorization == 'trusted-client':
+            if (not temporary or kind != 'cal' or len(changes) != 1 or not isinstance(changes[0], dict)
+                    or changes[0].get('operation') not in {'delete', 'delete_occurrence'}
+                    or changes[0].get('irreversible_confirmed') is not True
+                    or os.environ.get('ICLOUD_APPROVAL_POLICY', 'local-receipt') != 'trusted-client'):
+                raise SafetyError("Client-authorized deletion requires one exact Calendar deletion and an enabled trusted-client policy")
         collection = self.reader.known_collection(kind, collection)
         if any(isinstance(change, dict) and isinstance(change.get("fields"), dict)
                and "recurrence" in change["fields"] for change in changes):
@@ -328,6 +337,8 @@ class DAVChanges:
                                  "irreversible DAV DELETE; private pre-change snapshot retained" if operation=='delete' else None)}
             if recurrence_scope is not None:
                 item["recurrence_scope"] = recurrence_scope
+            if deletion_authorization == 'trusted-client':
+                item['irreversible_confirmed'] = True
             if occurrence_proof is not None:
                 item['occurrence_start'] = change['occurrence_start']
                 item['occurrence_proof'] = occurrence_proof
@@ -350,6 +361,10 @@ class DAVChanges:
         if temporary:
             payload['temporary_elevation'] = 'calendar-exact-batch-once'
             payload['temporary_elevation_effect'] = 'One approved exact Calendar batch; saved access mode remains unchanged.'
+        if deletion_authorization == 'trusted-client':
+            payload['calendar_deletion_authority'] = 'trusted-client-exact-v1'
+            payload['calendar_deletion_authority_effect'] = ('The connected client must obtain the owner approval for this exact irreversible deletion; '
+                                                             'this is not an independently verified human receipt.')
         return self.store.prepare('calendar_change' if kind=='cal' else 'contact_change', payload)
 
     def _write(self, kind, item):
@@ -445,16 +460,17 @@ class DAVChanges:
                         completed.append(dict(written, status='write_returned_readback_unverified'))
                         raise
                     written = dict(written, verification='reviewed_recurring_event_readback')
-                elif kind == 'cal' and item['operation'] == 'delete' and item.get('recurrence_scope') == 'series':
-                    phase = "recurring_deletion_readback"
+                elif kind == 'cal' and item['operation'] == 'delete':
+                    is_series = item.get('recurrence_scope') == 'series'
+                    phase = "recurring_deletion_readback" if is_series else "calendar_deletion_readback"
                     try:
                         status, _, _ = self.reader.transport('GET', item['url'], '', 0)
                         if status != 404:
-                            raise SafetyError("Deleted recurring series is not confirmed absent")
+                            raise SafetyError("Deleted Calendar resource is not confirmed absent")
                     except Exception:
                         completed.append(dict(written, status='write_returned_readback_unverified'))
                         raise
-                    written = dict(written, verification='series_resource_absent')
+                    written = dict(written, verification='series_resource_absent' if is_series else 'event_resource_absent')
                 completed.append(written)
             result={"status":"applied","completed":completed,"do_not_retry":True}
         except Exception as exc:
@@ -506,7 +522,7 @@ def register_change_tools(mcp, safe, service, *, calendar=True, contacts=True):
         simple UTC occurrence, use recurrence_scope="occurrence", its original
         whole-second UTC occurrence_start, and an update of the same text fields.
         To exclude just that occurrence use operation="delete_occurrence" and
-        irreversible_confirmed=true; a local owner receipt is always required.
+        irreversible_confirmed=true; this ordinary path requires a local owner receipt.
         Occurrence changes require a matching provider expansion and unchanged
         resource, have no attendees, alarms or prior exceptions, and are one per
         proposal. Future-only and individual-occurrence time edits are not supported.
@@ -515,14 +531,17 @@ def register_change_tools(mcp, safe, service, *, calendar=True, contacts=True):
 
     @selected(calendar)
     @safe
-    def calendar_prepare_once(calendar_url: str, changes: list[dict]) -> dict:
+    def calendar_prepare_once(calendar_url: str, changes: list[dict], deletion_authorization: str = 'local-receipt') -> dict:
         """Review one exact Calendar batch from read-only access without changing settings.
 
         Uses the same personal-event and bounded recurring-event rules as
-        calendar_prepare_changes. The configured approval policy still applies;
-        irreversible deletion always requires a local owner receipt.
+        calendar_prepare_changes. For one irreversible deletion, only after the
+        owner explicitly approves its exact target and consequences, an already
+        enabled trusted-client policy may use deletion_authorization="trusted-client".
+        This relies on the client to confirm the owner; it is not an independent
+        human receipt. The default and strict mode require the local owner receipt.
         """
-        return editor().prepare('cal',calendar_url,changes,temporary=True)
+        return editor().prepare('cal',calendar_url,changes,temporary=True,deletion_authorization=deletion_authorization)
 
     @selected(contacts)
     @safe

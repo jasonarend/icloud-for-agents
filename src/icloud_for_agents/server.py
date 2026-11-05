@@ -26,9 +26,12 @@ trusted-client mode instead relies on client-enforced owner authorization for or
 proposals; an exact standing mail-cleanup grant can cover recoverable Trash batches.
 These client/grant paths are not independent proof of human approval. Sending still
 requires owner approval of recipients/content. No MCP tool mints independent human approval receipts.
-Irreversible calendar/contact deletion always requires an exact local-owner receipt.
-Calendar can prepare one exact temporary action from read-only access; it does not
-change saved permissions, and irreversible deletion still requires a local receipt.
+Irreversible contact deletion and ordinary Calendar deletion require an exact local-owner receipt.
+Calendar can prepare one exact temporary action from read-only access without changing
+saved permissions. For an exact one-time Calendar deletion, only after the owner
+explicitly approves its target and irreversible consequences, an already enabled
+trusted-client policy can rely on that client authorization instead of a receipt.
+The server cannot verify a human approved the assertion; never invent owner consent.
 Optional managed mail exceptions never authorize DAV changes or permanent purge.
 Never invoke the operator approval CLI yourself; the user reviews and runs it locally.
 Native Notes and Reminders have independent opt-ins, exact source allowlists and

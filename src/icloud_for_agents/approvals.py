@@ -37,11 +37,58 @@ def runtime_root():
     return Path.home() / "Library" / "Application Support" / "icloud-for-agents" / "runtime"
 
 
+def trusted_calendar_deletion(plan):
+    """Identify one specifically scoped client-authorized Calendar deletion.
+
+    This is an authorization assertion by the connected client, not evidence of
+    an independently authenticated person. Old and other-service plans refuse.
+    """
+    payload = plan.get('payload', {})
+    if not isinstance(payload, dict):
+        return False
+    changes = payload.get('changes', [])
+    if (plan.get('kind') != 'calendar_change' or payload.get('kind') != 'cal'
+            or payload.get('temporary_elevation') != 'calendar-exact-batch-once'
+            or payload.get('calendar_deletion_authority') != 'trusted-client-exact-v1'
+            or not isinstance(changes, list) or len(changes) != 1 or not isinstance(changes[0], dict)):
+        return False
+    item = changes[0]
+    before = item.get('before')
+    collection, url = payload.get('collection'), item.get('url')
+    if (item.get('irreversible_confirmed') is not True or not isinstance(before, dict)
+            or not isinstance(payload.get('account'), str) or not payload['account']
+            or not isinstance(before.get('etag'), str) or not re.fullmatch(r'"[^"\r\n]{1,200}"', before['etag'])
+            or not isinstance(before.get('content'), str)):
+        return False
+    try:
+        from .dav import apple_url
+        from urllib.parse import urlsplit
+        if hashlib.sha256(before['content'].encode('utf-8')).hexdigest() != before.get('sha256'):
+            return False
+        apple_url(collection, 'cal')
+        apple_url(url, 'cal')
+        if (not url.startswith(collection.rstrip('/') + '/')
+                or any(part in {'.', '..'} for part in urlsplit(url).path.split('/'))
+                or re.search(r'%2e|%2f|%5c', urlsplit(url).path, re.I)):
+            return False
+    except (SafetyError, TypeError, ValueError, UnicodeError):
+        return False
+    if item.get('operation') == 'delete':
+        return item.get('recurrence_scope') in (None, 'series') and item.get('content') is None
+    proof = item.get('occurrence_proof')
+    return (item.get('operation') == 'delete_occurrence' and item.get('recurrence_scope') == 'occurrence'
+            and isinstance(item.get('content'), str) and isinstance(proof, dict)
+            and proof.get('url') == url and proof.get('collection') == collection
+            and proof.get('etag') == before['etag'] and proof.get('snapshot_sha256') == before['sha256'])
+
+
 def authorization_path(plan):
     """Informational routing only; execution independently enforces every guard."""
     if plan['kind'] == 'trash' and os.environ.get('ICLOUD_CLEANUP_GRANT_ID'):
         return 'standing-cleanup', False
     if any(item.get('operation') in {'delete', 'delete_occurrence'} for item in plan['payload'].get('changes', [])):
+        if os.environ.get('ICLOUD_APPROVAL_POLICY', 'local-receipt') == 'trusted-client' and trusted_calendar_deletion(plan):
+            return 'trusted-client', False
         return 'local-receipt', True
     if plan['kind'] in {'notes_change','reminders_change'} and isinstance(plan['payload'].get('standing_grant'),dict):
         return 'standing-native', False
@@ -900,7 +947,7 @@ class PlanStore:
             if plan["payload"].get("account") != account:
                 raise SafetyError("Approval belongs to a different account")
             irreversible = any(item.get("operation") in {"delete", "delete_occurrence"} for item in plan["payload"].get("changes", []))
-            trusted = policy == "trusted-client" and not irreversible
+            trusted = policy == "trusted-client" and (not irreversible or trusted_calendar_deletion(plan))
             if trusted:
                 if os.environ.get("ICLOUD_MAIL_ACCOUNT") != account:
                     raise SafetyError("Trusted-client policy account mismatch")
