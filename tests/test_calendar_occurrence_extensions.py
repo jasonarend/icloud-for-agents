@@ -10,7 +10,7 @@ from icloud_for_agents.calendar_occurrence_changes import (occurrence_content, o
 from icloud_for_agents.calendar_occurrence_proof import prove_occurrence
 from icloud_for_agents.core import SafetyError
 from icloud_for_agents.dav_changes import event_content, unfold
-from tests.test_calendar_timezone import CHICAGO
+from test_calendar_timezone import CHICAGO
 
 COLLECTION = 'https://caldav.icloud.com/synthetic/'
 URL = COLLECTION + 'series.ics'

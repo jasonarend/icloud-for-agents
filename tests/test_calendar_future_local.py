@@ -6,7 +6,7 @@ from icloud_for_agents.calendar_future_split import split_future
 from icloud_for_agents.calendar_occurrence_changes import _resource, occurrence_content
 from icloud_for_agents.core import SafetyError
 from icloud_for_agents.dav_changes import event_content, unfold
-from tests.test_calendar_timezone import CHICAGO
+from test_calendar_timezone import CHICAGO
 
 UID = 'b' * 32
 

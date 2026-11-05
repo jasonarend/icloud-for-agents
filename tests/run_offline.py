@@ -38,4 +38,7 @@ with tempfile.TemporaryDirectory(prefix="bridge-synthetic-home-") as directory:
     (ROOT / "build/reports/UNIT-TEST-RESULTS.json").write_text(json.dumps(report, indent=2)+"\n")
     (ROOT / "build/reports/UNIT-TEST-OUTPUT.txt").write_text(stream.getvalue())
     print(json.dumps(report, indent=2))
+    for case, failure in result.failures + result.errors:
+        print("\nFAILED:", case.id())
+        print(failure)
     sys.exit(0 if report["passed"] else 1)

@@ -4,8 +4,8 @@ from icloud_for_agents.calendar_future_split import split_future
 from icloud_for_agents.calendar_occurrence_changes import _resource
 from icloud_for_agents.core import SafetyError
 from icloud_for_agents.dav_changes import unfold
-from tests.test_calendar_future_split import sample, UID
-from tests.test_calendar_future_local import local_series
+from test_calendar_future_split import sample, UID
+from test_calendar_future_local import local_series
 
 
 class FutureScheduleReplacementTests(unittest.TestCase):

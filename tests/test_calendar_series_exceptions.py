@@ -13,7 +13,7 @@ from icloud_for_agents.calendar_series_exceptions import series_exception_conten
 from icloud_for_agents.core import SafetyError
 from icloud_for_agents.dav import DAVReader
 from icloud_for_agents.dav_changes import DAVChanges, event_content, unfold
-from tests.test_calendar_timezone import CHICAGO
+from test_calendar_timezone import CHICAGO
 
 
 def resource(local=False):
