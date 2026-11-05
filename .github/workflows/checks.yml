@@ -35,6 +35,7 @@ jobs:
           .venv/bin/python tests/calendar_future_stdio_smoke.py
           .venv/bin/python tests/calendar_future_split_stdio_smoke.py
           .venv/bin/python tests/calendar_future_local_stdio_smoke.py
+          .venv/bin/python tests/calendar_future_schedule_stdio_smoke.py
           .venv/bin/python tests/calendar_series_exceptions_stdio_smoke.py
           .venv/bin/python tests/owner_review_stdio_smoke.py
           .venv/bin/python tests/policy_stdio_smoke.py

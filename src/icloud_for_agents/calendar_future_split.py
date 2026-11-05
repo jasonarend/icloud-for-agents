@@ -12,6 +12,7 @@ from .dav_changes import event_content, prop, replace_properties, unfold
 
 _CONTENT_FIELDS = {'summary', 'description', 'location', 'url', 'free', 'private'}
 _TIME_FIELDS = {'start', 'end', 'timezone'}
+_SCHEDULE_FIELDS = {'start', 'end', 'timezone', 'recurrence'}
 _DAYS = ('MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU')
 
 
@@ -30,9 +31,12 @@ def split_future(before, occurrence_start, fields, new_uid):
     This does no I/O. Creating the future resource and truncating the original
     cannot be atomic on CalDAV; the proposal must disclose that two-resource risk.
     """
-    if (not isinstance(fields, dict) or not fields or set(fields) - _CONTENT_FIELDS - _TIME_FIELDS
+    if (not isinstance(fields, dict) or not fields or set(fields) - _CONTENT_FIELDS - _SCHEDULE_FIELDS
             or not isinstance(new_uid, str) or not re.fullmatch(r'[0-9a-f]{32}', new_uid)):
         raise SafetyError('Future changes support content or paired same-date zoned time fields and a generated series identity')
+    replace_schedule = 'recurrence' in fields
+    if replace_schedule and not _SCHEDULE_FIELDS <= set(fields):
+        raise SafetyError('Future schedule replacement requires complete start, end, timezone and recurrence')
     validate_series_deletion(before)
     verify_created(before, before)
     from .calendar_occurrence_changes import _resource, _line
@@ -111,12 +115,30 @@ def split_future(before, occurrence_start, fields, new_uid):
         raise SafetyError('Future time changes require start and end together')
     if 'start' in fields:
         selected_zone = fields.get('timezone', zone)
+        if not isinstance(selected_zone, str):
+            raise SafetyError('Future schedule timezone must be an explicit IANA name')
         if selected_zone != zone and {selected_zone, zone} - {'UTC', 'Etc/UTC'}:
             raise SafetyError('Future time changes must retain the original IANA timezone')
         chosen_start, chosen_end = zoned_datetime(fields['start'], zone), zoned_datetime(fields['end'], zone)
-        if (chosen_start.date() != target.date() or chosen_end.date() != target.date()
-                or not timedelta(0) < chosen_end - chosen_start <= timedelta(days=1)):
-            raise SafetyError('Future time changes require a positive interval on the selected original local date')
+        if not timedelta(0) < chosen_end - chosen_start <= timedelta(days=1) or chosen_end.date() != chosen_start.date():
+            raise SafetyError('Future schedule requires a positive same-local-day interval')
+        if replace_schedule:
+            if chosen_start.date() < target.date():
+                raise SafetyError('A replacement future schedule cannot start before the selected original local date')
+        elif chosen_start.date() != target.date():
+            raise SafetyError('Future time changes require the selected original local date; date changes need a complete replacement schedule')
+    schedule_replacement = None
+    if replace_schedule:
+        new_rule = recurrence_rule({'start': chosen_start.isoformat(), 'end': chosen_end.isoformat(),
+                                    'timezone': zone, 'recurrence': fields['recurrence']})
+        future_rule = dict(piece.split('=') for piece in new_rule.split(';'))
+        schedule_replacement = {
+            'start': chosen_start.isoformat(), 'end': chosen_end.isoformat(), 'timezone': zone,
+            'recurrence': fields['recurrence'], 'rrule': new_rule,
+            'original_future_occurrence_start': target.isoformat(),
+            'replaced_remaining_count': None if count is None else count - preceding,
+            'original_end_condition_replaced': True,
+            'count_starts_at_new_first_occurrence': True}
     zone_validation = None
     if zone not in {'UTC', 'Etc/UTC'}:
         from .calendar_timezone import validate_timezone_coverage, validate_wall_duration
@@ -128,7 +150,7 @@ def split_future(before, occurrence_start, fields, new_uid):
             'future_coverage': validate_timezone_coverage(definition, zone, chosen_start),
             'future_duration': validate_wall_duration(definition, zone, chosen_start, chosen_end)}
     changed_time = chosen_start != target or chosen_end != future_end
-    if changed_time and 'UNTIL' in parsed:
+    if changed_time and 'UNTIL' in parsed and not replace_schedule:
         raise SafetyError('Future time changes on UNTIL-bounded series require a separate end-condition workflow')
     # Validate content independently: merely moving the first date to the split
     # boundary must not make an otherwise unchanged proposal look like an edit.
@@ -140,7 +162,7 @@ def split_future(before, occurrence_start, fields, new_uid):
             verify_created(before, changed)
         except SafetyError:
             changed_content = True
-    if not changed_content and not changed_time:
+    if not changed_content and not changed_time and not replace_schedule:
         raise SafetyError('Future proposal does not change the reviewed content or time')
     future = replace_properties(unfold(changed), {
         'UID': ['UID:' + new_uid],
@@ -154,16 +176,19 @@ def split_future(before, occurrence_start, fields, new_uid):
     verify_created(future, future)
     verify_created(original, original)
     return {'original_content': original, 'future_content': future, 'future_uid': new_uid,
-            'preceding_occurrences': preceding, 'remaining_count': None if count is None else count - preceding,
+            'preceding_occurrences': preceding, 'remaining_count': int(future_rule['COUNT']) if 'COUNT' in future_rule else None,
             'original_until': parsed.get('UNTIL'), 'timezone': zone, 'timezone_validation': zone_validation,
+            'schedule_replacement': schedule_replacement,
             'time_change': ({'original_start': target.isoformat(), 'original_end': future_end.isoformat(),
                              'new_start': chosen_start.isoformat(), 'new_end': chosen_end.isoformat(),
-                             'recurrence_dates_unchanged': True} if changed_time else None),
-            'effects': [('The future series retains its original end condition.' if count is not None or 'UNTIL' in parsed else
+                             'recurrence_dates_unchanged': not replace_schedule} if changed_time else None),
+            'effects': [('The future schedule and end condition are replaced by the complete reviewed new recurrence. Any COUNT starts at its new first occurrence; the original remaining count or end is not preserved.'
+                         if replace_schedule else 'The future series retains its original end condition.' if count is not None or 'UNTIL' in parsed else
                          'The future series remains indefinite, as the original series was.'),
                         'A new event resource and UID hold the selected occurrence and later occurrences.',
                         'Earlier occurrences stay on the original resource and UID.',
-                        ('Future occurrences keep their recurrence dates and use the reviewed new start/end times in their original timezone; past event times remain unchanged.'
+                        ('The replacement may change all later recurrence dates, start/end times and ending. A later first date intentionally leaves a gap; earlier history and its times remain unchanged.'
+                         if replace_schedule else 'Future occurrences keep their recurrence dates and use the reviewed new start/end times in their original timezone; past event times remain unchanged.'
                          if changed_time else 'Future occurrences retain their original start/end times.'),
                         ('The original IANA timezone and its provider definition are retained. Local wall time follows that zone across daylight saving; checks are bounded and do not prove all future timezone rules.'
                          if zone_validation is not None else 'UTC is retained; local daylight-saving changes do not shift these UTC recurrence times.'),

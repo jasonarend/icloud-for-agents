@@ -262,7 +262,7 @@ class DAVChanges:
                and "recurrence" in change["fields"] for change in changes):
             if (kind != "cal" or len(changes) != 1 or not
                     (changes[0].get("operation") == "create" or
-                     (changes[0].get("operation") == "update" and changes[0].get("recurrence_scope") == "series"))):
+                     (changes[0].get("operation") == "update" and changes[0].get("recurrence_scope") in {"series", "future"}))):
                 raise SafetyError("Prepare each recurring event creation or rescheduling as a separate Calendar proposal")
         prepared, identities = [], set()
         for change in changes:
@@ -351,7 +351,7 @@ class DAVChanges:
                                 raise SafetyError('Future occurrence deletion does not accept replacement fields')
                             from .calendar_future_changes import truncate_before
                             content = truncate_before(before['content'], change['occurrence_start'])
-                    if (isinstance(fields, dict) and 'recurrence' in fields
+                    if (recurrence_scope != 'future' and isinstance(fields, dict) and 'recurrence' in fields
                             and isinstance(fields.get('timezone'), str) and fields['timezone'] not in {'UTC', 'Etc/UTC'}):
                         from .calendar_recurrence import calendar_timezone, recurrence_rule, zoned_datetime
                         from .calendar_timezone import validate_timezone_coverage, validate_wall_duration
@@ -408,7 +408,10 @@ class DAVChanges:
                     'Local occurrences in daylight-saving gaps may be skipped; future timezone rules can change.',
                     'Timezone comparisons are bounded and do not prove every future occurrence.',
                 ]
-                if operation == 'update':
+                if operation == 'update' and recurrence_scope == 'future':
+                    item['recurrence_effects'][0] = 'This replaces the selected occurrence and all later dates with a new reviewed future schedule; earlier history remains on the original series.'
+                    item['recurrence_effects'].append('The new COUNT or UNTIL is used exactly as reviewed, or the new schedule is indefinite when both are absent. COUNT starts at the new first occurrence; the original remaining count or end is replaced.')
+                elif operation == 'update':
                     item['recurrence_effects'].append('This replaces the schedule for the entire series, including past occurrences; count starts at the new first occurrence.')
             prepared.append(item)
         payload={"account":self.reader.account,"kind":kind,"collection":collection,"changes":prepared,
@@ -428,7 +431,7 @@ class DAVChanges:
         from .calendar_future_split import split_future
         from .calendar_recurrence import verify_created
         split = item.get('future_split')
-        keys = {'future_uid', 'preceding_occurrences', 'remaining_count', 'original_until', 'timezone', 'timezone_validation', 'time_change', 'effects', 'new_resource'}
+        keys = {'future_uid', 'preceding_occurrences', 'remaining_count', 'original_until', 'timezone', 'timezone_validation', 'schedule_replacement', 'time_change', 'effects', 'new_resource'}
         if (item.get('operation') != 'update' or item.get('recurrence_scope') != 'future'
                 or not isinstance(split, dict) or set(split) != keys):
             raise SafetyError('Invalid reviewed future-series split')
@@ -683,9 +686,17 @@ def register_change_tools(mcp, safe, service, *, calendar=True, contacts=True):
         recurrence_scope="future" and content fields creates a new future series
         before truncating the original. COUNT or indefinite series can also change
         future start/end together on the selected original local date, with matching
-        offsets and optional unchanged timezone. Dates, recurrence-rule changes
-        and UNTIL-bounded time changes are refused. Review the new identity and
-        two-write partial-failure risk; there is no automatic rollback or replay.
+        offsets and optional unchanged timezone. To replace future dates, times,
+        recurrence or ending, supply complete start, end, timezone and recurrence.
+        The original IANA zone is retained; the new positive interval must be on
+        one local date no earlier than the selected original occurrence's date.
+        The new recurrence uses the supported authoring grammar and its exact
+        reviewed COUNT, UTC UNTIL, or indefinite ending. COUNT starts at the new
+        first occurrence; the original remaining count or end is replaced.
+        Earlier history remains unchanged. Without a complete new recurrence,
+        date shifts and UNTIL-bounded time shifts remain refused. Review the new
+        identity and two-write partial-failure risk; there is no automatic rollback
+        or replay.
         """
         return editor().prepare('cal',calendar_url,changes)
 
