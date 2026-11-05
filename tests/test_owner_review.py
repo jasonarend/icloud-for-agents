@@ -1,6 +1,7 @@
 """Synthetic owner-review lifecycle; no real windows or account access."""
 
 import json
+import fcntl
 import os
 from pathlib import Path
 import tempfile
@@ -89,6 +90,24 @@ class OwnerReviewTests(unittest.TestCase):
             self.assertEqual(self.wait(manager, identity), 'approved')
         self.assertEqual(other_instance.status(identity)['status'], 'approved')
         self.assertEqual(self.store.consume(identity, 'synthetic@example.com')['kind'], 'calendar_change')
+
+    def test_cancelled_started_and_finished_statuses_take_precedence_over_receipt_lock(self):
+        manager = OwnerReview(self.store, dialog=lambda review, heading: 'approved')
+        for suffix, record, expected in (
+                ('.cancelled', lambda p: {'plan_sha256': p['sha256']}, 'cancelled'),
+                ('.started', lambda p: {'sha256': p['sha256'], 'account': 'synthetic@example.com'}, 'started_or_uncertain'),
+                ('.result', lambda p: {'status': 'applied'}, 'applied')):
+            proposal = self.proposal()
+            identity = proposal['plan_id']
+            self.store.write_once(self.store.path(identity, '.approved'), {'plan_id': identity, 'sha256': proposal['sha256']})
+            self.store.write_once(self.store.path(identity, suffix), record(proposal))
+            fd = os.open(self.store.root / 'approval-policy.lock', os.O_RDWR | os.O_CREAT, 0o600)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                with self.subTest(suffix=suffix):
+                    self.assertEqual(manager.status(identity)['status'], expected)
+            finally:
+                os.close(fd)
 
     def test_cancel_failure_or_unexpected_result_never_creates_receipt(self):
         for decision in ('declined', None, True, 'APPROVED'):

@@ -233,13 +233,14 @@ class OwnerReview:
                 and (type(plan.get('expires')) not in (int, float) or not math.isfinite(plan['expires'])
                      or self.store.clock() > plan['expires'])):
             return {'plan_id': plan_id, 'status': 'expired'}
-        if not any(self.store.path(plan_id, suffix).exists() for suffix in ('.started', '.result', '.cancelled')):
+        terminal = any(self.store.path(plan_id, suffix).exists() for suffix in ('.started', '.result', '.cancelled'))
+        if not terminal:
             with self.lock:
                 item = self.requests.get((scope, plan_id))
                 if item and item['status'] == 'pending':
                     return {'plan_id': plan_id, 'request_id': item['request_id'], 'status': 'pending'}
         try:
-            if self.store.path(plan_id, '.approved').exists():
+            if not terminal and self.store.path(plan_id, '.approved').exists():
                 with self._receipt_lock(self.store, scope):
                     durable = self.store.status(plan_id)
             else:
