@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.1.0 — 2026-11-04
+
+- Add bounded recurring Calendar reads and approved creation, whole-series updates and deletion.
+- Support approved individual occurrence changes, including supported local-time moves and existing exceptions, and removal of selected future occurrences.
+- Add a reviewed split workflow for supported future-only series changes, with explicit partial-failure handling.
+- Let the assistant request a local Mac review window for strict approvals, so owners do not need Terminal commands.
+- Add assistant-led setup and revocation of scoped standing Mail cleanup, with durable activation checks.
+
 ## 2.0.1 — 2026-11-03
 
 - Stabilize the native permission test on hosted runners and allow more time for the full source-check workflow.

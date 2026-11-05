@@ -1,6 +1,6 @@
 # iCloud for Agents
 
-**Version 2.0.1**
+**Version 2.1.0**
 
 Connect your AI assistant to iCloud Mail, Calendar, Contacts, Apple Notes and Reminders while keeping credentials private and stored locally on your Mac. Choose only the apps you want to use. Connect a local MCP client like Claude over stdio, or connect ChatGPT through your own private OpenAI Secure MCP Tunnel.
 
@@ -21,7 +21,7 @@ All five services are optional and can be enabled independently. A new setup ena
 
 Mail cleanup moves messages to recoverable Trash. Permanent deletion and emptying Trash are intentionally excluded.
 
-Calendar supports personal events and a bounded set of recurring-event operations, including selected changes to simple UTC occurrences. Creating a local-time series requires a supported matching time-zone definition from the selected calendar. Changes to local-time occurrences and other advanced series operations are not yet supported. Invitations, guests and scheduling responses are not included. iCloud Drive access is also not included.
+Calendar supports personal events and a bounded set of recurring-event operations, including supported individual occurrences and removing selected future occurrences. Local-time recurring operations require a supported matching time-zone definition. Some advanced series changes remain unavailable. Invitations, guests and scheduling responses are not included. iCloud Drive access is also not included.
 
 Some Notes and Reminders capabilities need a separately selected native backend and additional macOS access. Notes removal requires an accessible, verified Recently Deleted folder; an empty or hidden folder refuses safely. Reminders supports recoverable removal and restoration of individual root tasks and explicitly reviewed families with direct children. Rich editing, deeper hierarchies and other native operations have specific limits. See the [capability overview](docs/reference/native-support.md) and [Notes and Reminders setup](docs/getting-started/native-services.md).
 
@@ -91,4 +91,4 @@ The test suite uses synthetic accounts and credential-free stdio discovery. Clau
 
 The upstream MIT notice is preserved in [LICENSE](LICENSE). iCloud for Agents is informed by [mike-tih/icloud-mcp](https://github.com/mike-tih/icloud-mcp); it uses a separate runtime package and does not bundle or execute that server. See [licensing and provenance](docs/contributing/licensing.md) for the exact revision, dependency inventory and scope of attribution.
 
-[![M8ven Score](https://m8ven.ai/badge/mcp/jasonarend/icloud-for-agents)](https://m8ven.ai/mcp/jasonarend/icloud-for-agents?s=readme)
+[![M8ven Score](https://m8ven.ai/badge/mcp/jasonarend-icloud-for-agents-1a9ogy?v=f5fd4cc8e6a4cdc1f68bf7bba89d54d4)](https://m8ven.ai/mcp/jasonarend-icloud-for-agents-1a9ogy?s=readme)
