@@ -109,6 +109,21 @@ class OwnerReviewTests(unittest.TestCase):
             finally:
                 os.close(fd)
 
+    def test_status_and_request_wait_while_receipt_creation_has_not_yet_started(self):
+        proposal = self.proposal()
+        identity = proposal['plan_id']
+        manager = OwnerReview(self.store, dialog=lambda review, heading: 'approved')
+        fd = os.open(self.store.root / 'approval-policy.lock', os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            self.assertFalse(self.store.path(identity, '.approved').exists())
+            self.assertEqual(manager.status(identity)['status'], 'pending')
+            self.assertEqual(manager.request(identity)['status'], 'pending')
+            self.assertFalse(manager.requests)
+        finally:
+            os.close(fd)
+        self.assertEqual(manager.status(identity)['status'], 'awaiting_local_approval')
+
     def test_cancel_failure_or_unexpected_result_never_creates_receipt(self):
         for decision in ('declined', None, True, 'APPROVED'):
             proposal = self.proposal()

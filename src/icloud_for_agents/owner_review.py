@@ -112,23 +112,23 @@ class OwnerReview:
             previous = self.requests.get(key)
             if previous and previous['status'] == 'pending':
                 return {'plan_id': plan_id, 'request_id': previous['request_id'], 'status': 'pending'}
-        if store.path(plan_id, '.approved').exists():
-            try:
-                with self._receipt_lock(store, scope):
+        try:
+            with self._receipt_lock(store, scope):
+                if store.path(plan_id, '.approved').exists():
                     receipt = store.read(store.path(plan_id, '.approved'))
-            except BlockingIOError:
-                return {'plan_id': plan_id, 'status': 'pending'}
-            if receipt.get('plan_id') != plan_id or receipt.get('sha256') != fingerprint:
-                raise SafetyError('Existing owner receipt does not match the proposal')
-            return {'plan_id': plan_id, 'status': 'approved'}
-        with self.lock:
-            previous = self.requests.get(key)
-            if previous and previous['status'] == 'pending':
-                return {'plan_id': plan_id, 'request_id': previous['request_id'], 'status': 'pending'}
-            if any(item['status'] == 'pending' for item in self.requests.values()):
-                raise SafetyError('Another local owner review is already open')
-            request = {'request_id': uuid.uuid4().hex, 'status': 'pending'}
-            self.requests[key] = request
+                    if receipt.get('plan_id') != plan_id or receipt.get('sha256') != fingerprint:
+                        raise SafetyError('Existing owner receipt does not match the proposal')
+                    return {'plan_id': plan_id, 'status': 'approved'}
+                with self.lock:
+                    previous = self.requests.get(key)
+                    if previous and previous['status'] == 'pending':
+                        return {'plan_id': plan_id, 'request_id': previous['request_id'], 'status': 'pending'}
+                    if any(item['status'] == 'pending' for item in self.requests.values()):
+                        raise SafetyError('Another local owner review is already open')
+                    request = {'request_id': uuid.uuid4().hex, 'status': 'pending'}
+                    self.requests[key] = request
+        except BlockingIOError:
+            return {'plan_id': plan_id, 'status': 'pending'}
         # The complete escaped proposal is rendered as plain text; caller-supplied
         # UI text, scripts, commands and paths are never accepted.
         review = json.dumps(plan, ensure_ascii=True, indent=2)
@@ -240,7 +240,7 @@ class OwnerReview:
                 if item and item['status'] == 'pending':
                     return {'plan_id': plan_id, 'request_id': item['request_id'], 'status': 'pending'}
         try:
-            if not terminal and self.store.path(plan_id, '.approved').exists():
+            if not terminal:
                 with self._receipt_lock(self.store, scope):
                     durable = self.store.status(plan_id)
             else:
