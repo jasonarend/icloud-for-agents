@@ -12,6 +12,7 @@ import os
 import stat
 import threading
 import uuid
+from contextlib import contextmanager
 
 from .approvals import PlanStore, authorization_path
 from .core import SafetyError, digest
@@ -88,15 +89,38 @@ class OwnerReview:
             return manager.store, plan
         raise SafetyError('Unknown owner-review scope')
 
+    @contextmanager
+    def _receipt_lock(self, store, scope):
+        """Do not report a receipt while its writer still holds the admission lock."""
+        store.ready()
+        name = 'management.lock' if scope == 'managed-policy' else 'approval-policy.lock'
+        fd = os.open(store.root / name, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        try:
+            info = os.fstat(fd)
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o600:
+                raise SafetyError('Invalid owner-review admission lock')
+            fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            yield
+        finally:
+            os.close(fd)
+
     def request(self, plan_id, scope='service'):
         store, plan = self._resolve(plan_id, scope)
         fingerprint = digest(plan)
+        key = (scope, plan_id)
+        with self.lock:
+            previous = self.requests.get(key)
+            if previous and previous['status'] == 'pending':
+                return {'plan_id': plan_id, 'request_id': previous['request_id'], 'status': 'pending'}
         if store.path(plan_id, '.approved').exists():
-            receipt = store.read(store.path(plan_id, '.approved'))
+            try:
+                with self._receipt_lock(store, scope):
+                    receipt = store.read(store.path(plan_id, '.approved'))
+            except BlockingIOError:
+                return {'plan_id': plan_id, 'status': 'pending'}
             if receipt.get('plan_id') != plan_id or receipt.get('sha256') != fingerprint:
                 raise SafetyError('Existing owner receipt does not match the proposal')
             return {'plan_id': plan_id, 'status': 'approved'}
-        key = (scope, plan_id)
         with self.lock:
             previous = self.requests.get(key)
             if previous and previous['status'] == 'pending':
@@ -179,8 +203,16 @@ class OwnerReview:
                 return {'plan_id': plan_id, 'status': 'revoked'}
             if type(plan.get('expires')) not in (int, float) or not math.isfinite(plan['expires']) or manager.clock() >= plan['expires']:
                 return {'plan_id': plan_id, 'status': 'expired'}
+            with self.lock:
+                item = self.requests.get((scope, plan_id))
+                if item and item['status'] == 'pending':
+                    return {'plan_id': plan_id, 'request_id': item['request_id'], 'status': 'pending'}
             if manager.store.path(plan_id, '.approved').exists():
-                receipt = manager.store.read(manager.store.path(plan_id, '.approved'))
+                try:
+                    with self._receipt_lock(manager.store, scope):
+                        receipt = manager.store.read(manager.store.path(plan_id, '.approved'))
+                except BlockingIOError:
+                    return {'plan_id': plan_id, 'status': 'pending'}
                 if receipt.get('plan_id') != plan_id or receipt.get('sha256') != digest(plan):
                     raise SafetyError('Managed-policy receipt does not match the proposal')
                 return {'plan_id': plan_id, 'status': 'approved'}
@@ -201,7 +233,19 @@ class OwnerReview:
                 and (type(plan.get('expires')) not in (int, float) or not math.isfinite(plan['expires'])
                      or self.store.clock() > plan['expires'])):
             return {'plan_id': plan_id, 'status': 'expired'}
-        durable = self.store.status(plan_id)
+        if not any(self.store.path(plan_id, suffix).exists() for suffix in ('.started', '.result', '.cancelled')):
+            with self.lock:
+                item = self.requests.get((scope, plan_id))
+                if item and item['status'] == 'pending':
+                    return {'plan_id': plan_id, 'request_id': item['request_id'], 'status': 'pending'}
+        try:
+            if self.store.path(plan_id, '.approved').exists():
+                with self._receipt_lock(self.store, scope):
+                    durable = self.store.status(plan_id)
+            else:
+                durable = self.store.status(plan_id)
+        except BlockingIOError:
+            return {'plan_id': plan_id, 'status': 'pending'}
         if durable.get('status') != 'awaiting_local_approval':
             return {'plan_id': plan_id, 'status': durable['status']}
         with self.lock:

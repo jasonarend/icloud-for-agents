@@ -63,6 +63,33 @@ class OwnerReviewTests(unittest.TestCase):
         self.assertFalse(self.store.path(proposal['plan_id'], '.started').exists())
         self.assertEqual(self.store.consume(proposal['plan_id'], 'synthetic@example.com')['kind'], 'calendar_change')
 
+    def test_receipt_is_not_reported_ready_until_its_admission_lock_is_released(self):
+        proposal = self.proposal()
+        identity = proposal['plan_id']
+        written, release = threading.Event(), threading.Event()
+        original = self.store.write_once
+        def slow_write(path, value):
+            original(path, value)
+            if path.name == identity + '.approved':
+                written.set()
+                if not release.wait(5):
+                    raise RuntimeError('Synthetic test did not release the receipt writer')
+        manager = OwnerReview(self.store, dialog=lambda review, heading: 'approved')
+        other_instance = OwnerReview(self.store, dialog=lambda review, heading: 'approved')
+        with patch.object(self.store, 'write_once', side_effect=slow_write):
+            try:
+                manager.request(identity)
+                self.assertTrue(written.wait(5))
+                self.assertEqual(manager.status(identity)['status'], 'pending')
+                self.assertEqual(manager.request(identity)['status'], 'pending')
+                self.assertEqual(other_instance.status(identity)['status'], 'pending')
+                self.assertEqual(other_instance.request(identity)['status'], 'pending')
+            finally:
+                release.set()
+            self.assertEqual(self.wait(manager, identity), 'approved')
+        self.assertEqual(other_instance.status(identity)['status'], 'approved')
+        self.assertEqual(self.store.consume(identity, 'synthetic@example.com')['kind'], 'calendar_change')
+
     def test_cancel_failure_or_unexpected_result_never_creates_receipt(self):
         for decision in ('declined', None, True, 'APPROVED'):
             proposal = self.proposal()
