@@ -6,6 +6,19 @@ iCloud for Agents connects your AI assistant to iCloud Mail, Calendar, Contacts,
 
 Choose which services to connect and what your assistant can access or change. The bridge runs on your Mac and stores credentials locally. Connect a compatible local MCP client, or use ChatGPT through your private OpenAI Secure MCP Tunnel.
 
+## AI assistants and MCP clients
+
+Connect through ChatGPT or a local MCP client, including:
+
+- ChatGPT, using your private OpenAI Secure MCP Tunnel
+- Claude Desktop and Claude Code
+- Unsloth Desktop
+- Hermes Desktop
+- OpenClaw
+- Custom-built AI assistants and agents that support local stdio MCP
+
+Other local stdio MCP clients may also connect. Grok Bot supports MCP, but connecting it to your Mac requires additional work. See the [client setup guide](docs/getting-started/clients.md) for configuration instructions and compatibility details.
+
 ## What you can do
 
 Some advanced Notes and Reminders features require an optional native backend and additional macOS permissions.
@@ -174,7 +187,7 @@ Report suspected vulnerabilities through the [private security reporting process
 
 **Tested setup:** macOS on Apple silicon with CPython 3.14. Other configurations require separate validation; see [installation requirements](docs/getting-started/installation.md) for compatibility details.
 
-The test suite uses synthetic accounts and credential-free stdio discovery. Claude Desktop and Claude Code are tested and supported through local stdio MCP. Other client routes have the status described in the client compatibility guide. Public source distribution is separate from any client plugin catalog.
+Public source distribution is separate from any client plugin catalog.
 
 ## License and provenance
 

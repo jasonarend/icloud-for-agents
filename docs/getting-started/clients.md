@@ -2,11 +2,11 @@
 
 The server runs on your Mac and retrieves credentials from macOS Keychain. A local client launches it over stdio; ChatGPT connects through your private Secure MCP Tunnel. The model name does not determine the connection: Claude in a local app and Claude in a browser have different capabilities.
 
-Tested and supported clients are ChatGPT through the private tunnel, Claude Desktop on macOS, and Claude Code through local stdio MCP. OpenClaw has the narrower verified read-only collection path described below. The tested platform is macOS arm64 with Python 3.14. Other client routes follow official client documentation and remain unverified with this project unless stated otherwise. Verify the installed client version and current documentation before changing configuration.
+ChatGPT connects through a private tunnel; Claude Desktop, Claude Code and compatible local clients connect over stdio. Unsloth Desktop, Hermes Desktop and OpenClaw have also been verified for the read-only operations described in their sections. The tested platform is macOS arm64 with Python 3.14. Other client routes remain unverified with this project unless stated otherwise. Check the installed client's documentation when its interface differs from these instructions.
 
 ## Prepare the local server
 
-Complete [installation and credentials](installation.md), select the owner's approved services, and keep initial access read-only. From the project root, obtain the actual launch values:
+Complete [installation and credentials](installation.md), select the services you want, and keep initial access read-only. Your assistant can obtain the actual launch values from the project root; you do not need to run this command yourself:
 
 ```sh
 .venv/bin/python scripts/configure-local.py --show-stdio-config
@@ -53,6 +53,29 @@ Choose a narrower project/local scope if that matches the owner's request; perso
 
 Source: [Claude Code MCP guide](https://code.claude.com/docs/en/mcp).
 
+## Unsloth Desktop
+
+Connect iCloud for Agents in Unsloth's interface:
+
+1. Complete the local server setup above, with only your chosen services enabled and access set to read-only for the first test. If an assistant is helping, it can obtain the launch values and handle local setup commands for you.
+2. In a chat, open **Tools and attachments → More → MCP** if the **MCP** control is hidden. Then open **MCP → Manage MCP servers → Add server**. Keep any existing servers.
+3. Set **Display name** to `iCloud for Agents`. In **URL or executable**, enter the absolute Python path from the existing installation, such as `/ABSOLUTE/PATH/icloud-for-agents/.venv/bin/python`. Add one **Arguments** row containing `/ABSOLUTE/PATH/icloud-for-agents/scripts/run-stdio.py`. Use the actual checkout path in both fields.
+4. Choose **Test connection**, then **Add server** after it connects. The number of tools depends on the services you selected.
+5. Keep the server enabled in the manager and enable MCP use in the chat. The server's row in the MCP menu also toggles its availability, so leave it enabled for the test. Choose a model that supports tool calling and keep Unsloth's normal tool approvals enabled.
+6. Ask Unsloth to read something from a selected service, such as “Show my calendars.” Check the actual tool result. Follow the [verification guidance below](#verify-every-client-connection) for the services you chose.
+
+The standard launcher reads your service selections and access modes from `local/settings.json` and retrieves Apple credentials from Keychain. Leave credentials out of Unsloth's argument and environment fields. Environment overrides beside the standard launcher do not restrict the shared settings it loads.
+
+Choose an on-device model to process tool results locally. A connected cloud model may send those results to its provider. Temporary chat avoids saving the conversation in Unsloth's normal history; it does not replace a review of the client's logging and storage settings. Notes and Reminders still need their separate [native-service setup](native-services.md), approved sources and macOS access.
+
+Unsloth's **Settings → API → Agent access (MCP)** exposes Unsloth itself to other agents. Adding iCloud for Agents uses the outgoing server manager described above. A normal local Desktop installation supports stdio; a remote Unsloth instance cannot use the Mac's paths or Keychain automatically. If local servers are unavailable, check whether Unsloth's Remote Access is active and whether tools are enabled; follow Unsloth's own guidance before changing either setting.
+
+For Notes and Reminders, follow the macOS permission prompts and select the accounts you want to make available. Reminders access in macOS is broader than the server's selected-source and read-only controls. If access is refused, check the helper's permission and service status as described in [native-service setup](native-services.md).
+
+Read-only collection access has been verified for all five services in Unsloth. Writes and the first-use permission prompt on another Mac have not been verified in this client.
+
+Sources: [Unsloth Desktop](https://unsloth.ai/docs/desktop), [Unsloth tool permissions and security](https://unsloth.ai/blog/security).
+
 ## Codex CLI, desktop app and IDE extension
 
 Use the local Codex MCP configuration loaded by the intended surface. For the CLI:
@@ -73,23 +96,21 @@ Inspect `codex mcp list` and the target surface's MCP settings; restart or refre
 
 Source: [OpenAI Codex MCP documentation](https://developers.openai.com/codex/mcp).
 
-## Hermes: current verification blocker
+## Hermes Desktop
 
-Hermes v0.22.5+1741 is not yet verified for live iCloud reads in this test environment. Its standalone MCP probe connected, but the conversation gateway failed before Python initialization with `EPERM` opening the checkout virtual environment on an external volume. A successful probe does not certify conversation access.
+In Hermes Desktop, open **Capabilities → Connectors → Add your own**. Name the connector and enter the absolute **Command to launch** and **Arguments** from [Prepare the local server](#prepare-the-local-server); save it without removing existing connectors. Enable the connector and the read tools needed for the selected services, then ask Hermes to make the bounded checks in [Verify every client connection](#verify-every-client-connection). Keep Apple credentials in Keychain, not connector fields. A cloud model receives any tool results it processes; choose a model and service scope appropriate for the information you intend to share.
 
-Check the actual gateway owner and macOS permission attribution, not only the Desktop app's Files & Folders toggle. Desktop and CLI share a gateway that can outlive the Desktop window. In the installed version, `hermes_cli/gateway_launchd_runtime.py` intentionally launches an unmanaged macOS gateway through a one-off launchd/osascript job for Local Network privacy behavior. A normal Desktop relaunch therefore need not change its responsible process. In this test, TCC attributed the denied removable-volume access to `com.apple.osascript`; Hermes.app's existing Removable Volumes grant was on, and a separately approved official gateway stop/restart recreated the same launch context and failure. This is an unresolved client/runtime compatibility issue on this machine, not a demonstrated requirement for every installation.
+Read-only collection access has been verified for Mail, Calendar and Contacts in Hermes Desktop. Notes, Reminders and writes have not yet been verified in this client.
 
-Do not repeat permission resets or claim that restarting the gateway fixes this failure. Do not grant Full Disk Access, broaden a scripting host's permissions, move the server to another path or change its launcher to evade a denial. Obtain a supported Hermes/macOS remedy for the identified responsible process, then verify actual read tool results. Stopping a shared Hermes gateway can interrupt other sessions and ends detached terminal shells; preserve work and obtain approval for that interruption first.
-
-Upstream tracks this attribution problem in [issue #144255](https://github.com/NousResearch/hermes-agent/issues/144255). As checked on 2026-10-27, [PR #139529](https://github.com/NousResearch/hermes-agent/pull/139529) proposes a dedicated gateway app identity and [PR #130745](https://github.com/NousResearch/hermes-agent/pull/130745) proposes a direct-launch identity switch; both remain open and the installed version has neither switch. They are review candidates, not verified installation steps. The issue reporter's broad osascript Full Disk Access workaround is not part of this project's setup: it affects unrelated scripts and needs separate informed approval. Prefer a released vendor fix that gives the gateway a specific, grantable identity, then repeat actual conversation tests.
+If startup fails, check the actual gateway's error and macOS permission attribution; Desktop and CLI can share a gateway that outlives the Desktop window. A standalone probe alone does not prove that a conversation can use the server. Do not reset privacy permissions, grant a scripting host broad access, or change paths to evade a denial. Stopping a shared gateway can interrupt other sessions, so coordinate with its owner. Upstream tracks the attribution issue in [issue #144255](https://github.com/NousResearch/hermes-agent/issues/144255).
 
 Source: [Hermes Desktop lifecycle and macOS permissions](https://hermes-agent.nousresearch.com/docs/user-guide/desktop).
 
-## OpenClaw: verified read-only collection access
+## OpenClaw
 
-Verified on macOS arm64 with iCloud for Agents 1.1.0, OpenClaw 2026.10.7 (`157d8c2`), and the OpenAI Codex runtime using `openai/gpt-6.1-terra`. Actual harness calls passed for Mail folder listing twice with identical results, Calendar collection listing, and Contacts address-book listing. Eight read tool schemas were exposed. A later Gateway-backed CLI turn in the same isolated session passed after app/Gateway restart: one email header record read twice with matching UIDVALIDITY, UID and read/star flags; one calendar queried for a one-hour window returning zero events; and one contact metadata reference. These tests used explicit owner approval for sending those bounded private records to OpenClaw and its cloud-hosted Terra model. Mail bodies, full contact cards, nonempty event results, writes, Notes, Reminders, other runtimes and long-term stability were not tested; this is scoped read-only verification, not full read/write certification. Desktop remained on an updater warning despite official update status reporting success, so this does not certify the Desktop UI as ready.
+OpenClaw connects to iCloud for Agents through a local MCP server. Read-only access to selected Mail, Calendar and Contacts operations has been verified; Notes, Reminders and writes have not yet been verified in this client.
 
-Use OpenClaw's official MCP registry (`openclaw mcp add` or Settings → MCP). Back up its existing personal configuration and merge only the new `mcp.servers` entry. For an independently restricted client when the checkout's shared settings may allow writes, the tested entry uses the installed **console executable directly**, with explicit environment settings:
+Use OpenClaw's official MCP registry (Settings → MCP, or `openclaw mcp add` when your assistant handles setup). Preserve its existing configuration and add the new server. To restrict this client independently when the shared settings may allow writes, use the installed **console executable directly**, with explicit environment settings:
 
 ```json
 {
@@ -131,13 +152,13 @@ Replace account and Keychain service placeholders with the existing nonsecret re
 
 Keep normal approval checks enabled; do not set `codex.defaultToolsApprovalMode` to `approve` as a setup shortcut. The include filter restricts this server's projected tools, while the server's `read-only` mode independently blocks mutations. It does not restrict other connectors already installed in the harness. Inspect the actual tool namespace and use only this server during verification.
 
-Run `openclaw mcp doctor icloud-for-agents-readonly --probe --json` to check transport setup, then verify from a fresh or idle isolated conversation. With supported Gateway hot reload, the next turn discovers a changed entry; a shared Gateway restart was not needed in the tested setup. Select and verify the desired model inside OpenClaw. Ask it to call `email_list_folders` twice, `calendar_list`, and `contacts_addressbooks`, reporting only counts and repeat consistency. Verify actual tool results, rather than a model's connection claim. The tested Codex runtime exposed native tools with the prefix `mcp__icloud_for_agents_readonly__`; its generic compiled-tool count did not include that native MCP namespace. The official `openclaw agent --session-key ... --model openai/gpt-6.1-terra --message-file ... --json` route completed the same isolated UI session; omit `--deliver` for local testing. Its terminal receipt identified the effective model and successful server-qualified tool names, and `openclaw sessions export-trajectory` supplied call/result evidence.
+Check the connector with OpenClaw's MCP controls, then ask it to read from a selected service in a conversation. Check the tool result, not just whether the server connects. Select a tool-capable model and remember that cloud-hosted models receive the information returned by tools.
 
-Mail pagination can return zero records with `done=false` because it scans bounded numeric UID windows; that does not establish an empty mailbox. Follow the returned checkpoint for a complete scan, or use a narrowly approved window based on the returned UIDVALIDITY/high watermark. Keep `page_size=1` for a one-header test, repeat identical arguments for comparison, and do not fetch bodies or mutate flags. An empty calendar window verifies the request path but does not validate event-content parsing.
+Mail pagination can return zero records with `done=false` because it scans bounded numeric UID windows; that does not establish an empty mailbox. Follow the returned checkpoint to continue the scan.
 
-A successful probe alone does not prove account access or conversation compatibility. If tools are missing, inspect server enablement and include/exclude filters, the chosen runtime, and tool policy: OpenClaw documents that the `minimal` profile and `tools.deny: ["bundle-mcp"]` can hide MCP tools. Do not broaden unrelated policy to make a test pass. For Python `EPERM` opening a virtual environment on an external volume, inspect the responsible app's normal macOS Files & Folders permissions and logs; do not assume an enabled toggle proves the running process has access. A separate Hermes Desktop test encountered this machine-specific denial, and its repair remains unverified; Full Disk Access is not a demonstrated general installation requirement.
+If tools are missing, inspect server enablement and include/exclude filters, the chosen runtime, and tool policy: OpenClaw documents that the `minimal` profile and `tools.deny: ["bundle-mcp"]` can hide MCP tools. For an `EPERM` error opening a virtual environment on an external volume, inspect the responsible app's macOS Files & Folders permissions and logs.
 
-Sources: [OpenClaw MCP setup](https://docs.openclaw.ai/tools/mcp), [saved-server registry and runtime behavior](https://docs.openclaw.ai/cli/mcp/registry), [agent CLI](https://docs.openclaw.ai/cli/agent), [session evidence commands](https://docs.openclaw.ai/cli/sessions), [Hermes macOS permission troubleshooting](https://hermes-agent.nousresearch.com/docs/user-guide/desktop#macos-permissions-and-local-rebuilds-tcc).
+Sources: [OpenClaw MCP setup](https://docs.openclaw.ai/tools/mcp), [saved-server registry and runtime behavior](https://docs.openclaw.ai/cli/mcp/registry).
 
 ## Cursor
 
@@ -258,7 +279,8 @@ First run the offline and stdio smoke checks in [agent setup](agent-setup.md). T
 1. Confirm the server connects and exposes the expected tools for the selected services.
 2. For Mail, list exact folders, request a bounded header page, and inspect one message without changing its read state.
 3. For Calendar, list calendars and read a small explicit date range. For Contacts, list address books, request a small contact page and retrieve one contact.
-4. Report the client/version, execution location, selected services, access mode, successful live calls and unresolved steps. Tool discovery alone is not a successful account connection.
+4. For Notes and Reminders, follow [native-service verification](native-services.md), retaining the approved sources and read-only modes. Start with bounded folder/list discovery before reading a selected item.
+5. Report the client/version, execution location, selected services, access mode, successful live calls and unresolved steps. Tool discovery alone is not a successful account connection.
 
 Let the human handle Keychain and client trust prompts. If startup fails, inspect the client's server error output without exposing credentials or private message content. Check absolute paths, the installed environment, existing settings, service selection and Keychain identity before changing configuration. Keep writes and recurring cleanup for separately approved tasks.
 
