@@ -7,6 +7,8 @@ from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import subprocess
 import tempfile
+from contextvars import ContextVar
+from contextlib import contextmanager
 from typing import Literal
 
 from .core import SafetyError, NativeOperationRefused, digest
@@ -16,6 +18,25 @@ from .services import enabled
 READ_ACTIONS = {'notes': {'status', 'sources', 'folders', 'default_folder', 'folder_get', 'folder_inventory', 'folder_role', 'recovery_folder', 'model_folder_role', 'query', 'get', 'text_page', 'search', 'attachments','attachment_export', 'diagnose_note', 'contains'},
                 'reminders': {'status', 'sources', 'lists', 'default_list', 'list_sections', 'list_features', 'list_parent', 'list_hierarchy', 'list_order', 'group_inventory', 'group_lists', 'templates', 'template_sections', 'template_metadata', 'smart_lists', 'smart_list_definition', 'query', 'get','attachment_file','list_membership','recovery_lookup','recovery_tree','recovery_list'}}
 MAX_OUTPUT = 2_000_000
+_transport_warnings = ContextVar('native_read_transport_warnings',default=None)
+
+
+@contextmanager
+def collect_transport_warnings():
+    """Keep read diagnostics through nested planning/execution at the MCP edge."""
+    parent=_transport_warnings.get()
+    warnings=set()
+    token=_transport_warnings.set(warnings)
+    try:
+        yield warnings
+    finally:
+        _transport_warnings.reset(token)
+        if parent is not None:parent.update(warnings)
+
+
+def with_transport_warnings(result,warnings):
+    """Attach validated transport metadata without changing stored plan/results."""
+    return dict(result,transport_warning='launcher_nonzero_result_received') if warnings else result
 
 
 def _confirmed_refusal(name,request,response):
@@ -291,6 +312,16 @@ class NativeReader:
             if native_config('notes')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode:raise SafetyError('Notes access changed during metadata read')
             return result
         result = self._dispatch(request, config)
+        if self.name=='reminders' and isinstance(result,dict):
+            # The application transport already checked this exact nonce. It is
+            # transport metadata, not part of the provider's strict read schema.
+            # Leave _dispatch responses intact so mutation evidence retains it.
+            warning=result.get('transport_warning')
+            if warning is not None:
+                if warning!='launcher_nonzero_result_received':raise SafetyError('Unknown native read transport warning')
+                warnings=_transport_warnings.get()
+                if warnings is not None:warnings.add(warning)
+            result={key:value for key,value in result.items() if key not in {'request_id','transport_warning'}}
         if action=='attachment_file':
             from .native_reminder_files import validate_descriptor
             if native_config('reminders')!=config or os.environ.get('ICLOUD_MAIL_ACCESS','read-only')!=global_mode:raise SafetyError('Reminders access changed during file observation')
@@ -742,6 +773,7 @@ class NativeReader:
     def _dispatch(self, request, config):
         """Internal transport; callers enforce fixed read or approved-write actions."""
         action = request["action"]
+        application_helper = None
         if self.name == 'notes' and action == 'ocr_image':
             from .native_note_ocr import process_request
             return process_request(request, config)
@@ -788,7 +820,15 @@ class NativeReader:
                     if response.get('stage') in {'validation','folder_lookup','membership_before','note_constructor','note_insert','membership_after','note_move'}:detail+=' at '+response['stage']
                     raise SafetyError('Native Notes operation failed'+detail+'; no automatic retry')
                 return response
-            command = [str(path)]
+            from .native_app import is_app_bundle_helper
+            if is_app_bundle_helper(path):
+                # Launch the configured app through Launch Services so macOS
+                # can associate Reminders access with its declared app identity.
+                # Never fall back to direct execution after a refused/uncertain
+                # app request: it would change permission identity and replay.
+                application_helper = path
+            else:
+                command = [str(path)]
         else:
             if action == 'status':
                 return {'protocol_version': 1, 'service': 'notes', 'os_permission': 'not_checked',
@@ -802,23 +842,27 @@ class NativeReader:
             from .native_reminder_exchange import begin
             exchange=begin(request)
         try:
-            with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
-                encoded = json.dumps(request, ensure_ascii=False).encode()
-                if len(encoded) > 240000:
-                    raise SafetyError('Native request exceeds input limit')
-                process = subprocess.run(command, input=encoded, stdout=output, stderr=errors,
-                               timeout=75 if action=="request_access" else 40, check=False, env=env)
-                if process.returncode:
-                    errors.seek(0)
-                    diagnostic = errors.read(8192)
-                    if b"(-1743)" in diagnostic or b"(-1744)" in diagnostic:
-                        raise SafetyError("Notes Automation permission is required; the user must approve access in macOS Privacy & Security. No automatic retry.")
-                    raise SafetyError("Native helper failed; no automatic retry.")
-                output.seek(0)
-                raw = output.read(MAX_OUTPUT + 1)
-            if len(raw) > MAX_OUTPUT:
-                raise SafetyError('Native response exceeds limit; narrow the query')
-            response = json.loads(raw)
+            if application_helper is not None:
+                from .native_app import application_request
+                response = application_request(application_helper, request, timeout=75 if action=="request_access" else 40)
+            else:
+                with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
+                    encoded = json.dumps(request, ensure_ascii=False).encode()
+                    if len(encoded) > 240000:
+                        raise SafetyError('Native request exceeds input limit')
+                    process = subprocess.run(command, input=encoded, stdout=output, stderr=errors,
+                                   timeout=75 if action=="request_access" else 40, check=False, env=env)
+                    if process.returncode:
+                        errors.seek(0)
+                        diagnostic = errors.read(8192)
+                        if b"(-1743)" in diagnostic or b"(-1744)" in diagnostic:
+                            raise SafetyError("Notes Automation permission is required; the user must approve access in macOS Privacy & Security. No automatic retry.")
+                        raise SafetyError("Native helper failed; no automatic retry.")
+                    output.seek(0)
+                    raw = output.read(MAX_OUTPUT + 1)
+                if len(raw) > MAX_OUTPUT:
+                    raise SafetyError('Native response exceeds limit; narrow the query')
+                response = json.loads(raw)
         except SafetyError:
             raise
         except (subprocess.SubprocessError, OSError, ValueError):
@@ -1146,7 +1190,10 @@ def register_read_tools(mcp):
         @wraps(fn)
         def wrapped(*args, **kwargs):
             try:
-                return fn(*args, **kwargs)
+                with collect_transport_warnings() as warnings:
+                    # Internal readers keep canonical schemas for snapshot and
+                    # attachment comparisons; diagnostics follow full validation.
+                    return with_transport_warnings(fn(*args,**kwargs),warnings)
             except (SafetyError, ValueError) as exc:
                 raise ToolError(str(exc)) from None
             except Exception:

@@ -43,7 +43,10 @@ def check_plan_scope(name,plan_id):
 def guard(fn):
     @wraps(fn)
     def wrapped(*args,**kwargs):
-        try:return fn(*args,**kwargs)
+        from .native_read import collect_transport_warnings,with_transport_warnings
+        try:
+            with collect_transport_warnings() as warnings:
+                return with_transport_warnings(fn(*args,**kwargs),warnings)
         except SafetyError as exc:raise ToolError(str(exc)) from None
         except Exception:raise ToolError('Native proposal/status operation failed. Inspect exact access and outcome; no automatic retry.') from None
     return wrapped

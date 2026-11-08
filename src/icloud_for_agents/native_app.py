@@ -17,6 +17,11 @@ from .approvals import PlanStore, runtime_root
 from .core import SafetyError
 
 
+def is_app_bundle_helper(helper):
+    """Identify configured app entrypoints; validation must precede launching one."""
+    return Path(helper).parent.parent.parent.suffix == '.app'
+
+
 def _owned_asset(path,*,directory=False,limit=None):
     try:info=path.lstat()
     except OSError:raise SafetyError('Native app assets are unavailable') from None
@@ -28,7 +33,7 @@ def _owned_asset(path,*,directory=False,limit=None):
 def validate_bundle(helper):
     """Validate the entrypoint and bundled scripts, not just one executable file."""
     helper=Path(helper);bundle=helper.parent.parent.parent
-    if bundle.suffix!='.app':raise SafetyError('Notes requires the built native helper app bundle')
+    if bundle.suffix!='.app':raise SafetyError('This transport requires the built native helper app bundle')
     for directory in (bundle,bundle/'Contents',helper.parent,bundle/'Contents/Resources'):
         _owned_asset(directory,directory=True)
     _owned_asset(helper,limit=50_000_000)
@@ -119,17 +124,23 @@ def application_request(helper, request, timeout=40):
     try:
         process=subprocess.run(['/usr/bin/open','-W','-n',str(bundle), '--args','--ipc-directory',str(directory)],
             stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=timeout,env=env)
-        # Launch Services can report a nonzero exit even after the helper has
-        # delivered its private status result. Only nonprompting status probes
-        # may use that result; writes, consent and content reads remain uncertain.
-        if process.returncode and request.get('action') not in {'status','store_status'}:
+        # Launch Services can report failure after the helper delivered a full
+        # result. Fixed Reminders reads can use a validated, stable, exact-nonce
+        # result without replay. Consent and writes still require launcher success.
+        from .native_read import READ_ACTIONS
+        read_result = (request.get('service')=='reminders' and request.get('action') in READ_ACTIONS['reminders'])
+        if process.returncode and request.get('action') not in {'status','store_status'} and not read_result:
             raise SafetyError('Native application launch failed; inspect pending request status')
         fd=os.open(directory/'result.json',os.O_RDONLY|os.O_NOFOLLOW)
         with os.fdopen(fd,'rb') as stream:
             info=os.fstat(stream.fileno())
-            if not stat.S_ISREG(info.st_mode) or info.st_uid!=os.getuid() or stat.S_IMODE(info.st_mode)!=0o600:
+            if not stat.S_ISREG(info.st_mode) or info.st_uid!=os.getuid() or info.st_nlink!=1 or stat.S_IMODE(info.st_mode)!=0o600:
                 raise SafetyError('Native application result is not owner-private')
             raw=stream.read(2_000_001)
+            after=os.fstat(stream.fileno())
+            signature=lambda value:(value.st_dev,value.st_ino,value.st_size,value.st_mtime_ns,value.st_ctime_ns,value.st_nlink)
+            if signature(info)!=signature(after) or len(raw)!=after.st_size:
+                raise SafetyError('Native application result changed during read')
         if len(raw)>2_000_000:raise SafetyError('Native result exceeds limit')
         result=json.loads(raw)
         if not isinstance(result,dict) or result.get('protocol_version')!=1 or result.get('request_id')!=directory.name:raise ValueError()

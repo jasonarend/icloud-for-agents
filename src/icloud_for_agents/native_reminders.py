@@ -162,7 +162,11 @@ class RemindersCreateAdapter:
         if not helper:raise SafetyError('Configure native helper before Reminders writes')
         path=Path(helper)
         if not path.is_file() or path.stat().st_size>50_000_000:raise SafetyError('Invalid native helper')
-        identity='eventkit-creation-v1:'+hashlib.sha256(path.read_bytes()).hexdigest()
+        from .native_app import is_app_bundle_helper,bundle_fingerprint
+        # Transport identity is part of every approved context. A grant or
+        # unfinished plan from direct execution must not authorize app dispatch.
+        identity=('eventkit-app-v2:'+bundle_fingerprint(path) if is_app_bundle_helper(path)
+                  else 'eventkit-creation-v1:'+hashlib.sha256(path.read_bytes()).hexdigest())
         if native_config('reminders').get('advanced_backend')=='reminderkit':identity+=':reminderkit-observed-metadata-preservation-v2'
         return identity
     def lists(self):
