@@ -32,6 +32,7 @@ jobs:
       - name: Guarded synthetic checks
         run: |
           .venv/bin/python tests/run_offline.py
+          .venv/bin/python tests/login_service_launchd_smoke.py
           .venv/bin/python tests/stdio_smoke.py
           .venv/bin/python tests/modern_stdio_smoke.py
           .venv/bin/python tests/calendar_once_stdio_smoke.py

@@ -1,6 +1,6 @@
 [project]
 name = "icloud-for-agents"
-version = "2.1.1"
+version = "2.1.2"
 readme = "README.md"
 description = "Connect an AI assistant to iCloud Mail, Calendar, Contacts, Notes and Reminders with explicit access controls"
 requires-python = ">=3.11"

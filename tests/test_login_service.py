@@ -1,13 +1,25 @@
 import json
+import contextlib
+import io
 import os
 from pathlib import Path
 import plistlib
+import runpy
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
 from icloud_for_agents import login_service
 from icloud_for_agents.local_config import read_settings, child_environment
 from icloud_for_agents.tunnel_runtime import RuntimeSetupError
+
+
+class Clock:
+    def __init__(self):self.now = 0
+    def __call__(self):return self.now
+    def sleep(self, seconds):self.now += seconds
+
 
 class LoginServiceTests(unittest.TestCase):
     def installed(self, root):
@@ -20,7 +32,7 @@ class LoginServiceTests(unittest.TestCase):
     def test_shutdown_without_tunnel_binary_or_credentials(self):
         with tempfile.TemporaryDirectory() as t:
             target = self.installed(t)
-            run = Mock(side_effect=[Mock(returncode=0), Mock(returncode=113)])
+            run = Mock(side_effect=[Mock(returncode=0), Mock(returncode=113), Mock(returncode=0)])
             with patch.object(login_service, 'launch_plan', side_effect=AssertionError('No startup preflight')):
                 result = login_service.stop(t, home=t, runner=run)
             self.assertTrue(result['stopped']);self.assertTrue(target.exists())
@@ -31,25 +43,129 @@ class LoginServiceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as t:
             target = self.installed(t)
             retained = target.parent/'unrelated.plist';retained.write_text('retained')
-            run = Mock(side_effect=[Mock(returncode=113), Mock(returncode=113)])
+            run = Mock(side_effect=[Mock(returncode=113), Mock(returncode=113), Mock(returncode=0)])
             self.assertTrue(login_service.uninstall(t, home=t, runner=run)['uninstalled'])
             self.assertFalse(target.exists());self.assertTrue(retained.exists())
 
     def test_failed_or_unconfirmed_stop_preserves_installation(self):
-        for codes in ((1,), (0, 0), (0, 1)):
+        for codes in ((1, 1), (0, 0), (0, 1)):
             with self.subTest(codes=codes), tempfile.TemporaryDirectory() as t:
                 target = self.installed(t)
-                run = Mock(side_effect=[Mock(returncode=n) for n in codes])
+                clock = Clock()
+                run = Mock(side_effect=lambda command, **kwargs: Mock(returncode=codes[0] if command[1]=='bootout' else codes[1]))
                 with self.assertRaises(RuntimeSetupError):
-                    login_service.uninstall(t, home=t, runner=run)
+                    login_service.uninstall(t, home=t, runner=run, clock=clock, sleeper=clock.sleep)
                 self.assertTrue(target.exists())
+                self.assertEqual(sum(call.args[0][1]=='bootout' for call in run.call_args_list),1)
 
     def test_status_distinguishes_unavailable_from_not_loaded(self):
         with tempfile.TemporaryDirectory() as t:
             self.installed(t)
             for code, expected in ((0, 'loaded'), (113, 'not_loaded'), (1, 'status_unavailable')):
-                run = Mock(return_value=Mock(returncode=code))
+                run = Mock(side_effect=lambda command, **kwargs: Mock(returncode=0 if command[-1]==f'gui/{os.getuid()}' else code))
                 self.assertEqual(login_service.status(t, home=t, runner=run)['status'], expected)
+
+    def test_stop_waits_for_delayed_service_removal_without_repeating_request(self):
+        with tempfile.TemporaryDirectory() as t:
+            target = self.installed(t);clock = Clock()
+            run = Mock(side_effect=[Mock(returncode=n) for n in (0,0,0,113,0)])
+            result = login_service.stop(t, home=t, runner=run, clock=clock, sleeper=clock.sleep)
+            self.assertTrue(result['stopped']);self.assertTrue(target.exists())
+            self.assertEqual([call.args[0][1] for call in run.call_args_list],['bootout','print','print','print','print'])
+            self.assertEqual(clock.now,2*login_service.STOP_POLL_INTERVAL)
+            self.assertTrue(all(call.kwargs['timeout']>0 for call in run.call_args_list))
+
+    def test_nonzero_or_timed_out_stop_can_report_verified_absence_with_warning(self):
+        for failure,warning,code in ((Mock(returncode=5),'launchctl_nonzero_stop_result',5),
+                                     (subprocess.TimeoutExpired('launchctl',5),'launchctl_stop_timed_out',None),
+                                     (OSError('private diagnostic'),'launchctl_stop_request_failed',None)):
+            with self.subTest(warning=warning),tempfile.TemporaryDirectory() as t:
+                self.installed(t)
+                run=Mock(side_effect=[failure,Mock(returncode=113),Mock(returncode=0)])
+                result=login_service.stop(t,home=t,runner=run)
+                self.assertTrue(result['stopped']);self.assertEqual(result['stop_warning'],warning)
+                self.assertEqual(result['stop_returncode'],code)
+                self.assertEqual(sum(call.args[0][1]=='bootout' for call in run.call_args_list),1)
+                self.assertNotIn('private diagnostic',json.dumps(result))
+
+    def test_missing_gui_domain_never_proves_service_stopped(self):
+        with tempfile.TemporaryDirectory() as t:
+            target=self.installed(t);clock=Clock()
+            run=Mock(return_value=Mock(returncode=113))
+            self.assertEqual(login_service.status(t,home=t,runner=run)['status'],'status_unavailable')
+            with self.assertRaisesRegex(login_service.ServiceStopError,'status is unavailable'):
+                login_service.uninstall(t,home=t,runner=run,clock=clock,sleeper=clock.sleep)
+            self.assertTrue(target.exists())
+            self.assertEqual(sum(call.args[0][1]=='bootout' for call in run.call_args_list),1)
+
+    def test_status_failure_and_verification_timeouts_are_bounded_and_do_not_remove_plist(self):
+        for error in (subprocess.TimeoutExpired('launchctl',1),OSError('private failure')):
+            with self.subTest(error=type(error).__name__),tempfile.TemporaryDirectory() as t:
+                target=self.installed(t);clock=Clock()
+                def run(command,**kwargs):
+                    if command[1]=='bootout':return Mock(returncode=0)
+                    self.assertLessEqual(kwargs['timeout'],login_service.COMMAND_TIMEOUT)
+                    raise error
+                runner=Mock(side_effect=run)
+                with self.assertRaisesRegex(login_service.ServiceStopError,'status is unavailable'):
+                    login_service.uninstall(t,home=t,runner=runner,clock=clock,sleeper=clock.sleep)
+                self.assertTrue(target.exists());self.assertLessEqual(clock.now,login_service.STOP_VERIFY_TIMEOUT)
+                self.assertEqual(sum(call.args[0][1]=='bootout' for call in runner.call_args_list),1)
+
+    def test_definition_change_during_stop_verification_preserves_replacement(self):
+        with tempfile.TemporaryDirectory() as t:
+            target=self.installed(t);clock=Clock()
+            def run(command,**kwargs):
+                if command[1]=='bootout':return Mock(returncode=0)
+                target.write_bytes(plistlib.dumps(dict(login_service.definition(t),KeepAlive=True)))
+                return Mock(returncode=0)
+            runner=Mock(side_effect=run)
+            with self.assertRaisesRegex(login_service.ServiceStopError,'definition changed'):
+                login_service.uninstall(t,home=t,runner=runner,clock=clock,sleeper=clock.sleep)
+            self.assertTrue(target.exists());self.assertTrue(plistlib.loads(target.read_bytes())['KeepAlive'])
+            self.assertEqual(runner.call_count,2)
+
+    def test_definition_changed_during_final_absence_check_is_refused(self):
+        with tempfile.TemporaryDirectory() as t:
+            target=self.installed(t)
+            def run(command,**kwargs):
+                if command[1]=='bootout':return Mock(returncode=0)
+                if command[-1]==f'gui/{os.getuid()}':
+                    target.write_bytes(plistlib.dumps(dict(login_service.definition(t),KeepAlive=True)))
+                    return Mock(returncode=0)
+                return Mock(returncode=113)
+            with self.assertRaisesRegex(login_service.ServiceStopError,'definition changed'):
+                login_service.stop(t,home=t,runner=Mock(side_effect=run))
+            self.assertTrue(target.exists())
+
+    def test_delayed_uninstall_waits_before_removing_only_exact_plist_and_keeps_warning(self):
+        with tempfile.TemporaryDirectory() as t:
+            target=self.installed(t);clock=Clock();retained=target.parent/'unrelated';retained.write_text('retained')
+            codes=iter((5,0,113,0))
+            def run(command,**kwargs):
+                self.assertTrue(target.exists());return Mock(returncode=next(codes))
+            runner=Mock(side_effect=run)
+            result=login_service.uninstall(t,home=t,runner=runner,clock=clock,sleeper=clock.sleep)
+            self.assertFalse(target.exists());self.assertTrue(retained.exists())
+            self.assertEqual(result['stop_warning'],'launchctl_nonzero_stop_result')
+            self.assertEqual(result['stop_returncode'],5)
+
+    def test_cli_stop_diagnostic_identifies_verification_failure(self):
+        with patch.object(sys,'argv',['install-login-service.py','--stop']),patch.object(login_service,'stop',side_effect=login_service.ServiceStopError('Service stop unconfirmed after the bounded wait: launchd status is unavailable; installation retained')),contextlib.redirect_stderr(io.StringIO()) as errors:
+            with self.assertRaises(SystemExit) as result:login_service.main(root='/tmp/synthetic')
+        self.assertEqual(result.exception.code,1)
+        self.assertIn('Service stop unconfirmed',errors.getvalue());self.assertIn('status is unavailable',errors.getvalue())
+
+    def test_launchd_smoke_skips_only_missing_or_unsupported_gui_domain(self):
+        module=runpy.run_path(str(Path(__file__).with_name('login_service_launchd_smoke.py')))
+        for code in (113,125):
+            with self.subTest(code=code),patch('subprocess.run',return_value=Mock(returncode=code)) as runner:
+                result=module['run']()
+                self.assertEqual(result['status'],'skipped');self.assertEqual(result['launchctl_returncode'],code)
+                self.assertEqual(runner.call_count,1)
+        with patch('subprocess.run',return_value=Mock(returncode=1)) as runner,self.assertRaisesRegex(AssertionError,'inspection failed'):
+            module['run']()
+        self.assertEqual(runner.call_count,1)
 
     def test_changed_or_symlink_service_is_never_stopped_or_removed(self):
         with tempfile.TemporaryDirectory() as t:

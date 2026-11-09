@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.1.2 — 2026-11-08
+
+- Wait for macOS to finish removing the login service before reporting that it stopped, and preserve the installation if the outcome cannot be verified.
+
 ## 2.1.1 — 2026-11-08
 
 - Select matching macOS compilers and SDK automatically when building the native helper, including Macs with both Xcode and standalone Command Line Tools installed.
