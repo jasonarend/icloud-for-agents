@@ -1,15 +1,23 @@
 """Local helper builds sign only with the caller's explicit selected identity."""
 import contextlib,io,runpy,sys,tempfile,unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 ROOT=Path(__file__).resolve().parents[1]
 class NativeHelperSigningTests(unittest.TestCase):
  def build(self,identity=None,*,exists=False):
   with tempfile.TemporaryDirectory(prefix='native-helper-signing-')as directory:
    bundle=Path(directory)/'iCloud for Agents.app';calls=[]
+   developer=Path(directory)/'Developer';developer.mkdir()
+   sdk=developer/'MacOSX.sdk';sdk.mkdir()
+   compilers={}
+   for name in ('clang','swiftc'):
+    path=developer/name;path.write_text('synthetic');path.chmod(0o700);compilers[name]=str(path)
    if exists:bundle.mkdir();(bundle/'preserved').write_text('unchanged')
    def run(command,**kwargs):
     self.assertTrue(kwargs.get('check'));self.assertNotIn('shell',kwargs);calls.append(list(command))
+    if command[0]=='/usr/bin/xcode-select':return SimpleNamespace(stdout=str(developer)+'\n')
+    if command[0]=='/usr/bin/xcrun':return SimpleNamespace(stdout=(str(sdk)if '--show-sdk-path'in command else compilers[command[-1]])+'\n')
     if '-o'in command:
      output=Path(command[command.index('-o')+1]);output.parent.mkdir(parents=True,exist_ok=True);output.write_bytes(b'synthetic unexecuted compiler output')
    argv=['build-native-helper.py','--output',str(bundle)]
