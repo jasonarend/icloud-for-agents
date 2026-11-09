@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.1.1 — 2026-11-08
+
+- Select matching macOS compilers and SDK automatically when building the native helper, including Macs with both Xcode and standalone Command Line Tools installed.
+- Launch the bundled Reminders helper as a macOS app so permission requests use its app identity, while preserving change approvals and uncertain-outcome safeguards.
+- Return verified Reminders read results when macOS reports a launcher error after the helper has responded, with a warning for the assistant to inspect.
+- Add Unsloth Desktop and Hermes setup guidance, simplify client and native-service instructions, and correct the ChatGPT tool-count reference.
+
 ## 2.1.0 — 2026-11-05
 
 - Add bounded recurring Calendar reads and approved creation, whole-series updates and deletion.

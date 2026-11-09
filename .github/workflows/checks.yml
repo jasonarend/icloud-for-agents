@@ -1,6 +1,9 @@
 name: Source checks
 on:
   push:
+    # Tag pushes do not rerun this job. Release tags must point to a
+    # branch commit with successful checks.
+    branches: ['**']
   pull_request:
   workflow_dispatch:
 

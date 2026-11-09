@@ -1,6 +1,6 @@
 # iCloud for Agents
 
-**Version 2.1.0**
+**Version 2.1.1**
 
 iCloud for Agents connects your AI assistant to iCloud Mail, Calendar, Contacts, Apple Notes, and Reminders. Your assistant can use them together to help you prepare for meetings, turn emails and notes into follow-up tasks, and plan your work around upcoming events.
 

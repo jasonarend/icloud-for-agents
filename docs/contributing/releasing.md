@@ -6,6 +6,26 @@ Source distribution lets each user install their own environment and connect the
 
 ChatGPT private custom MCP connections are distinct from public plugins. Catalog eligibility requires a separate provider review. OpenAI's [desktop-only deployment guide](https://developers.openai.com/plugins/deploy/desktop-only) describes local stdio packaging and current partner restrictions; [plugin building](https://developers.openai.com/plugins/build/plugins) and [third-party integration guidelines](https://developers.openai.com/plugins/plugin-guidelines#third-party-content-and-integrations) add eligibility requirements. Desktop-specific packaging is not included. Do not promise a public catalog listing or compatibility with untested clients.
 
+## Prepare the version before pushing
+
+Prepare one version for a batch of functional changes before its first push. Compatible fixes normally receive a patch bump, compatible features a minor bump, and breaking changes a major bump. Documentation-only and test-only changes may keep the current version unless a release is requested.
+
+Update `pyproject.toml`, `src/icloud_for_agents/version.py`, the README version and the first dated changelog entry together, then run:
+
+```sh
+.venv/bin/python scripts/check-release.py
+```
+
+The preparation check uses the latest reachable stable release tag and checks the four version references. Fetch release tags first if this is a new checkout. After committing, fetch the intended remote branch and run the committed check immediately before pushing:
+
+```sh
+.venv/bin/python scripts/check-release.py --pre-push
+```
+
+This mode checks committed `HEAD` against `origin/main`, refuses uncommitted release-version references, and requires a newer committed version for outgoing functional changes. Each new functional push batch must advance the remote version even if the previous version has not been tagged yet. Use `--remote-ref` for a different intended remote branch. Both checks are local and do not fetch or push anything. Include the version and changelog in the same push as the changes to avoid a second version-only GitHub Actions run. Coding agents follow the same requirement in [AGENTS.md](../../AGENTS.md).
+
+Publish a release only when the owner requests one. Tag the exact source commit whose hosted checks passed; reuse that result rather than rerunning the same checks for the tag push. Check the tag's commit before publishing.
+
 ## Before a release
 
 - Review the exact staged/source archive and wheel/sdist contents, Git history and dependency licenses. Ignore rules alone do not remove tracked data.

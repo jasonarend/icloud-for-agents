@@ -1,4 +1,4 @@
-include README.md NOTICE.md CHANGELOG.md LICENSE SECURITY.md
+include README.md NOTICE.md CHANGELOG.md LICENSE SECURITY.md AGENTS.md
 include requirements-macos-arm64-py314.lock
 recursive-include docs *.md *.json
 recursive-include scripts *.py
