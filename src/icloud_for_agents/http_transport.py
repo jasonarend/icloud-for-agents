@@ -9,6 +9,7 @@ import asyncio
 import os
 from pathlib import Path
 import re
+from .http_authorization import PRINCIPAL, ClientPermissions
 
 
 PROXY_HOST_PATTERN = re.compile(r"(?=.{1,253}\Z)(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,63}\Z")
@@ -56,13 +57,31 @@ class BearerGate:
                         "headers": [(b"www-authenticate", b"Bearer"), (b"cache-control", b"no-store")]})
             await send({"type": "http.response.body", "body": b"Unauthorized"})
             return
-        await self.app(scope, receive, send)
+        token = PRINCIPAL.set(identity)
+        try:
+            downstream = dict(scope, headers=[(name, value) for name, value in scope.get("headers", [])
+                                               if name.lower() != b"authorization"])
+
+            async def private_send(message):
+                if message["type"] == "http.response.start":
+                    headers = [(name, value) for name, value in message.get("headers", [])
+                               if name.lower() != b"cache-control"]
+                    headers.append((b"cache-control", b"no-store"))
+                    message = dict(message, headers=headers)
+                await send(message)
+
+            await self.app(downstream, receive, private_send)
+        finally:
+            PRINCIPAL.reset(token)
 
 
 def create_app(server, keys, proxy_host=None):
     """Create a protected Streamable HTTP endpoint with Host/Origin checks."""
     if proxy_host is not None and not PROXY_HOST_PATTERN.fullmatch(proxy_host):
         raise ValueError("Proxy host must be an exact DNS hostname")
+    if not getattr(server, "_icloud_client_permissions", False):
+        server.add_middleware(ClientPermissions())
+        server._icloud_client_permissions = True
     app = server.http_app(path="/mcp", transport="streamable-http", json_response=True,
                           stateless_http=True, host_origin_protection=True,
                           allowed_hosts=[proxy_host] if proxy_host else None)

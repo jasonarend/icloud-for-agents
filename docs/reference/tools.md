@@ -1,9 +1,15 @@
 # Tools and everyday workflows
 
 
-Each selected service registers its own tools. Calendar and Contacts share a DAV execution tool, which refuses plans targeting a disabled service. Local owner-review tools are available when any service is selected. See [native-service setup](../getting-started/native-services.md) for Notes and Reminders operations and permissions. Explicit Mail/Calendar/Contacts switches override the legacy combined DAV fallback. In read-only mode, ordinary Mail and DAV writes remain refused; exact Calendar one-time proposals and local approval reviews remain available under their configured policies. Native services have separate access and approval controls. An advertised write tool does not itself grant permission.
+Each selected service registers its own tools. Calendar and Contacts share a DAV execution tool, which refuses plans targeting a disabled service. Local owner-review and HTTP client-management tools remain available even when all app services are disabled, so the owner can review or revoke client access. See [native-service setup](../getting-started/native-services.md) for Notes and Reminders operations and permissions. Explicit Mail/Calendar/Contacts switches override the legacy combined DAV fallback. In read-only mode, ordinary Mail and DAV writes remain refused; exact Calendar one-time proposals and local approval reviews remain available under their configured policies. Native services have separate access and approval controls. An advertised write tool does not itself grant permission.
 
 When a proposal requires a local owner receipt, `owner_request_review` opens a fixed review window on the Mac. The owner reviews the complete proposal and chooses Approve or Cancel; `owner_review_status` reports the outcome. Approval covers only that exact proposal and does not execute it. For an optional managed Mail policy proposal, use `scope: "managed-policy"` with both tools. The connected client cannot supply the review contents or approve the window itself.
+
+## HTTP client management
+
+`http_prepare_client` prepares a specific client creation, permission change, rotation, revocation, Keychain authorization check or key handoff. It does not perform the action. The owner must review each request locally, including the exact service permissions and any separate client-management authority. After approval, `http_execute_client` starts the action; `http_client_status` checks its outcome and `http_clients` lists bounded client identities created through this workflow. These tools never return a bearer key. A key that needs to be transferred appears only in a local window for the owner to place in the client's secure credential field. See [HTTP connections](../getting-started/http.md).
+
+For HTTP callers, client-management tools and reviews of client-management proposals require the separately approved client-management permission. App service permissions, the server's own configuration and existing action approvals remain separate checks.
 
 ## Mail tools
 

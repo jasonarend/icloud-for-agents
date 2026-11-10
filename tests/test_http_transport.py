@@ -44,12 +44,14 @@ class HttpTransportUnitTests(unittest.TestCase):
             events = []
 
             async def app(scope, receive, send):
+                self.assertFalse(any(name.lower() == b"authorization" for name, value in scope["headers"]))
                 await send({"type": "http.response.start", "status": 204, "headers": []})
 
             async def send(event):
                 events.append(event)
 
             await BearerGate(app, SyntheticKeys())({"type": "http", "headers": headers}, None, send)
+            self.assertIn((b"cache-control", b"no-store"), events[0]["headers"])
             return events[0]["status"]
 
         self.assertEqual(asyncio.run(run([])), 401)
@@ -76,7 +78,7 @@ class HttpTransportUnitTests(unittest.TestCase):
             keys = HttpKeys(MemoryKeychain(), PlanStore(Path(directory) / "runtime"))
             read_fd, write_fd = os.pipe()
             try:
-                identity = keys.create("Synthetic client", write_fd, owner_approved=True)
+                identity = keys.create("Synthetic client", write_fd, permissions={name: "read" for name in ("mail", "calendar", "contacts", "notes", "reminders")}, owner_approved=True)
                 os.close(write_fd)
                 write_fd = None
                 token = os.read(read_fd, 512)

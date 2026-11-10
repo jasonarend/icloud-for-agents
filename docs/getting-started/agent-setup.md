@@ -34,7 +34,7 @@ If Mail, Calendar or Contacts is selected, guide the human through creating an A
 
 For ChatGPT, follow [private connection setup](chatgpt.md). Verify account/workspace Tunnel availability, official client source, selected organization and minimal runtime-key permissions. The human creates/enters credentials and approves the final connection. Explain any displayed charges or billing consent before proceeding; do not purchase credits or infer that a subscription covers everything. No tunnel is needed merely because the project uses MCP if the chosen local client supports stdio directly.
 
-For an explicitly requested HTTP connection, follow the [HTTP guide](http.md). Explain the shared server permissions, ask separately before creating or changing a persistent client key or enabling remote access, and use a verified secure client handoff. Do not place a bearer key in chat or plaintext client configuration. A loopback URL is not reachable from an independently hosted client, and an unverified client's claimed transport or credential handling is not proof of compatibility.
+For an explicitly requested HTTP connection, follow the [HTTP guide](http.md). Explain each client's requested service permissions, the server's shared account/source limits and any client-management authority. Prepare a separate local owner review before creating or changing a persistent client key or enabling remote access, and use a verified secure client handoff. Do not place a bearer key in chat or plaintext client configuration. A loopback URL is not reachable from an independently hosted client, and an unverified client's claimed transport or credential handling is not proof of compatibility.
 
 ## 5. Verify progressively and report truthfully
 

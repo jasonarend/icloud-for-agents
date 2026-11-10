@@ -64,6 +64,7 @@ _lock = threading.RLock()
 _service = None
 _dav_owner = None
 _owner_reviews = None
+_http_pairing = None
 
 
 def service():
@@ -123,14 +124,23 @@ def safe(fn):
                 mode = os.environ.get("ICLOUD_MAIL_ACCESS", "read-only")
                 if mode not in {"disabled", "read-only", "write-enabled"}:
                     raise SafetyError("Unknown access mode; use disabled, read-only, or separately approved write-enabled")
-                if mode == "disabled":
+                independent_review = False
+                if mode == "disabled" and fn.__name__ in {"owner_request_review", "owner_review_status"}:
+                    scope = kwargs.get("scope", args[1] if len(args) > 1 else "service")
+                    if scope == "service":
+                        plan_id = kwargs.get("plan_id", args[0] if args else "")
+                        store = PlanStore()
+                        kind = store.read(store.path(plan_id, ".json")).get("kind", "")
+                        independent_review = kind == "http_client" or (isinstance(kind, str) and kind.startswith(("notes_", "reminders_")))
+                client_management = fn.__name__ in {"http_prepare_client", "http_execute_client", "http_client_status", "http_clients"}
+                if mode == "disabled" and not (independent_review or client_management):
                     raise SafetyError("All backend access is disabled")
                 if mode == "read-only" and fn.__name__ not in {
                     "email_list_folders", "email_page", "email_inspect", "email_plan_status",
                     "email_cleanup_grant_status", "email_revoke_cleanup_grant",
                     "email_operation_status", "email_operations", "email_observe_operation", "email_prepare_recovery",
                     "calendar_list", "calendar_events", "calendar_prepare_once", "contacts_addressbooks", "contacts_list", "contacts_get", "policy_status",
-                    "owner_request_review", "owner_review_status"
+                    "owner_request_review", "owner_review_status", "http_prepare_client", "http_execute_client", "http_client_status", "http_clients"
                 } and not (fn.__name__ == 'dav_execute_approved' and temporary_calendar) and not readonly_mail_recovery:
                     raise SafetyError("This runtime is read-only: ordinary mutations, sends and write proposals are disabled")
                 with invocation_lock(fn.__name__):
@@ -156,25 +166,73 @@ def owner_reviews():
     return _owner_reviews
 
 
-if any(enabled(name) for name in ('mail', 'calendar', 'contacts', 'notes', 'reminders')):
-    @mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": False})
-    @safe
-    def owner_request_review(plan_id: str, scope: str = 'service') -> dict:
-        """Ask the owner to review one exact stored proposal in a local Mac window.
+def http_pairing():
+    global _http_pairing
+    if _http_pairing is None:
+        from .http_pairing import HttpPairing
+        _http_pairing = HttpPairing(os.environ.get('ICLOUD_MAIL_ACCOUNT', ''), PlanStore())
+    return _http_pairing
 
-        The owner chooses Approve or Cancel in the window; the client cannot
-        supply its contents or approve it. This records a receipt only after
-        local approval, never executes the action, and returns immediately.
-        Use scope="managed-policy" for a managed Mail policy proposal. Poll
-        owner_review_status, then execute only the exact approved plan.
-        """
-        return owner_reviews().request(plan_id, scope)
 
-    @mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False})
-    @safe
-    def owner_review_status(plan_id: str, scope: str = 'service') -> dict:
-        """Check an exact local owner-review request without repeating it."""
-        return owner_reviews().status(plan_id, scope)
+@mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": False})
+@safe
+def owner_request_review(plan_id: str, scope: str = 'service') -> dict:
+    """Ask the owner to review one exact stored proposal in a local Mac window.
+
+    The owner chooses Approve or Cancel in the window; the client cannot
+    supply its contents or approve it. This records a receipt only after
+    local approval, never executes the action, and returns immediately.
+    Use scope="managed-policy" for a managed Mail policy proposal. Poll
+    owner_review_status, then execute only the exact approved plan.
+    """
+    return owner_reviews().request(plan_id, scope)
+
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False})
+@safe
+def owner_review_status(plan_id: str, scope: str = 'service') -> dict:
+    """Check an exact local owner-review request without repeating it."""
+    return owner_reviews().status(plan_id, scope)
+
+@mcp.tool(annotations=WRITE)
+@safe
+def http_prepare_client(action: str, label: str | None = None, client_id: str | None = None,
+                        permissions: dict[str, str] | None = None, manage_clients: bool = False) -> dict:
+    """Prepare exact local-owner review of an HTTP client credential action.
+
+    Actions are create, rotate, revoke, show, permissions or authorize. Client
+    access uses explicit none/read/full per service; client management is a
+    separate choice. Nothing is activated until the owner approves locally.
+    """
+    return http_pairing().prepare(action, label=label, client_id=client_id,
+                                  permissions=permissions, manage_clients=manage_clients)
+
+@mcp.tool(annotations=WRITE)
+@safe
+def http_execute_client(plan_id: str) -> dict:
+    """Start one exactly approved client action; never return a bearer key.
+
+    For creation, rotation or handoff the key appears only in a local window.
+    The owner transfers it to the client's secure credential field. Poll
+    http_client_status; a closed window does not prove a connection works.
+    """
+    return http_pairing().request(plan_id)
+
+@mcp.tool(annotations=READ)
+@safe
+def http_client_status(plan_id: str) -> dict:
+    """Inspect an exact client action without revealing its key or replaying it."""
+    return http_pairing().status(plan_id)
+
+
+@mcp.tool(annotations=READ)
+@safe
+def http_clients(limit: int = 20, after: str | None = None) -> dict:
+    """List bounded clients created through local review, without returning keys.
+
+    Continue next_cursor even after an empty page until done=true. An unavailable
+    Keychain makes credential status unknown; it does not establish revocation.
+    """
+    return http_pairing().clients(limit, after)
 
 
 @mail_tool(annotations=READ)

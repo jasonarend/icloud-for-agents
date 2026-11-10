@@ -170,6 +170,25 @@ class OwnerReviewTests(unittest.TestCase):
                 manager.request(proposal['plan_id'])
         self.assertEqual(called, [])
 
+    def test_client_and_native_review_remain_available_when_mail_mode_is_disabled(self):
+        with patch.dict(os.environ, {'ICLOUD_MAIL_ACCESS': 'disabled', 'ICLOUD_ENABLE_MAIL': '0',
+                                     'ICLOUD_ENABLE_NOTES': '1'}):
+            for kind in ('http_client', 'notes_change'):
+                with self.subTest(kind=kind):
+                    proposal = self.store.prepare(kind, {'account': 'synthetic@example.com'})
+                    manager = OwnerReview(self.store, dialog=lambda review, heading: 'approved')
+                    manager.request(proposal['plan_id'])
+                    self.assertEqual(self.wait(manager, proposal['plan_id']), 'approved')
+
+    def test_client_review_remains_available_when_every_service_is_disabled(self):
+        with patch.dict(os.environ, {'ICLOUD_MAIL_ACCESS': 'disabled', 'ICLOUD_ENABLE_MAIL': '0',
+                                     'ICLOUD_ENABLE_CALENDAR': '0', 'ICLOUD_ENABLE_CONTACTS': '0',
+                                     'ICLOUD_ENABLE_NOTES': '0', 'ICLOUD_ENABLE_REMINDERS': '0'}):
+            proposal = self.store.prepare('http_client', {'account': 'synthetic@example.com', 'action': 'revoke'})
+            manager = OwnerReview(self.store, dialog=lambda review, heading: 'approved')
+            manager.request(proposal['plan_id'])
+            self.assertEqual(self.wait(manager, proposal['plan_id']), 'approved')
+
     def test_policy_change_during_review_does_not_create_a_receipt(self):
         proposal = self.store.prepare('send', {'account': 'synthetic@example.com', 'changes': []})
         entered, release = threading.Event(), threading.Event()

@@ -70,7 +70,8 @@ def run(native=False, protocol_version="2025-11-25"):
                             "email_prepare_cleanup_grant", "email_activate_cleanup_grant", "email_cleanup_grant_status", "email_revoke_cleanup_grant",
                             "calendar_list", "calendar_events", "contacts_addressbooks", "contacts_list", "contacts_get",
                             "calendar_prepare_changes", "calendar_prepare_once", "contacts_prepare_changes", "dav_execute_approved",
-                            "owner_request_review", "owner_review_status"}
+                            "owner_request_review", "owner_review_status", "http_prepare_client",
+                            "http_execute_client", "http_client_status", "http_clients"}
                 if native:
                     expected.add('notes_native_checklist')
                     expected.add('notes_ocr_image_attachment')

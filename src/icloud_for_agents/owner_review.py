@@ -45,10 +45,12 @@ class OwnerReview:
     def _owned(self, plan):
         payload = plan.get('payload')
         account = os.environ.get('ICLOUD_MAIL_ACCOUNT', '')
-        if (not isinstance(payload, dict) or not account or payload.get('account') != account
-                or not enabled(service_for(plan.get('kind')))):
+        active = True if plan.get('kind') == 'http_client' else enabled(service_for(plan.get('kind')))
+        if (not isinstance(payload, dict) or not account or payload.get('account') != account or not active):
             raise SafetyError('Owner review belongs to a disabled service or different account')
-        if os.environ.get('ICLOUD_MAIL_ACCESS', 'read-only') == 'disabled':
+        kind = plan.get('kind', '')
+        independent = kind == 'http_client' or (isinstance(kind, str) and kind.startswith(('notes_', 'reminders_')))
+        if os.environ.get('ICLOUD_MAIL_ACCESS', 'read-only') == 'disabled' and not independent:
             raise SafetyError('Owner review is unavailable while access is disabled')
         return plan
 

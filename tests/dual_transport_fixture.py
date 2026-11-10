@@ -39,10 +39,20 @@ if mode == "stdio":
 elif mode == "http":
     import uvicorn
     from icloud_for_agents.http_transport import create_app
+    from icloud_for_agents.http_authorization import ClientPermissions
+
+    class FixturePermissions(ClientPermissions):
+        def allowed(self, name, policy, arguments=None, *, listing=False):
+            if name in {"synthetic_pause", "synthetic_change"}:
+                return policy["mail"] == "full"
+            return super().allowed(name, policy, arguments, listing=listing)
+
+    mcp.add_middleware(FixturePermissions())
+    mcp._icloud_client_permissions = True
 
     class SyntheticKeys:
         def authenticate(self, candidate):
-            return {"client_id": "synthetic"} if hmac.compare_digest(candidate, TOKEN) else None
+            return {"client_id": "synthetic", "permissions": {s: "full" for s in ("mail", "calendar", "contacts", "notes", "reminders")}, "manage_clients": False} if hmac.compare_digest(candidate, TOKEN) else None
 
     uvicorn.run(create_app(mcp, SyntheticKeys()), host="127.0.0.1", port=int(sys.argv[2]),
                 access_log=False, proxy_headers=False, server_header=False, log_level="warning")

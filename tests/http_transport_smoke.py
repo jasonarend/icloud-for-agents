@@ -92,6 +92,7 @@ class HttpTransportTests(unittest.TestCase):
                         result = await client.list_tools()
                         names = {tool.name for tool in result}
                         self.assertIn("email_list_folders", names)
+                        self.assertEqual("email_archive" in names, token == TOKEN)
                         self.assertNotIn("calendar_list", names)
                         self.assertNotIn("notes_query", names)
                         self.assertNotIn("reminders_query", names)

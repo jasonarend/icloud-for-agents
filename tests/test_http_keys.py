@@ -13,6 +13,9 @@ from icloud_for_agents.core import SafetyError
 from icloud_for_agents.http_keys import HttpKeys, MacKeychain, handoff_to_pipe
 
 
+FULL = {name: "full" for name in ("mail", "calendar", "contacts", "notes", "reminders")}
+
+
 class MemoryKeychain:
     def __init__(self):
         self.items = {}
@@ -60,11 +63,11 @@ class HttpKeyTests(unittest.TestCase):
             os.close(read_fd)
 
     def create(self, label="Synthetic client"):
-        return self.pipe_action(lambda fd: self.keys.create(label, fd, owner_approved=True))
+        return self.pipe_action(lambda fd: self.keys.create(label, fd, permissions=FULL, owner_approved=True))
 
     def test_create_returns_only_identity_and_authenticates_its_own_key(self):
         identity, token = self.create()
-        self.assertEqual(set(identity), {"client_id", "label", "created_at", "rotated_at"})
+        self.assertEqual(set(identity), {"client_id", "label", "created_at", "rotated_at", "permissions", "manage_clients"})
         self.assertEqual(self.keys.authenticate(token), identity)
         self.assertNotIn(token.decode(), json.dumps(identity))
         self.assertIsNone(self.keys.authenticate(b"not-a-key"))
@@ -80,7 +83,69 @@ class HttpKeyTests(unittest.TestCase):
         self.keys.revoke(first["client_id"], owner_approved=True)
         self.assertIsNone(self.keys.authenticate(first_token))
         self.assertEqual(self.keys.authenticate(second_token), second)
-        self.assertNotIn("permissions", second)
+        self.assertEqual(second["permissions"], FULL)
+        self.assertFalse(second["manage_clients"])
+
+    def test_scope_changes_require_owner_review_and_apply_without_rotating_token(self):
+        identity, token = self.create()
+        restricted = {name: "none" for name in FULL}
+        restricted["mail"] = "read"
+        with self.assertRaises(SafetyError):
+            self.keys.update_permissions(identity["client_id"], restricted)
+        changed = self.keys.update_permissions(identity["client_id"], restricted, owner_approved=True)
+        self.assertEqual(changed["permissions"], restricted)
+        self.assertEqual(self.keys.authenticate(token), changed)
+        self.assertFalse(changed["manage_clients"])
+        admin = self.keys.update_permissions(identity["client_id"], restricted, manage_clients=True, owner_approved=True)
+        self.assertTrue(self.keys.authenticate(token)["manage_clients"])
+        self.assertNotIn(token.decode(), json.dumps(admin))
+
+    def test_create_requires_explicit_permissions_and_preassigned_id_never_replays(self):
+        with self.assertRaises(SafetyError):
+            self.pipe_action(lambda fd: self.keys.create("Synthetic", fd, owner_approved=True))
+        identity, token = self.pipe_action(lambda fd: self.keys.create("Synthetic", fd, permissions=FULL,
+                                            client_id="e" * 32, owner_approved=True))
+        self.assertEqual(identity["client_id"], "e" * 32)
+        with patch("icloud_for_agents.http_keys.secrets.token_urlsafe", side_effect=AssertionError("Must not replace existing key")):
+            with self.assertRaises(SafetyError):
+                self.pipe_action(lambda fd: self.keys.create("Synthetic", fd, permissions=FULL,
+                                                   client_id="e" * 32, owner_approved=True))
+        self.assertEqual(self.keys.authenticate(token), identity)
+
+    def test_legacy_key_has_no_http_access_until_explicit_scope_review(self):
+        identity, token = self.create()
+        legacy = json.loads(self.backend.items[identity["client_id"]])
+        legacy["version"] = 1
+        legacy.pop("permissions")
+        legacy.pop("manage_clients")
+        self.backend.items[identity["client_id"]] = json.dumps(legacy).encode()
+        self.assertIsNone(self.keys.authenticate(token))
+        self.assertEqual(self.keys.status(identity["client_id"])["status"], "permission_review_required")
+        reviewed = self.keys.update_permissions(identity["client_id"], FULL, owner_approved=True)
+        self.assertEqual(self.keys.authenticate(token), reviewed)
+
+    def test_stale_review_refuses_before_generation_handoff_or_interactive_prompt(self):
+        identity, token = self.create()
+        client = identity["client_id"]
+        before = self.keys.status(client)["record_sha256"]
+        self.keys.update_permissions(client, dict(FULL, mail="read"), owner_approved=True)
+        actions = [
+            lambda: self.keys.rotate(client, 4, owner_approved=True, expected_sha256=before),
+            lambda: self.keys.handoff(client, 4, owner_approved=True, expected_sha256=before),
+            lambda: self.keys.revoke(client, owner_approved=True, expected_sha256=before),
+            lambda: self.keys.update_permissions(client, FULL, owner_approved=True, expected_sha256=before),
+            lambda: self.keys.authorize_access(client, owner_approved=True, expected_sha256=before),
+        ]
+        with patch("icloud_for_agents.http_keys.secrets.token_urlsafe", side_effect=AssertionError("No generation")), \
+                patch("icloud_for_agents.http_keys.handoff_to_pipe", side_effect=AssertionError("No handoff")), \
+                patch.object(self.backend, "read_interactive", side_effect=AssertionError("No prompt")):
+            for action in actions:
+                with self.assertRaisesRegex(SafetyError, "changed after review"):
+                    action()
+        self.assertIsNotNone(self.keys.authenticate(token))
+        self.keys.revoke(client, owner_approved=True)
+        with self.assertRaisesRegex(SafetyError, "changed after review"):
+            self.keys.revoke(client, owner_approved=True, expected_sha256=before)
 
     def test_key_cannot_cross_runtime_or_effective_permission_configuration(self):
         identity, token = self.create()

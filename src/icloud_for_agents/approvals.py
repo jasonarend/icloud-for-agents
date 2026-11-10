@@ -21,7 +21,7 @@ import uuid
 from .core import SafetyError, canonical, digest
 
 
-PLAN_KINDS = frozenset({"trash", "send", "cleanup_grant", "mail_recovery", "calendar_change", "contact_change", "notes_change", "reminders_change", "notes_access", "reminders_access", "notes_recovery", "notes_grant", "reminders_grant", "notes_move_recovery", "notes_edit_recovery", "reminders_observation_recovery"})
+PLAN_KINDS = frozenset({"trash", "send", "cleanup_grant", "mail_recovery", "http_client", "calendar_change", "contact_change", "notes_change", "reminders_change", "notes_access", "reminders_access", "notes_recovery", "notes_grant", "reminders_grant", "notes_move_recovery", "notes_edit_recovery", "reminders_observation_recovery"})
 
 
 def runtime_root():
@@ -82,7 +82,7 @@ def trusted_calendar_deletion(plan):
 
 def authorization_path(plan):
     """Informational routing only; execution independently enforces every guard."""
-    if plan['kind'] == 'mail_recovery':
+    if plan['kind'] in {'mail_recovery', 'http_client'}:
         return 'local-receipt', True
     if plan['kind'] == 'trash' and os.environ.get('ICLOUD_CLEANUP_GRANT_ID'):
         return 'standing-cleanup', False
@@ -990,16 +990,17 @@ class PlanStore:
             if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o600:
                 raise SafetyError("Invalid approval policy lock")
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            if os.environ.get("ICLOUD_ENABLE_POLICY_MANAGEMENT") == "1":
+            plan = self.proposal(plan_id)
+            is_http_revoke = plan.get('kind') == 'http_client' and plan.get('payload', {}).get('action') == 'revoke'
+            if os.environ.get("ICLOUD_ENABLE_POLICY_MANAGEMENT") == "1" and not is_http_revoke:
                 from .services import enabled
                 if enabled("mail"):
                     from .managed_policy import assert_settled_context
                     assert_settled_context(account)
-            plan = self.proposal(plan_id)
             if plan["payload"].get("account") != account:
                 raise SafetyError("Approval belongs to a different account")
             irreversible = any(item.get("operation") in {"delete", "delete_occurrence", "delete_future_occurrences"} for item in plan["payload"].get("changes", []))
-            trusted = (plan.get('kind') != 'mail_recovery' and policy == "trusted-client"
+            trusted = (plan.get('kind') not in {'mail_recovery', 'http_client'} and policy == "trusted-client"
                        and (not irreversible or trusted_calendar_deletion(plan)))
             future_split = any(item.get('operation') == 'update' and item.get('recurrence_scope') == 'future'
                                and isinstance(item.get('future_split'), dict) for item in plan['payload'].get('changes', []))
@@ -1107,6 +1108,7 @@ def approve_interactively(store, plan_id):
     fingerprint = digest(plan)
     labels = {"trash": "TRASH", "send": "SEND", "cleanup_grant": "APPROVE MAIL CLEANUP", "calendar_change": "APPROVE CALENDAR", "contact_change": "APPROVE CONTACTS", "notes_change": "APPROVE NOTES", "reminders_change": "APPROVE REMINDERS", "notes_access":"ALLOW NOTES OS REQUEST", "reminders_access":"ALLOW REMINDERS OS REQUEST", "notes_recovery":"APPROVE NOTES RECOVERY", "notes_move_recovery":"ACCEPT OBSERVED NOTES MOVE", "notes_edit_recovery":"ACCEPT OBSERVED NOTES EDIT", "reminders_observation_recovery":"ACCEPT OBSERVED REMINDER", "notes_grant":"APPROVE NOTES GRANT", "reminders_grant":"APPROVE REMINDERS GRANT"}
     labels['mail_recovery'] = 'APPROVE MAIL RECOVERY'
+    labels['http_client'] = 'APPROVE CLIENT ACCESS'
     label = labels[plan["kind"]]
     if any(item.get("operation") in {"delete", "delete_occurrence", "delete_future_occurrences"} for item in plan["payload"].get("changes", [])):
         label = "IRREVERSIBLE DELETE " + label

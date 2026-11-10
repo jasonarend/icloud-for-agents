@@ -22,6 +22,7 @@ import uuid
 
 from .approvals import PlanStore
 from .core import SafetyError, digest
+from .http_authorization import validate_permissions, SERVICES
 
 
 SERVICE = b"icloud-for-agents-http-client"
@@ -270,8 +271,11 @@ class HttpKeys:
             return None
         try:
             record = json.loads(value)
-            if (set(record) != {"version", "instance", "configuration", "client_id", "label", "bearer", "created_at", "rotated_at"}
-                    or record["version"] != 1 or record["instance"] != self.instance or record["client_id"] != client_id
+            base = {"version", "instance", "configuration", "client_id", "label", "bearer", "created_at", "rotated_at"}
+            expected = base if record.get("version") == 1 else base | {"permissions", "manage_clients"}
+            if (set(record) != expected
+                    or type(record["version"]) is not int or record["version"] not in {1, 2}
+                    or record["instance"] != self.instance or record["client_id"] != client_id
                     or not isinstance(record["configuration"], str) or not re.fullmatch(r"[0-9a-f]{64}", record["configuration"])
                     or not BEARER.fullmatch(record["bearer"].encode("ascii"))
                     or BEARER.fullmatch(record["bearer"].encode("ascii"))[1].decode() != client_id
@@ -279,34 +283,62 @@ class HttpKeys:
                     or type(record["rotated_at"]) not in (int, float)):
                 raise ValueError
             _label(record["label"])
+            if record["version"] == 2:
+                validate_permissions(record["permissions"])
+                if type(record["manage_clients"]) is not bool:
+                    raise ValueError
             return record
         except (ValueError, TypeError, KeyError, AttributeError, UnicodeError):
             raise SafetyError("Invalid HTTP Keychain record") from None
 
     @staticmethod
     def _identity(record):
-        return {key: record[key] for key in ("client_id", "label", "created_at", "rotated_at")}
+        identity = {key: record[key] for key in ("client_id", "label", "created_at", "rotated_at")}
+        identity["permissions"] = (validate_permissions(record["permissions"]) if record["version"] == 2
+                                   else {name: "none" for name in SERVICES})
+        identity["manage_clients"] = record.get("manage_clients", False)
+        return identity
 
-    def create(self, label, handoff_fd, *, owner_approved=False):
+    @staticmethod
+    def _expected(record, expected_sha256):
+        if expected_sha256 is None:
+            return
+        if (not isinstance(expected_sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", expected_sha256)
+                or record is None or not hmac.compare_digest(digest(record), expected_sha256)):
+            raise SafetyError("HTTP client credential or permissions changed after review; prepare a fresh proposal")
+
+    def create(self, label, handoff_fd, *, permissions=None, manage_clients=False,
+               client_id=None, owner_approved=False):
         _approved(owner_approved)
         _label(label)
+        permissions = validate_permissions(permissions)
+        if type(manage_clients) is not bool:
+            raise SafetyError("Client management permission must be explicitly boolean")
+        if client_id is not None:
+            _client_id(client_id)
         with self._locked():
-            client_id = uuid.uuid4().hex
+            client_id = client_id or uuid.uuid4().hex
+            if self.backend.read(client_id) is not None:
+                raise SafetyError("HTTP client identifier already exists; inspect it without creating another key")
             bearer = ("ika_" + client_id + "." + secrets.token_urlsafe(32)).encode("ascii")
             now = self.clock()
-            record = {"version": 1, "instance": self.instance, "configuration": self.configuration,
+            record = {"version": 2, "instance": self.instance, "configuration": self.configuration,
                       "client_id": client_id, "label": label, "bearer": bearer.decode(),
+                      "permissions": permissions, "manage_clients": manage_clients,
                       "created_at": now, "rotated_at": now}
             handoff_to_pipe(handoff_fd, bearer)
             self.backend.add(client_id, json.dumps(record, separators=(",", ":")).encode())
             return self._identity(record)
 
-    def rotate(self, client_id, handoff_fd, *, owner_approved=False):
+    def rotate(self, client_id, handoff_fd, *, owner_approved=False, expected_sha256=None):
         _approved(owner_approved)
         with self._locked():
             record = self._read(client_id)
+            self._expected(record, expected_sha256)
             if record is None:
                 raise SafetyError("HTTP client key is no longer active")
+            if record["version"] != 2:
+                raise SafetyError("Review explicit HTTP client permissions before rotating this legacy key")
             bearer = ("ika_" + client_id + "." + secrets.token_urlsafe(32)).encode("ascii")
             replacement = dict(record, bearer=bearer.decode(), rotated_at=self.clock(),
                                configuration=self.configuration)
@@ -314,26 +346,55 @@ class HttpKeys:
             self.backend.replace(client_id, json.dumps(replacement, separators=(",", ":")).encode())
             return self._identity(replacement)
 
-    def revoke(self, client_id, *, owner_approved=False):
+    def revoke(self, client_id, *, owner_approved=False, expected_sha256=None):
         _approved(owner_approved)
         with self._locked():
-            if self._read(_client_id(client_id)) is None:
+            record = self._read(_client_id(client_id))
+            self._expected(record, expected_sha256)
+            if record is None:
                 return {"client_id": client_id, "status": "already_absent"}
             removed = self.backend.delete(_client_id(client_id))
             return {"client_id": client_id, "status": "revoked" if removed else "already_absent"}
 
-    def handoff(self, client_id, descriptor, *, owner_approved=False):
+    def status(self, client_id):
+        """Inspect nonsecret local identity without presenting a credential."""
+        record = self._read(client_id)
+        if record is None:
+            return {"client_id": client_id, "status": "inactive"}
+        return dict(self._identity(record), status="active" if record["version"] == 2 else "permission_review_required",
+                    configuration_matches=record["configuration"] == self.configuration, record_sha256=digest(record))
+
+    def handoff(self, client_id, descriptor, *, owner_approved=False, expected_sha256=None):
         _approved(owner_approved)
         with self._locked():
             record = self._read(client_id)
+            self._expected(record, expected_sha256)
             if record is None:
                 raise SafetyError("HTTP client key is no longer active")
+            if record["version"] != 2:
+                raise SafetyError("Review explicit HTTP client permissions before handing off this legacy key")
             if record["configuration"] != self.configuration:
                 raise SafetyError("HTTP client key belongs to different service settings; approve a replacement")
             handoff_to_pipe(descriptor, record["bearer"].encode("ascii"))
             return self._identity(record)
 
-    def authorize_access(self, client_id, *, owner_approved=False):
+    def update_permissions(self, client_id, permissions, *, manage_clients=False, owner_approved=False, expected_sha256=None):
+        """Apply an explicitly reviewed policy without replacing the credential."""
+        _approved(owner_approved)
+        permissions = validate_permissions(permissions)
+        if type(manage_clients) is not bool:
+            raise SafetyError("Client management permission must be explicitly boolean")
+        with self._locked():
+            record = self._read(client_id)
+            self._expected(record, expected_sha256)
+            if record is None:
+                raise SafetyError("HTTP client key is no longer active")
+            replacement = dict(record, version=2, permissions=permissions,
+                               manage_clients=manage_clients, configuration=self.configuration)
+            self.backend.replace(client_id, json.dumps(replacement, separators=(",", ":")).encode())
+            return self._identity(replacement)
+
+    def authorize_access(self, client_id, *, owner_approved=False, expected_sha256=None):
         """Handle a local Keychain prompt, then verify a noninteractive read.
 
         Run under the same Python executable/code identity as the intended HTTP
@@ -343,7 +404,10 @@ class HttpKeys:
         """
         _approved(owner_approved)
         with self._locked():
+            if expected_sha256 is not None:
+                self._expected(self._read(client_id), expected_sha256)
             record = self._read(client_id, allow_ui=True)
+            self._expected(record, expected_sha256)
             if record is None:
                 raise SafetyError("HTTP client key is no longer active")
             try:
@@ -365,7 +429,7 @@ class HttpKeys:
             return None
         try:
             record = self._read(match[1].decode("ascii"))
-            if (record is not None and record["configuration"] == self.configuration
+            if (record is not None and record["version"] == 2 and record["configuration"] == self.configuration
                     and hmac.compare_digest(record["bearer"].encode("ascii"), bearer)):
                 return self._identity(record)
         except SafetyError:

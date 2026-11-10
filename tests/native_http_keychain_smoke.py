@@ -98,8 +98,8 @@ def run():
                 checked(security.SecKeychainUnlock(reference, len(password), password, True), "unlock")
                 backend = MacKeychain(keychain=reference)
                 keys = HttpKeys(backend, PlanStore(root / "runtime"))
-                first, original = pipe_action(lambda fd: keys.create("Synthetic A", fd, owner_approved=True))
-                second, second_token = pipe_action(lambda fd: keys.create("Synthetic B", fd, owner_approved=True))
+                first, original = pipe_action(lambda fd: keys.create("Synthetic A", fd, permissions={name: "full" for name in ("mail", "calendar", "contacts", "notes", "reminders")}, owner_approved=True))
+                second, second_token = pipe_action(lambda fd: keys.create("Synthetic B", fd, permissions={name: "read" for name in ("mail", "calendar", "contacts", "notes", "reminders")}, owner_approved=True))
                 assert keys.authenticate(original) == first
                 assert keys.authenticate(second_token) == second
                 app = create_app(FastMCP("Synthetic Keychain HTTP"), keys)

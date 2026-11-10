@@ -11,9 +11,9 @@ SECOND_TOKEN = b"ika_" + b"c" * 32 + b"." + b"d" * 43
 class SyntheticKeys:
     def authenticate(self, token):
         if hmac.compare_digest(token, TOKEN):
-            return {"client_id": "first"}
+            return {"client_id": "first", "permissions": {s: "full" for s in ("mail", "calendar", "contacts", "notes", "reminders")}, "manage_clients": False}
         if hmac.compare_digest(token, SECOND_TOKEN):
-            return {"client_id": "second"}
+            return {"client_id": "second", "permissions": {s: "read" for s in ("mail", "calendar", "contacts", "notes", "reminders")}, "manage_clients": False}
         return None
 
 
