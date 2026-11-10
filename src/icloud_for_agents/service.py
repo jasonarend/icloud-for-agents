@@ -8,6 +8,7 @@ import ssl
 from . import core
 from .approvals import PlanStore
 from .cleanup_access import configured as cleanup_access
+from .mail_operations import MailOperations
 
 
 class MailService:
@@ -15,6 +16,7 @@ class MailService:
         self.account = account
         self._password = password
         self.store = store if store is not None else PlanStore()
+        self.operations = MailOperations(account, self.store)
         self.overrides = overrides if overrides is not None else {
             role: os.environ[key] for role, key in (("Trash", "ICLOUD_TRASH_FOLDER"),
                                                    ("Archive", "ICLOUD_ARCHIVE_FOLDER"),
@@ -56,15 +58,27 @@ class MailService:
             return core.inspect(client, **kwargs)
 
     def set_seen(self, **kwargs):
-        access=cleanup_access(self.account)
-        if access and kwargs.get("seen") is not True:
-            raise core.SafetyError("Standing cleanup only permits marking read; no unattended mark-unread")
-        if access:access.check("mark_read",kwargs["folder"],kwargs["uids"])
-        with self.imap() as client:
-            if not access:return core.set_seen(client, **kwargs)
-            items=core.snapshot(client,kwargs["folder"],kwargs["uidvalidity"],kwargs["uids"])
-            return access.run("mark_read",kwargs["folder"],kwargs["uidvalidity"],kwargs["uids"],None,items,
-                              lambda:core.set_seen(client,expected_snapshot=items,**kwargs))
+        identity = kwargs.pop("operation_id", None)
+        kwargs["uids"] = core.batch(kwargs["uids"])
+        intent = {key: kwargs[key] for key in ("folder", "uidvalidity", "uids", "seen")}
+        previous = self.operations.existing(identity, "set_seen", intent)
+        if previous is not None:
+            return previous
+        with self.operations.locked():
+            self.operations.assert_settled()
+            access=cleanup_access(self.account)
+            if access and identity is not None:
+                raise core.SafetyError("Standing cleanup uses its own durable action identity; omit operation_id")
+            if access and kwargs.get("seen") is not True:
+                raise core.SafetyError("Standing cleanup only permits marking read; no unattended mark-unread")
+            if access:access.check("mark_read",kwargs["folder"],kwargs["uids"])
+            with self.imap() as client:
+                items=core.snapshot(client,kwargs["folder"],kwargs["uidvalidity"],kwargs["uids"])
+                if not access:
+                    return self.operations.run("set_seen", intent, items,
+                        lambda progress: core.set_seen(client, expected_snapshot=items, progress=progress, **kwargs), identity)
+                return access.run("mark_read",kwargs["folder"],kwargs["uidvalidity"],kwargs["uids"],None,items,
+                                  lambda:core.set_seen(client,expected_snapshot=items,**kwargs))
 
     def prepare_trash(self, folder, uidvalidity, uids, reason):
         if not isinstance(reason, str) or not 1 <= len(reason) <= 2000:
@@ -78,27 +92,62 @@ class MailService:
                        "destination": trash, "items": items, "reason": reason}
         return self.store.prepare("trash", payload)
 
-    def archive(self, folder, uidvalidity, uids):
-        with self.imap() as client:
-            archive = core.role_folder(client, "Archive", self.overrides)
-            trash = core.role_folder(client, "Trash", self.overrides)
-            if folder == trash or archive == trash:
-                raise core.SafetyError("Use explicit restore for messages in Trash")
-            access=cleanup_access(self.account)
-            if access:access.check("archive",folder,uids,archive)
-            items = core.snapshot(client, folder, uidvalidity, uids)
-            if access:return access.run("archive",folder,uidvalidity,uids,archive,items,
-                                        lambda:core.safe_move(client,folder,uidvalidity,uids,archive,items))
-            return core.safe_move(client, folder, uidvalidity, uids, archive, items)
+    def archive(self, folder, uidvalidity, uids, operation_id=None):
+        uids = core.batch(uids)
+        intent = {"folder": folder, "uidvalidity": uidvalidity, "uids": uids}
+        previous = self.operations.existing(operation_id, "archive", intent)
+        if previous is not None:
+            return previous
+        with self.operations.locked():
+            self.operations.assert_settled()
+            with self.imap() as client:
+                archive = core.role_folder(client, "Archive", self.overrides)
+                trash = core.role_folder(client, "Trash", self.overrides)
+                if folder == trash or archive == trash:
+                    raise core.SafetyError("Use explicit restore for messages in Trash")
+                access=cleanup_access(self.account)
+                if access and operation_id is not None:
+                    raise core.SafetyError("Standing cleanup uses its own durable action identity; omit operation_id")
+                if access:access.check("archive",folder,uids,archive)
+                items = core.snapshot(client, folder, uidvalidity, uids)
+                if access:return access.run("archive",folder,uidvalidity,uids,archive,items,
+                                            lambda:core.safe_move(client,folder,uidvalidity,uids,archive,items))
+                return self.operations.run("archive", intent, items,
+                    lambda progress: core.safe_move(client, folder, uidvalidity, uids, archive, items, progress=progress),
+                    operation_id, archive)
 
-    def restore(self, trash_uidvalidity, uids, destination):
+    def restore(self, trash_uidvalidity, uids, destination, operation_id=None):
         if cleanup_access(self.account):
             raise core.SafetyError("Restore is outside unattended cleanup; use a separately reviewed owner workflow")
+        uids = core.batch(uids)
+        # The source is resolved from the configured Trash role for a new request;
+        # an existing ID is inspected without reconnecting or replaying a move.
+        if operation_id is not None and self.operations.store.path(operation_id, ".json").exists():
+            record = self.operations.read(operation_id)
+            intent = dict(record["intent"], uidvalidity=trash_uidvalidity, uids=uids, destination=destination)
+            return self.operations.existing(operation_id, "restore", intent)
+        with self.operations.locked():
+            self.operations.assert_settled()
+            with self.imap() as client:
+                trash = core.role_folder(client, "Trash", self.overrides)
+                core.exact_folder(client, destination)
+                intent = {"folder": trash, "uidvalidity": trash_uidvalidity, "uids": uids, "destination": destination}
+                items = core.snapshot(client, trash, trash_uidvalidity, uids)
+                return self.operations.run("restore", intent, items,
+                    lambda progress: core.safe_move(client, trash, trash_uidvalidity, uids, destination, items, progress=progress),
+                    operation_id, destination)
+
+    def observe_operation(self, operation_id):
         with self.imap() as client:
-            trash = core.role_folder(client, "Trash", self.overrides)
-            core.exact_folder(client, destination)
-            items = core.snapshot(client, trash, trash_uidvalidity, uids)
-            return core.safe_move(client, trash, trash_uidvalidity, uids, destination, items)
+            return self.operations.observe_recorded(client, operation_id)
+
+    def prepare_operation_recovery(self, operation_id, action):
+        with self.imap() as client:
+            return self.operations.prepare_recovery(client, operation_id, action, self.overrides)
+
+    def execute_operation_recovery(self, plan_id):
+        with self.imap() as client:
+            return self.operations.execute_recovery(client, plan_id, self.overrides)
 
     def prepare_send(self, to, subject, body, cc=None, bcc=None):
         payload = core.compose(self.account, to, subject, body, cc, bcc)
@@ -107,6 +156,11 @@ class MailService:
         return self.store.prepare("send", payload)
 
     def execute(self, plan_id):
+        with self.operations.locked():
+            self.operations.assert_settled()
+            return self._execute(plan_id)
+
+    def _execute(self, plan_id):
         candidate = self.store.proposal(plan_id)
         if candidate['kind'] not in {'trash', 'send'}:
             raise core.SafetyError('Not a Mail proposal; use the matching service executor')

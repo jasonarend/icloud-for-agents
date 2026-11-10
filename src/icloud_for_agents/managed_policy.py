@@ -122,6 +122,12 @@ def mail_guard(store, account):
             previous = store.read(store.path(path.stem, '.json'))
             if previous['payload'].get('account') != account:
                 continue
+            if previous.get('kind') == 'mail_recovery':
+                # A later exact owner-reviewed settlement may resolve an earlier
+                # recovery failure without rewriting its original result.
+                if not store.operation_settled(path.stem):
+                    raise core.SafetyError('Prior Mail recovery remains uncertain; complete exact owner review before managed execution')
+                continue
             result = path.with_suffix('.result')
             if not result.exists() or store.read(result).get('status') not in {'applied','moved','sent','completed'}:
                 if not store._reconciliation_completed(path.stem):
@@ -145,6 +151,14 @@ def prepare_exception(service, mail_plan_id, deviations):
 
 def execute(account, store, proposal_id, expected_hash, actor_reference, service_factory):
     """Owner-approved exact revision or Trash exception; never implicit fallback."""
+    from .mail_operations import MailOperations
+    ordinary = MailOperations(account, store)
+    with ordinary.locked():
+        ordinary.assert_settled()
+        return _execute(account, store, proposal_id, expected_hash, actor_reference, service_factory)
+
+
+def _execute(account, store, proposal_id, expected_hash, actor_reference, service_factory):
     if os.environ.get('ICLOUD_MAIL_ACCESS', 'read-only') != 'write-enabled':
         raise core.SafetyError('Managed execution requires separately authorized writes')
     manager, access, _ = context(account)

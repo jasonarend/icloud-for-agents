@@ -111,6 +111,13 @@ class CleanupAccess:
         return scope
 
     def run(self, operation, folder, validity, uids, destination, snapshot, action):
+        from .mail_operations import MailOperations
+        ordinary = MailOperations(self.account, self.activation)
+        with ordinary.locked():
+            ordinary.assert_settled()
+            return self._run(operation, folder, validity, uids, destination, snapshot, action)
+
+    def _run(self, operation, folder, validity, uids, destination, snapshot, action):
         validity=uid(validity)
         scope=self.check(operation,folder,uids,destination)
         if sorted(item['uid'] for item in snapshot)!=sorted(uids) or any('\\Flagged' in item['flags'] or '\\Deleted' in item['flags'] for item in snapshot):
@@ -180,7 +187,7 @@ def main():
         with open('/dev/tty','r+',encoding='utf-8') as tty:
             tty.write(json.dumps(scope,ensure_ascii=True,indent=2)+'\nPersistent mail changes including recoverable Trash will run without daily receipts. Content categories are enforced by your task, not semantic server checks.\nType: '+phrase+'\n> ');tty.flush()
             if tty.readline().rstrip('\n')!=phrase:raise SafetyError('No authorization recorded')
-        access=CleanupAccess(scope['grant_id'],settings['account']);access.authority.write_once(access.authority.path(scope['grant_id'],'.json'),scope)
+        access=CleanupAccess(scope['grant_id'],settings['account']);access.activation.ready();access.authority.write_once(access.authority.path(scope['grant_id'],'.json'),scope)
         settings['cleanup_grant_id']=scope['grant_id'];target=root/'local/settings.json';temp=target.with_name('settings.grant-new.json')
         with temp.open('x') as f:os.fchmod(f.fileno(),0o600);json.dump(settings,f,indent=2);f.flush();os.fsync(f.fileno())
         temp.replace(target);print('Owner grant installed. Restart idle runtime to load exact grant; no mail changed.')

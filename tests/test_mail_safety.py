@@ -350,7 +350,9 @@ class SurfaceTests(unittest.TestCase):
         tools = [node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
                  and any(isinstance(d, ast.Call) and isinstance(d.func, ast.Name) and d.func.id == "mail_tool"
                          for d in node.decorator_list)]
-        self.assertEqual(len(tools), 14)
+        self.assertEqual(len(tools), 19)
+        self.assertTrue({'email_operation_status', 'email_operations', 'email_observe_operation',
+                         'email_prepare_recovery', 'email_execute_recovery'} <= set(tools))
         self.assertTrue(all(name.startswith("email_") for name in tools))
         self.assertFalse(any(any(word in name for word in ("purge", "empty", "permanent", "calendar", "contact"))
                              for name in tools))

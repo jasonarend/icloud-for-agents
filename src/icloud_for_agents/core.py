@@ -228,7 +228,7 @@ def snapshot(client, folder, uidvalidity, uids):
     return result
 
 
-def set_seen(client, folder, uidvalidity, uids, seen, expected_snapshot=None):
+def set_seen(client, folder, uidvalidity, uids, seen, expected_snapshot=None, progress=None):
     uids = batch(uids)
     if type(seen) is not bool:
         raise SafetyError("seen must be boolean")
@@ -238,6 +238,8 @@ def set_seen(client, folder, uidvalidity, uids, seen, expected_snapshot=None):
     select(client, folder, uidvalidity, readonly=False)
     # Add/remove one flag only: never replace the retained flags or stars.
     method = client.add_flags if seen else client.remove_flags
+    if progress is not None:
+        progress("dispatch", {"method": "UID STORE", "seen": seen})
     method(uids, ["\\Seen"], silent=True)
     observed = client.get_flags(uids)
     if set(observed) != set(uids):
@@ -271,7 +273,7 @@ def copy_mapping(response, uids):
     return uid(int(match[1])), dict(zip(source, destination))
 
 
-def safe_move(client, folder, uidvalidity, uids, destination, expected_snapshot):
+def safe_move(client, folder, uidvalidity, uids, destination, expected_snapshot, progress=None):
     """Never general EXPUNGE/CLOSE. Require UIDPLUS for verifiable destination IDs.
 
     Prefer UID MOVE; fallback copies, verifies destination identities/flags, then UID
@@ -288,8 +290,14 @@ def safe_move(client, folder, uidvalidity, uids, destination, expected_snapshot)
         raise SafetyError("Safe verified UID move requires UID mode and UIDPLUS; no changes made")
     select(client, folder, uidvalidity, readonly=False)
     use_move = client.has_capability("MOVE")
+    if progress is not None:
+        progress("dispatch", {"method": "UID MOVE" if use_move else "UID COPY"})
     response = client.move(uids, destination) if use_move else client.copy(uids, destination)
     target_validity, mapping = copy_mapping(response, uids)
+    evidence = {"method": "UID MOVE" if use_move else "UID COPY", "destination_uidvalidity": target_validity,
+                "uid_mapping": {str(a): b for a, b in mapping.items()}}
+    if progress is not None:
+        progress("mapping", evidence)
     select(client, destination, target_validity, readonly=True)
     copied = client.fetch(list(mapping.values()), ["FLAGS", "RFC822.SIZE", HEADER_FETCH])
     for item in current:
@@ -300,11 +308,15 @@ def safe_move(client, folder, uidvalidity, uids, destination, expected_snapshot)
         actual = set(flags(target)) - {"\\Recent"}
         if retained != actual or target.get(b"RFC822.SIZE") != item["size"]:
             raise SafetyError("Destination flags/size differ; reconcile before continuing")
+    if progress is not None:
+        progress("destination_verified", evidence)
     if not use_move:
         # Re-check source and validity after destination verification; refuse flag drift.
         if snapshot(client, folder, uidvalidity, uids) != current:
             raise SafetyError("Source changed after COPY; copied duplicates may exist, reconcile")
         select(client, folder, uidvalidity, readonly=False)
+        if progress is not None:
+            progress("source_removal", {"uids": uids})
         client.delete_messages(uids, silent=True)
         client.uid_expunge(uids)
     select(client, folder, uidvalidity, readonly=True)

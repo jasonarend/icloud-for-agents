@@ -62,7 +62,9 @@ def run(native=False, protocol_version="2025-11-25"):
                 send({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
                 listed = receive(2)
                 tools = listed["result"]["tools"]
-                expected = {"email_list_folders", "email_page", "email_inspect", "email_set_read_state",
+                expected = {"email_operation_status", "email_operations", "email_observe_operation",
+                            "email_prepare_recovery", "email_execute_recovery",
+                            "email_list_folders", "email_page", "email_inspect", "email_set_read_state",
                             "email_archive", "email_prepare_trash", "email_restore_from_trash",
                             "email_prepare_send", "email_execute_approved", "email_plan_status",
                             "email_prepare_cleanup_grant", "email_activate_cleanup_grant", "email_cleanup_grant_status", "email_revoke_cleanup_grant",

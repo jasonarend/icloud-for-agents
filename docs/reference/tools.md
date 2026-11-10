@@ -13,6 +13,10 @@ When a proposal requires a local owner receipt, `owner_request_review` opens a f
 | `email_page` | Read a bounded oldest-first header page; use exact folder and retain its cursor/filter identity | Allowed |
 | `email_inspect` | Read one bounded text message (plain preferred, safe HTML fallback) with exact folder, UIDVALIDITY, and message UID | Allowed |
 | `email_plan_status` | Read an exact local plan's status without retrying its mail action | Allowed |
+| `email_operations`, `email_operation_status` | Find bounded ordinary-Mail operations or inspect one exact outcome without replay | Allowed |
+| `email_observe_operation` | Inspect the current source and known destination state after an interruption | Allowed |
+| `email_prepare_recovery` | Prepare an exact owner review to accept uncertainty or complete a verified copy | Allowed |
+| `email_execute_recovery` | Complete the locally approved recovery; never repeat the original move | Acceptance allowed; copy completion requires write access |
 | `email_set_read_state` | Add/remove only Seen for 1–100 explicit UIDs | Refused |
 | `email_archive` | Move 1–100 explicit messages to the resolved existing Archive | Refused |
 | `email_restore_from_trash` | Move explicit Trash UIDs to an exact existing destination | Refused |
@@ -25,6 +29,8 @@ When a proposal requires a local owner receipt, `owner_request_review` opens a f
 | `email_revoke_cleanup_grant` | Revoke the exact installed scope for future batches | Allowed |
 
 In a separately approved write-enabled runtime, read-state/archive/restore do not require the special local receipt. They still need human task authorization and any client confirmation. Send and Trash require appropriate task authorization and the selected strict receipt, trusted-client or standing-cleanup path; see [approval policies](../user-guide/approvals.md). Standing cleanup refuses stars and out-of-scope folders before ordinary receipt handling. Do not enable writes as an incidental setup repair.
+
+Read-state changes, archive and Trash restoration use durable ordinary-operation records. The assistant can supply a fresh 32-character hexadecimal `operation_id` before a call and retain it for status checks. If a response is lost, use `email_operation_status` or `email_operations` rather than repeating the change. An uncertain operation blocks later Mail writes until it is reviewed. `email_observe_operation` reads current state, which does not prove what caused it. When appropriate, prepare a recovery and use the local owner-review window: the owner may accept remaining uncertainty or separately approve completion of a known verified copy. Copy completion never creates another copy, requires matching source and destination evidence, and is unavailable when the destination identity is unknown. It reads complete messages up to 256 KiB; larger or otherwise unverifiable copies need a different review. Original failure evidence remains recorded.
 
 ## Review a mailbox without skipping older mail
 

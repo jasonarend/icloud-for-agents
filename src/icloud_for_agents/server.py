@@ -14,7 +14,7 @@ from .credentials import credentials
 from .service import MailService
 from .core import SafetyError
 from .approvals import PlanStore
-from .operation_lock import invocation_lock, require_http_write_journal
+from .operation_lock import invocation_lock
 from .services import enabled
 from types import SimpleNamespace
 
@@ -101,6 +101,7 @@ def safe(fn):
         with _lock:
             try:
                 temporary_calendar = False
+                readonly_mail_recovery = False
                 service_name = ("mail" if fn.__name__.startswith("email_") else
                                 "calendar" if fn.__name__.startswith("calendar_") else
                                 "contacts" if fn.__name__.startswith("contacts_") else None)
@@ -114,6 +115,11 @@ def safe(fn):
                     temporary_calendar = (candidate['kind'] == 'calendar_change' and
                                           candidate['payload'].get('kind') == 'cal' and
                                           candidate['payload'].get('temporary_elevation') == 'calendar-exact-batch-once')
+                if fn.__name__ == "email_execute_recovery":
+                    candidate = PlanStore().proposal(kwargs.get("plan_id", args[0] if args else ""))
+                    if candidate.get('kind') != 'mail_recovery':
+                        raise SafetyError("Not a Mail recovery proposal")
+                    readonly_mail_recovery = candidate.get('payload', {}).get('action') == 'accept_uncertainty'
                 mode = os.environ.get("ICLOUD_MAIL_ACCESS", "read-only")
                 if mode not in {"disabled", "read-only", "write-enabled"}:
                     raise SafetyError("Unknown access mode; use disabled, read-only, or separately approved write-enabled")
@@ -122,11 +128,11 @@ def safe(fn):
                 if mode == "read-only" and fn.__name__ not in {
                     "email_list_folders", "email_page", "email_inspect", "email_plan_status",
                     "email_cleanup_grant_status", "email_revoke_cleanup_grant",
+                    "email_operation_status", "email_operations", "email_observe_operation", "email_prepare_recovery",
                     "calendar_list", "calendar_events", "calendar_prepare_once", "contacts_addressbooks", "contacts_list", "contacts_get", "policy_status",
                     "owner_request_review", "owner_review_status"
-                } and not (fn.__name__ == 'dav_execute_approved' and temporary_calendar):
+                } and not (fn.__name__ == 'dav_execute_approved' and temporary_calendar) and not readonly_mail_recovery:
                     raise SafetyError("This runtime is read-only: ordinary mutations, sends and write proposals are disabled")
-                require_http_write_journal(fn.__name__)
                 with invocation_lock(fn.__name__):
                     return fn(*args, **kwargs)
             except SafetyError as exc:
@@ -198,16 +204,25 @@ def email_inspect(folder: str, uidvalidity: int, message_uid: int) -> dict:
 
 @mail_tool(annotations=WRITE)
 @safe
-def email_set_read_state(folder: str, uidvalidity: int, uids: list[int], seen: bool) -> dict:
-    """Explicit UID batch, additive/removal of Seen only; retain stars and other flags."""
-    return service().set_seen(folder=folder, uidvalidity=uidvalidity, uids=uids, seen=seen)
+def email_set_read_state(folder: str, uidvalidity: int, uids: list[int], seen: bool, operation_id: str | None = None) -> dict:
+    """Change only Seen in an exact UID batch, with a durable ordinary-operation record.
+
+    Retain the returned operation_id. After a lost response, inspect email_operations
+    or email_operation_status before retrying. Reusing an exact operation_id returns
+    its recorded status without dispatching another mutation.
+    """
+    return service().set_seen(folder=folder, uidvalidity=uidvalidity, uids=uids, seen=seen, operation_id=operation_id)
 
 
 @mail_tool(annotations=WRITE)
 @safe
-def email_archive(folder: str, uidvalidity: int, uids: list[int]) -> dict:
-    """Move <=100 retained messages to exact Archive; preserve flags/stars."""
-    return service().archive(folder, uidvalidity, uids)
+def email_archive(folder: str, uidvalidity: int, uids: list[int], operation_id: str | None = None) -> dict:
+    """Move <=100 retained messages to exact Archive; preserve flags/stars.
+
+    Ordinary moves have durable operation IDs and COPY mapping evidence. Inspect
+    email_operations after an interruption; never replay an uncertain move.
+    """
+    return service().archive(folder, uidvalidity, uids, operation_id)
 
 
 @mail_tool(annotations=WRITE)
@@ -219,9 +234,9 @@ def email_prepare_trash(folder: str, uidvalidity: int, uids: list[int], reason: 
 
 @mail_tool(annotations=WRITE)
 @safe
-def email_restore_from_trash(trash_uidvalidity: int, uids: list[int], destination: str) -> dict:
+def email_restore_from_trash(trash_uidvalidity: int, uids: list[int], destination: str, operation_id: str | None = None) -> dict:
     """Recover an explicit Trash UID batch to an exact existing folder; never purge."""
-    return service().restore(trash_uidvalidity, uids, destination)
+    return service().restore(trash_uidvalidity, uids, destination, operation_id)
 
 
 @mail_tool(annotations=WRITE)
@@ -243,7 +258,69 @@ def email_execute_approved(plan_id: str) -> dict:
 @safe
 def email_plan_status(plan_id: str) -> dict:
     """Inspect recorded mutation outcome without replay or network access."""
-    return PlanStore().status(plan_id)
+    store = PlanStore()
+    plan = store.read(store.path(plan_id, '.json'))
+    if (plan.get('kind') not in {'send', 'trash', 'cleanup_grant', 'mail_recovery'}
+            or plan.get('payload', {}).get('account') != mail_operations().account):
+        raise SafetyError("Mail plan belongs to another account or service")
+    return store.status(plan_id)
+
+
+def mail_operations():
+    from .mail_operations import MailOperations
+    account = os.environ.get('ICLOUD_MAIL_ACCOUNT') or (_service.account if _service is not None else '')
+    if not account:
+        raise SafetyError('A configured Mail account is required to inspect its operations')
+    return MailOperations(account, PlanStore())
+
+
+@mail_tool(annotations=READ)
+@safe
+def email_operation_status(operation_id: str) -> dict:
+    """Inspect one exact durable ordinary-Mail operation without credentials or replay."""
+    return mail_operations().status(operation_id)
+
+
+@mail_tool(annotations=READ)
+@safe
+def email_operations(limit: int = 20, after: str | None = None, outstanding_only: bool = True) -> dict:
+    """Find bounded ordinary-Mail operation records after a lost response; no provider reads."""
+    return mail_operations().list(limit, after, outstanding_only)
+
+
+@mail_tool(annotations=READ)
+@safe
+def email_observe_operation(operation_id: str) -> dict:
+    """Read exact source/destination state for a Mail operation without replay.
+
+    Observed state does not establish causality or authorize a new write. Missing
+    destination identities remain unknown; original uncertainty stays recorded.
+    """
+    return service().observe_operation(operation_id)
+
+
+@mail_tool(annotations=WRITE)
+@safe
+def email_prepare_recovery(operation_id: str, action: str) -> dict:
+    """Prepare exact local-owner review for accept_uncertainty or complete_verified_copy.
+
+    Acceptance permits fresh separately authorized work without replay or a claim
+    that the old operation succeeded. Completion retains a known verified COPY
+    destination and removes only matching source copies. Use owner_request_review
+    and owner_review_status; a client assertion cannot replace the local receipt.
+    """
+    return service().prepare_operation_recovery(operation_id, action)
+
+
+@mail_tool(annotations=WRITE)
+@safe
+def email_execute_recovery(plan_id: str) -> dict:
+    """Execute an exact, locally approved Mail recovery after fresh evidence checks.
+
+    Copy completion requires write access. Reviewed uncertainty acceptance may
+    finish under read-only access; it changes no mail and preserves old evidence.
+    """
+    return service().execute_operation_recovery(plan_id)
 
 
 def cleanup_setup():

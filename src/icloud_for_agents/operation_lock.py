@@ -20,6 +20,7 @@ from .core import SafetyError
 READ_CALLS = frozenset({
     "email_list_folders", "email_page", "email_inspect", "email_plan_status",
     "email_cleanup_grant_status", "calendar_list", "calendar_events",
+    "email_operation_status", "email_operations", "email_observe_operation",
     "contacts_addressbooks", "contacts_list", "contacts_get", "policy_status",
     "owner_request_review", "owner_review_status",
 })
@@ -46,18 +47,3 @@ def invocation_lock(name, store=None):
         yield
     finally:
         os.close(descriptor)
-
-
-def require_http_write_journal(name):
-    """Limit HTTP to Mail writes with an existing durable uncertainty journal.
-
-    The HTTP launcher owns this process marker; MCP arguments cannot select it.
-    Configured standing cleanup validates its scope and journal in MailService.
-    Ordinary direct Mail writes keep their existing local stdio behavior.
-    """
-    if os.environ.get("ICLOUD_HTTP_TRANSPORT") != "1":
-        return
-    if (name == "email_restore_from_trash"
-            or name in {"email_set_read_state", "email_archive"}
-            and not os.environ.get("ICLOUD_CLEANUP_GRANT_ID")):
-        raise SafetyError("This direct Mail change is unavailable over HTTP because it lacks a durable interrupted-write journal; use the local stdio connection or an approved standing cleanup scope where supported")

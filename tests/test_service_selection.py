@@ -29,7 +29,7 @@ class ServiceSelectionTests(unittest.TestCase):
         for mail,calendar,contacts in itertools.product([False,True],repeat=3):
             with self.subTest(mail=mail,calendar=calendar,contacts=contacts):
                 tools=self.load(mail,calendar,contacts);names={t.name for t in tools}
-                self.assertEqual(sum(n.startswith('email_') for n in names),14 if mail else 0)
+                self.assertEqual(sum(n.startswith('email_') for n in names),19 if mail else 0)
                 self.assertEqual('owner_request_review' in names,mail or calendar or contacts)
                 self.assertEqual('owner_review_status' in names,mail or calendar or contacts)
                 self.assertEqual(sum(n.startswith('calendar_') for n in names),4 if calendar else 0)

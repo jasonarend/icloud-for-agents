@@ -20,7 +20,7 @@ from .services import enabled
 
 
 def service_for(kind):
-    if kind in {'send', 'trash', 'cleanup_grant'}:
+    if kind in {'send', 'trash', 'cleanup_grant', 'mail_recovery'}:
         return 'mail'
     if kind == 'calendar_change':
         return 'calendar'

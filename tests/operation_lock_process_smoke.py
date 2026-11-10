@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 from icloud_for_agents.approvals import PlanStore
 from icloud_for_agents.core import SafetyError, digest
-from icloud_for_agents.operation_lock import invocation_lock, require_http_write_journal
+from icloud_for_agents.operation_lock import invocation_lock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -171,29 +171,16 @@ class OperationLockTests(unittest.TestCase):
             with invocation_lock("email_archive", self.store):
                 self.fail("Symlink lock entered")
 
-    def test_http_direct_unjournaled_writes_refuse_before_callback(self):
+    def test_http_direct_calls_use_the_common_outer_lock(self):
         for name in ("email_set_read_state", "email_archive", "email_restore_from_trash"):
             with self.subTest(name=name):
                 child = self.child(name=name, http=True)
                 output, errors = child.communicate(timeout=20)
-                self.assertEqual(child.returncode, 3, errors)
-                self.assertNotIn("entered", output)
-                self.assertIn("durable interrupted-write journal", output)
-
-    def test_stdio_direct_calls_keep_existing_transport_behavior(self):
-        with patch.dict(os.environ, {}, clear=True):
-            for name in ("email_set_read_state", "email_archive", "email_restore_from_trash"):
-                require_http_write_journal(name)
-
-    def test_http_cleanup_paths_can_reach_existing_scope_enforcement(self):
-        with patch.dict(os.environ, {"ICLOUD_HTTP_TRANSPORT":"1",
-                                     "ICLOUD_CLEANUP_GRANT_ID":"a" * 32}, clear=True):
-            require_http_write_journal("email_set_read_state")
-            require_http_write_journal("email_archive")
-            with self.assertRaises(SafetyError):
-                require_http_write_journal("email_restore_from_trash")
+                self.assertEqual(child.returncode, 0, errors)
+                self.assertIn("entered", output)
 
     def cleanup_scope(self):
+        self.store.ready()
         identity = "a" * 32
         authority = PlanStore(self.store.root / "cleanup-authority")
         authority.write_once(authority.path(identity, ".json"), {
@@ -236,7 +223,7 @@ class OperationLockTests(unittest.TestCase):
         followup = self.cleanup_child(identity, 2)
         output, errors = followup.communicate(timeout=20)
         self.assertEqual(followup.returncode, 3, errors)
-        self.assertIn("Uncertain standing cleanup", output)
+        self.assertIn("Standing cleanup remains uncertain", output)
         self.assertNotIn("entered", output)
 
 

@@ -21,7 +21,7 @@ import uuid
 from .core import SafetyError, canonical, digest
 
 
-PLAN_KINDS = frozenset({"trash", "send", "cleanup_grant", "calendar_change", "contact_change", "notes_change", "reminders_change", "notes_access", "reminders_access", "notes_recovery", "notes_grant", "reminders_grant", "notes_move_recovery", "notes_edit_recovery", "reminders_observation_recovery"})
+PLAN_KINDS = frozenset({"trash", "send", "cleanup_grant", "mail_recovery", "calendar_change", "contact_change", "notes_change", "reminders_change", "notes_access", "reminders_access", "notes_recovery", "notes_grant", "reminders_grant", "notes_move_recovery", "notes_edit_recovery", "reminders_observation_recovery"})
 
 
 def runtime_root():
@@ -82,6 +82,8 @@ def trusted_calendar_deletion(plan):
 
 def authorization_path(plan):
     """Informational routing only; execution independently enforces every guard."""
+    if plan['kind'] == 'mail_recovery':
+        return 'local-receipt', True
     if plan['kind'] == 'trash' and os.environ.get('ICLOUD_CLEANUP_GRANT_ID'):
         return 'standing-cleanup', False
     if any(item.get('operation') in {'delete', 'delete_occurrence', 'delete_future_occurrences'} for item in plan['payload'].get('changes', [])):
@@ -889,6 +891,10 @@ class PlanStore:
                 'proof':self.native_predispatch_proof(plan_id,result),'status':'stopped_before_dispatch_finalized'})
 
     def operation_settled(self,plan_id):
+        plan = self.read(self.path(plan_id, '.json'))
+        if plan.get('kind') == 'mail_recovery':
+            from .mail_operations import MailOperations
+            return MailOperations(plan['payload']['account'], self).recovery_settled(plan_id)
         path=self.path(plan_id,'.result')
         if not path.exists():
             plan=self.read(self.path(plan_id,'.json'))
@@ -993,7 +999,8 @@ class PlanStore:
             if plan["payload"].get("account") != account:
                 raise SafetyError("Approval belongs to a different account")
             irreversible = any(item.get("operation") in {"delete", "delete_occurrence", "delete_future_occurrences"} for item in plan["payload"].get("changes", []))
-            trusted = policy == "trusted-client" and (not irreversible or trusted_calendar_deletion(plan))
+            trusted = (plan.get('kind') != 'mail_recovery' and policy == "trusted-client"
+                       and (not irreversible or trusted_calendar_deletion(plan)))
             future_split = any(item.get('operation') == 'update' and item.get('recurrence_scope') == 'future'
                                and isinstance(item.get('future_split'), dict) for item in plan['payload'].get('changes', []))
             if future_split and not trusted:
@@ -1099,6 +1106,7 @@ def approve_interactively(store, plan_id):
     review = json.dumps(plan, ensure_ascii=True, indent=2)
     fingerprint = digest(plan)
     labels = {"trash": "TRASH", "send": "SEND", "cleanup_grant": "APPROVE MAIL CLEANUP", "calendar_change": "APPROVE CALENDAR", "contact_change": "APPROVE CONTACTS", "notes_change": "APPROVE NOTES", "reminders_change": "APPROVE REMINDERS", "notes_access":"ALLOW NOTES OS REQUEST", "reminders_access":"ALLOW REMINDERS OS REQUEST", "notes_recovery":"APPROVE NOTES RECOVERY", "notes_move_recovery":"ACCEPT OBSERVED NOTES MOVE", "notes_edit_recovery":"ACCEPT OBSERVED NOTES EDIT", "reminders_observation_recovery":"ACCEPT OBSERVED REMINDER", "notes_grant":"APPROVE NOTES GRANT", "reminders_grant":"APPROVE REMINDERS GRANT"}
+    labels['mail_recovery'] = 'APPROVE MAIL RECOVERY'
     label = labels[plan["kind"]]
     if any(item.get("operation") in {"delete", "delete_occurrence", "delete_future_occurrences"} for item in plan["payload"].get("changes", [])):
         label = "IRREVERSIBLE DELETE " + label
