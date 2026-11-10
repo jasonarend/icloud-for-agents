@@ -82,7 +82,7 @@ def trusted_calendar_deletion(plan):
 
 def authorization_path(plan):
     """Informational routing only; execution independently enforces every guard."""
-    if plan['kind'] in {'mail_recovery', 'http_client', 'notes_access', 'reminders_access'}:
+    if 'http_once' in plan or plan['kind'] in {'mail_recovery', 'http_client', 'notes_access', 'reminders_access'}:
         return 'local-receipt', True
     if plan['kind'] == 'trash' and os.environ.get('ICLOUD_CLEANUP_GRANT_ID'):
         return 'standing-cleanup', False
@@ -151,7 +151,14 @@ class PlanStore:
             raise SafetyError("Invalid proposal ID")
         plan = {"plan_id": plan_id, "kind": kind, "created": self.clock(),
                 "expires": self.clock() + 1800, "payload": payload}
+        from .http_authorization import PRINCIPAL, authenticated_client_id, temporary_service, validate_permissions
+        principal = PRINCIPAL.get()
+        service = temporary_service(kind, payload)
+        if service and principal is not None and validate_permissions(principal.get('permissions'))[service] == 'read':
+            plan['http_once'] = {'client_id': authenticated_client_id(), 'service': service}
         self.write_once(self.path(plan_id, ".json"), plan)
+        if 'http_once' in plan:
+            self.write_once(self.path(plan_id, '.http-once-binding'), {'sha256': digest(plan), 'binding': plan['http_once']})
         path, receipt_required = authorization_path(plan)
         return {"plan_id": plan_id, "review": plan, "sha256": digest(plan),
                 "approval_required": True, "authorization_path": path,
@@ -161,6 +168,7 @@ class PlanStore:
 
     def proposal(self, plan_id):
         plan = self.read(self.path(plan_id, ".json"))
+        self.check_http_once_integrity(plan)
         if plan.get("plan_id") != plan_id or plan.get("kind") not in PLAN_KINDS:
             raise SafetyError("Invalid proposal")
         if self.clock() > plan["expires"]:
@@ -170,6 +178,18 @@ class PlanStore:
         if self.path(plan_id, ".started").exists():
             raise SafetyError("Plan already started: inspect its result; never replay automatically")
         return plan
+
+    def check_http_once_integrity(self, plan):
+        """Bind HTTP-only temporary authority to immutable proposal contents.
+
+        The separate marker also detects removal of the binding from the plan;
+        an interrupted publication refuses instead of falling back to trust.
+        """
+        path = self.path(plan.get('plan_id'), '.http-once-binding')
+        if 'http_once' in plan or path.exists():
+            marker = self.read(path)
+            if marker != {'sha256': digest(plan), 'binding': plan.get('http_once')}:
+                raise SafetyError('One-time HTTP proposal changed after preparation')
 
     def prepare_no_effect_retry(self, original_id, evidence):
         """Local reviewed maintenance only; never an MCP tool or auto recovery.
@@ -991,6 +1011,8 @@ class PlanStore:
                 raise SafetyError("Invalid approval policy lock")
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             plan = self.proposal(plan_id)
+            from .http_authorization import check_once_caller
+            check_once_caller(plan)
             is_http_revoke = plan.get('kind') == 'http_client' and plan.get('payload', {}).get('action') == 'revoke'
             if os.environ.get("ICLOUD_ENABLE_POLICY_MANAGEMENT") == "1" and not is_http_revoke:
                 from .services import enabled
@@ -1000,7 +1022,7 @@ class PlanStore:
             if plan["payload"].get("account") != account:
                 raise SafetyError("Approval belongs to a different account")
             irreversible = any(item.get("operation") in {"delete", "delete_occurrence", "delete_future_occurrences"} for item in plan["payload"].get("changes", []))
-            trusted = (plan.get('kind') not in {'mail_recovery', 'http_client', 'notes_access', 'reminders_access'} and policy == "trusted-client"
+            trusted = ('http_once' not in plan and plan.get('kind') not in {'mail_recovery', 'http_client', 'notes_access', 'reminders_access'} and policy == "trusted-client"
                        and (not irreversible or trusted_calendar_deletion(plan)))
             future_split = any(item.get('operation') == 'update' and item.get('recurrence_scope') == 'future'
                                and isinstance(item.get('future_split'), dict) for item in plan['payload'].get('changes', []))

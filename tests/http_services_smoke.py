@@ -24,7 +24,7 @@ READS = {"mail": "email_list_folders", "calendar": "calendar_list",
          "contacts": "contacts_addressbooks", "notes": "notes_sources",
          "reminders": "reminders_sources"}
 TOKENS = {name: "ika_" + char * 32 + "." + char * 43
-          for name, char in (("read", "a"), ("full", "b"), ("mail", "c"))}
+          for name, char in (("read", "a"), ("full", "b"), ("mail", "c"), ("other", "d"))}
 
 
 class HttpServicesTests(unittest.TestCase):
@@ -108,7 +108,7 @@ class HttpServicesTests(unittest.TestCase):
                         for name in READS.values():
                             self.assertIn(name, names)
                         for name in write_args:
-                            self.assertNotIn(name, names)
+                            (self.assertIn if name.endswith("_prepare_once") else self.assertNotIn)(name, names)
                         # Concurrent requests retain independent principals: the
                         # writer's presence must not elevate the read-only key.
                         concurrent = await asyncio.gather(
@@ -124,7 +124,7 @@ class HttpServicesTests(unittest.TestCase):
                             result = data(await call(reader, name))
                             self.assertTrue(result)
                         for name, args in write_args.items():
-                            await denied(reader, name, args)
+                            await denied(reader, name.replace("_prepare_once", "_prepare_changes"), args)
                         mail_names = {tool.name for tool in await mail.list_tools()}
                         self.assertIn("email_list_folders", mail_names)
                         for service, name in READS.items():

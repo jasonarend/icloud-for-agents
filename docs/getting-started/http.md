@@ -24,6 +24,8 @@ Ask your assistant to prepare a `rotate`, `revoke`, `show`, `permissions` or `au
 
 An HTTP client without client-management permission can ask you to review changes to its own service access. It cannot change its client-management authority or manage another client's key. The requested change takes effect only after your local approval.
 
+For Calendar, Notes and Reminders, a client with read access can also prepare one exact change for your local review without changing its ongoing permissions. Only that client can execute the approved proposal, and only once. The server's selected accounts and sources still apply. Other changes require the appropriate ongoing client and service permissions.
+
 During creation or rotation, the pipe delivers a candidate before Keychain activation completes. The setup agent must wait for the successful lifecycle result before using it. If activation fails or its outcome is uncertain, do not assume the candidate works or repeat the action without checking the Keychain state first.
 
 ## Start and verify

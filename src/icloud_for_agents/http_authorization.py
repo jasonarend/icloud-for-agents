@@ -68,6 +68,9 @@ SHARED = frozenset({"owner_request_review", "owner_review_status", "dav_execute_
 CLIENT_MANAGEMENT = frozenset({"http_prepare_client", "http_execute_client", "http_client_status", "http_clients"})
 NATIVE_OS_PREPARE = frozenset({"notes_prepare_os_access", "reminders_prepare_os_access"})
 NATIVE_OS_REQUEST = frozenset({"notes_request_os_access", "reminders_request_os_access"})
+ONCE_PREPARE = frozenset({"calendar_prepare_once", "notes_prepare_once", "reminders_prepare_once"})
+ONCE_EXECUTE = {"dav_execute_approved": "calendar", "notes_execute_approved": "notes",
+                "reminders_execute_approved": "reminders"}
 KINDS = {"send": "mail", "trash": "mail", "cleanup_grant": "mail", "mail_recovery": "mail",
          "calendar_change": "calendar", "contact_change": "contacts"}
 
@@ -87,6 +90,35 @@ def self_client_id():
             or identity.get("manage_clients") is not False):
         raise SafetyError("Authenticated self-service client identity is unavailable")
     return client_id
+
+
+def authenticated_client_id():
+    identity = PRINCIPAL.get()
+    client_id = identity.get("client_id") if isinstance(identity, dict) else None
+    if not isinstance(client_id, str) or not re.fullmatch(r"[0-9a-f]{32}", client_id):
+        raise SafetyError("Authenticated HTTP client identity is unavailable")
+    return client_id
+
+
+def temporary_service(kind, payload):
+    if (kind == "calendar_change" and payload.get("kind") == "cal"
+            and payload.get("temporary_elevation") == "calendar-exact-batch-once"):
+        return "calendar"
+    if (kind in {"notes_change", "reminders_change"}
+            and payload.get("context", {}).get("temporary_elevation") == "exact-batch-once"
+            and "standing_grant" not in payload):
+        return kind.removesuffix("_change")
+    return None
+
+
+def check_once_caller(plan):
+    binding = plan.get("http_once")
+    if binding is not None:
+        if (not isinstance(binding, dict) or set(binding) != {"client_id", "service"}
+                or binding.get("service") not in {"calendar", "notes", "reminders"}
+                or binding.get("service") != temporary_service(plan.get("kind"), plan.get("payload", {}))
+                or binding.get("client_id") != authenticated_client_id()):
+            raise SafetyError("One-time proposal belongs to another authenticated HTTP client")
 
 
 def self_permission_request(arguments):
@@ -197,7 +229,39 @@ class ClientPermissions(Middleware):
                 raise SafetyError("HTTP OS access requires exact local owner approval")
         return kind.removesuffix("_access")
 
+    def _once_plan(self, arguments, service, *, receipt=False):
+        import os
+        store = self.store_factory()
+        plan = store.proposal(arguments.get("plan_id"))
+        account = self.account if self.account is not None else os.environ.get("ICLOUD_MAIL_ACCOUNT", "")
+        if (not account or plan.get("payload", {}).get("account") != account
+                or plan.get("http_once", {}).get("service") != service):
+            raise SafetyError("No exact one-time HTTP proposal for this service")
+        check_once_caller(plan)
+        if receipt:
+            approval = store.read(store.path(plan["plan_id"], ".approved"))
+            if approval.get("plan_id") != plan["plan_id"] or approval.get("sha256") != digest(plan):
+                raise SafetyError("One-time HTTP change requires exact local owner approval")
+        return True
+
     def allowed(self, name, policy, arguments=None, *, listing=False):
+        if (not listing and arguments and arguments.get("plan_id") and not name.startswith("policy_")
+                and arguments.get("scope", "service") != "managed-policy"):
+            store = self.store_factory()
+            plan = store.read(store.path(arguments["plan_id"], ".json"))
+            store.check_http_once_integrity(plan)
+            check_once_caller(plan)
+        if name in ONCE_PREPARE:
+            service = service_for_tool(name)
+            if (not listing and name == "calendar_prepare_once" and policy[service] == "read"
+                    and (arguments or {}).get("deletion_authorization", "local-receipt") != "local-receipt"):
+                return False
+            return policy[service] != "none"
+        if name in ONCE_EXECUTE and policy[ONCE_EXECUTE[name]] == "read":
+            if listing:
+                return True
+            if name != "dav_execute_approved" or self._plan_service(name, arguments or {}) == "calendar":
+                return self._once_plan(arguments or {}, ONCE_EXECUTE[name], receipt=True)
         if name in CLIENT_MANAGEMENT:
             if self._manage_clients():
                 return True
@@ -217,7 +281,7 @@ class ClientPermissions(Middleware):
             if listing:
                 modes = [policy[s] for s in (("calendar", "contacts") if name == "dav_execute_approved" else SERVICES)]
                 admin = self._manage_clients() and name != "dav_execute_approved"
-                native_read = name == "owner_request_review" and any(policy[s] == "read" for s in ("notes", "reminders"))
+                native_read = name == "owner_request_review" and any(policy[s] == "read" for s in ("calendar", "notes", "reminders"))
                 own_review = False
                 if name != "dav_execute_approved":
                     try:
@@ -229,6 +293,10 @@ class ClientPermissions(Middleware):
             service = self._plan_service(name, arguments or {})
             if service == "http-client-management":
                 return self._manage_clients() or self._self_permission_plan(arguments or {})
+            if name == "owner_request_review" and service in {"calendar", "notes", "reminders"} and policy[service] == "read":
+                plan = self.store_factory().read(self.store_factory().path((arguments or {}).get("plan_id"), ".json"))
+                if plan.get("http_once") is not None:
+                    return self._once_plan(arguments or {}, service)
             if name == "owner_request_review" and service in {"notes", "reminders"} and policy[service] == "read":
                 return self._native_access_plan(arguments or {}, service) == service
             return policy[service] == "full" if name != "owner_review_status" else policy[service] != "none"

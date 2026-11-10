@@ -15,6 +15,7 @@ Use an isolated environment with the reviewed dependencies. From the root:
 .venv/bin/python tests/modern_stdio_smoke.py
 .venv/bin/python tests/http_transport_smoke.py
 .venv/bin/python tests/http_services_smoke.py
+.venv/bin/python tests/http_once_smoke.py
 .venv/bin/python tests/http_pairing_stdio_smoke.py
 .venv/bin/python tests/native_http_keychain_smoke.py
 .venv/bin/python tests/operation_lock_process_smoke.py

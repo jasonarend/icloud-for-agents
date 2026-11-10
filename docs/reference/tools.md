@@ -11,6 +11,8 @@ When a proposal requires a local owner receipt, `owner_request_review` opens a f
 
 For HTTP callers, managing another client requires separately approved client-management permission. A client without that permission can use `http_prepare_client` with `action: "permissions"` and no client ID to request a locally reviewed change to its own service access; it cannot change client-management authority. App service permissions, the server's own configuration and existing action approvals remain separate checks.
 
+An HTTP client with read access to Calendar, Notes or Reminders can use that service's `prepare_once` tool to request one exact change. Local owner review is required, including under trusted-client policy. The resulting proposal is tied to the requesting client and can be executed only once; saved permissions do not change.
+
 ## Mail tools
 
 | Tool | Purpose and important input | Read-only runtime |

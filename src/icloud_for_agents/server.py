@@ -185,6 +185,11 @@ def owner_request_review(plan_id: str, scope: str = 'service') -> dict:
     Use scope="managed-policy" for a managed Mail policy proposal. Poll
     owner_review_status, then execute only the exact approved plan.
     """
+    if scope == 'service':
+        from .http_authorization import check_once_caller
+        store = PlanStore()
+        proposal = store.proposal(plan_id)
+        check_once_caller(proposal)
     return owner_reviews().request(plan_id, scope)
 
 @mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False})

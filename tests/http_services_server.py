@@ -143,16 +143,16 @@ native_tools.RemindersCreateAdapter = lambda: adapters["reminders"]
 
 SERVICES = tuple(calls)
 TOKENS = {name: ("ika_" + char * 32 + "." + char * 43).encode()
-          for name, char in (("read", "a"), ("full", "b"), ("mail", "c"))}
+          for name, char in (("read", "a"), ("full", "b"), ("mail", "c"), ("other", "d"))}
 
 
 class SyntheticKeys:
     def authenticate(self, token):
         for identity, expected in TOKENS.items():
             if hmac.compare_digest(token, expected):
-                return {"client_id": identity, "manage_clients": False,
+                return {"client_id": expected[4:36].decode(), "manage_clients": False,
                         "permissions": {name: ("full" if identity == "full" else
-                            "read" if identity == "read" or name == "mail" else "none") for name in SERVICES}}
+                            "read" if identity in {"read", "other"} or name == "mail" else "none") for name in SERVICES}}
         return None
 
 
