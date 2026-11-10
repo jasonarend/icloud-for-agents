@@ -28,6 +28,9 @@ Publish a release only when the owner requests one. Tag the exact source commit 
 
 ## Before a release
 
+- Compare the commits and changes since the previous published release with the exact proposed release commit. Update [CHANGELOG.md](../../CHANGELOG.md) before tagging: include meaningful features, fixes, setup changes and other relevant improvements in clear, useful groups, and attribute each change to the release that first included it. Keep releases newest first and do not add an Unreleased placeholder.
+- Use the intended local publication date in the changelog and verify it before publishing. If the date changes before publication, update the entry, repeat the checks and ensure the release tag identifies the checked commit. Commit the changelog with the release version references before running the checks for that commit.
+- Prepare the GitHub release notes from the reviewed changelog entry, and check that the version, date and substantive changes agree before publication. The release script verifies version references; it cannot determine whether the changelog is complete or correctly attributes changes.
 - Review the exact staged/source archive and wheel/sdist contents, Git history and dependency licenses. Ignore rules alone do not remove tracked data.
 - Run guarded tests and credential-free discovery from a sanitized copy; build/install the package into a temporary environment with no private settings.
 - Distinguish reused installed dependencies from a fresh network dependency bootstrap and a clean OS test. Record versions, platform and limits.
