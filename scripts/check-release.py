@@ -20,7 +20,7 @@ def version_tuple(value):
     return tuple(map(int, value.split('.')))
 
 
-def version_from_text(read):
+def version_from_text(read, *, require_changelog=False):
     package = tomllib.loads(read('pyproject.toml'))['project']['version']
     version_tuple(package)
     module = ast.parse(read('src/icloud_for_agents/version.py'))
@@ -28,14 +28,17 @@ def version_from_text(read):
                     if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name)
                     and target.id == '__version__' for target in node.targets)), None)
     readme = re.search(r'^\*\*Version (\d+\.\d+\.\d+)\*\*$', read('README.md'), re.M)
-    changelog = re.search(r'^## (\d+\.\d+\.\d+) — \d{4}-\d{2}-\d{2}$', read('CHANGELOG.md'), re.M)
-    if not readme or not changelog or {package, runtime, readme[1], changelog[1]} != {package}:
-        raise ValueError('Update pyproject.toml, the runtime version, README version and first dated changelog entry together.')
+    if not readme or {package, runtime, readme[1]} != {package}:
+        raise ValueError('Update pyproject.toml, the runtime version and README version together.')
+    if require_changelog:
+        changelog = re.search(r'^## (\d+\.\d+\.\d+) — \d{4}-\d{2}-\d{2}$', read('CHANGELOG.md'), re.M)
+        if not changelog or changelog[1] != package:
+            raise ValueError('Update the first dated changelog entry before creating a release.')
     return package
 
 
-def project_version(root):
-    return version_from_text(lambda path: (root / path).read_text())
+def project_version(root, *, require_changelog=False):
+    return version_from_text(lambda path: (root / path).read_text(), require_changelog=require_changelog)
 
 
 def validate_change_version(current, released, paths):
@@ -46,7 +49,7 @@ def validate_change_version(current, released, paths):
                      or path in {'pyproject.toml', 'requirements-macos-arm64-py314.lock', 'MANIFEST.in'}
                      for path in paths)
     if functional and current_tuple <= released_tuple:
-        raise ValueError('Functional changes need a version bump and dated changelog entry before pushing.')
+        raise ValueError('Functional changes need a version bump before pushing.')
 
 
 def git(*args):
@@ -82,7 +85,10 @@ def check_pre_push(remote_ref='origin/main'):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--pre-push', action='store_true', help='Validate committed HEAD against the local remote-tracking branch.')
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument('--pre-push', action='store_true', help='Validate committed HEAD against the local remote-tracking branch.')
+    modes.add_argument('--local-commit', action='store_true', help='Check local version consistency without requiring an unreleased version bump.')
+    modes.add_argument('--release', action='store_true', help='Also require a matching dated changelog entry for a release.')
     parser.add_argument('--remote-ref', default='origin/main', help='Local remote-tracking ref for --pre-push (default: origin/main).')
     args = parser.parse_args()
     try:
@@ -90,19 +96,21 @@ def main():
             current, base = check_pre_push(args.remote_ref)
             print(f'Pre-push release check passed: committed {current}; compared with {base}.')
             return 0
-        current = project_version(ROOT)
+        current = project_version(ROOT, require_changelog=args.release)
         tags = [tag for tag in git('tag', '--merged', 'HEAD', '--list', 'v*')
                 if VERSION.fullmatch(tag[1:])]
         if not tags:
             raise ValueError('No reachable release tags found. Fetch release tags before checking the next version.')
         base = max(tags, key=lambda tag: version_tuple(tag[1:]))
-        paths = set(git('diff', '--name-only', base, '--'))
-        paths.update(git('ls-files', '--others', '--exclude-standard'))
+        paths = set() if args.local_commit else set(git('diff', '--name-only', base, '--'))
+        if not args.local_commit:
+            paths.update(git('ls-files', '--others', '--exclude-standard'))
         validate_change_version(current, base[1:], paths)
     except (ValueError, KeyError, OSError, subprocess.SubprocessError) as exc:
         print('Release check failed: ' + str(exc), file=sys.stderr)
         return 1
-    print(f'Release check passed: {current}; latest reachable release {base}.')
+    label = 'Local commit check' if args.local_commit else 'Release check' if args.release else 'Pre-push preparation check'
+    print(f'{label} passed: {current}; latest reachable release {base}.')
     return 0
 
 

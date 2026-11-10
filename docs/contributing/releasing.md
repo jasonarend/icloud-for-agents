@@ -8,27 +8,30 @@ ChatGPT private custom MCP connections are distinct from public plugins. Catalog
 
 ## Prepare the version before pushing
 
+Local progress commits can keep the current version without adding a release entry. Before committing, run the relevant tests and `.venv/bin/python scripts/check-release.py --local-commit` to check version consistency. This mode does not authorize a push or substitute for the release and pre-push checks below.
+
 Prepare one version for a batch of functional changes before its first push. Compatible fixes normally receive a patch bump, compatible features a minor bump, and breaking changes a major bump. Documentation-only and test-only changes may keep the current version unless a release is requested.
 
-Update `pyproject.toml`, `src/icloud_for_agents/version.py`, the README version and the first dated changelog entry together, then run:
+Update `pyproject.toml`, `src/icloud_for_agents/version.py` and the README version together, then run:
 
 ```sh
 .venv/bin/python scripts/check-release.py
 ```
 
-The preparation check uses the latest reachable stable release tag and checks the four version references. Fetch release tags first if this is a new checkout. After committing, fetch the intended remote branch and run the committed check immediately before pushing:
+The preparation check uses the latest reachable stable release tag and checks the three version references. Fetch release tags first if this is a new checkout. After committing, fetch the intended remote branch and run the committed check immediately before pushing:
 
 ```sh
 .venv/bin/python scripts/check-release.py --pre-push
 ```
 
-This mode checks committed `HEAD` against `origin/main`, refuses uncommitted release-version references, and requires a newer committed version for outgoing functional changes. Each new functional push batch must advance the remote version even if the previous version has not been tagged yet. Use `--remote-ref` for a different intended remote branch. Both checks are local and do not fetch or push anything. Include the version and changelog in the same push as the changes to avoid a second version-only GitHub Actions run. Coding agents follow the same requirement in [AGENTS.md](../../AGENTS.md).
+This mode checks committed `HEAD` against `origin/main`, refuses uncommitted release-version references, and requires a newer committed version for outgoing functional changes. Each new functional push batch must advance the remote version even if the previous version has not been tagged yet. Use `--remote-ref` for a different intended remote branch. Both checks are local and do not fetch or push anything. Include the version in the same push as the changes to avoid a second version-only GitHub Actions run. Update the changelog when preparing a release, not for routine commits or pushes. Coding agents follow the same requirement in [AGENTS.md](../../AGENTS.md).
 
 Publish a release only when the owner requests one. Tag the exact source commit whose hosted checks passed; reuse that result rather than rerunning the same checks for the tag push. Check the tag's commit before publishing.
 
 ## Before a release
 
 - Compare the commits and changes since the previous published release with the exact proposed release commit. Update [CHANGELOG.md](../../CHANGELOG.md) before tagging: include meaningful features, fixes, setup changes and other relevant improvements in clear, useful groups, and attribute each change to the release that first included it. Keep releases newest first and do not add an Unreleased placeholder.
+- Run `.venv/bin/python scripts/check-release.py --release` to verify the release's version and dated changelog entry match.
 - Use the intended local publication date in the changelog and verify it before publishing. If the date changes before publication, update the entry, repeat the checks and ensure the release tag identifies the checked commit. Commit the changelog with the release version references before running the checks for that commit.
 - Prepare the GitHub release notes from the reviewed changelog entry, and check that the version, date and substantive changes agree before publication. The release script verifies version references; it cannot determine whether the changelog is complete or correctly attributes changes.
 - Review the exact staged/source archive and wheel/sdist contents, Git history and dependency licenses. Ignore rules alone do not remove tracked data.
