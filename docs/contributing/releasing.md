@@ -1,16 +1,12 @@
-# Distribution and release verification
+# Preparing a release
 
-## Per-user source and private connections
+This guide is for maintainers publishing iCloud for Agents. For a personal installation, use [installation](../getting-started/installation.md) and [upgrade or rollback](../getting-started/maintenance.md).
 
-Source distribution lets each user install their own environment and connect their own Apple credentials and MCP client. It must never contain a working user's Keychain material, settings, tunnel profile, message data, approval records, handoffs or supplied private assets. Local runtime paths are ignored and are not release inputs.
+## Version a push batch
 
-ChatGPT private custom MCP connections are distinct from public plugins. Catalog eligibility requires a separate provider review. OpenAI's [desktop-only deployment guide](https://developers.openai.com/plugins/deploy/desktop-only) describes local stdio packaging and current partner restrictions; [plugin building](https://developers.openai.com/plugins/build/plugins) and [third-party integration guidelines](https://developers.openai.com/plugins/plugin-guidelines#third-party-content-and-integrations) add eligibility requirements. Desktop-specific packaging is not included. Do not promise a public catalog listing or compatibility with untested clients.
+Local progress commits may keep the current version. Run the relevant checks and `.venv/bin/python scripts/check-release.py --local-commit` before committing.
 
-## Prepare the version before pushing
-
-Local progress commits can keep the current version without adding a release entry. Before committing, run the relevant tests and `.venv/bin/python scripts/check-release.py --local-commit` to check version consistency. This mode does not authorize a push or substitute for the release and pre-push checks below.
-
-Prepare one version for a batch of functional changes before its first push. Compatible fixes normally receive a patch bump, compatible features a minor bump, and breaking changes a major bump. Documentation-only and test-only changes may keep the current version unless a release is requested.
+Before pushing runtime, dependency or setup changes, choose one version for the complete batch: a patch for compatible fixes, a minor version for compatible features, or a major version for breaking changes. Documentation-only and test-only batches may keep the existing version unless preparing a release.
 
 Update `pyproject.toml`, `src/icloud_for_agents/version.py` and the README version together, then run:
 
@@ -18,29 +14,50 @@ Update `pyproject.toml`, `src/icloud_for_agents/version.py` and the README versi
 .venv/bin/python scripts/check-release.py
 ```
 
-The preparation check uses the latest reachable stable release tag and checks the three version references. Fetch release tags first if this is a new checkout. After committing, fetch the intended remote branch and run the committed check immediately before pushing:
+The check uses local release tags, so fetch the release tags when preparing from a new or stale checkout. Commit the version with the functional changes. Fetch the intended remote branch and immediately before pushing run:
 
 ```sh
 .venv/bin/python scripts/check-release.py --pre-push
 ```
 
-This mode checks committed `HEAD` against `origin/main`, refuses uncommitted release-version references, and requires a newer committed version for outgoing functional changes. Each new functional push batch must advance the remote version even if the previous version has not been tagged yet. Use `--remote-ref` for a different intended remote branch. Both checks are local and do not fetch or push anything. Include the version in the same push as the changes to avoid a second version-only GitHub Actions run. Update the changelog when preparing a release, not for routine commits or pushes. Coding agents follow the same requirement in [AGENTS.md](../../AGENTS.md).
+The pre-push check compares committed `HEAD` with `origin/main`, requires a newer version for outgoing functional changes, and refuses uncommitted version references. Use `--remote-ref` when pushing to a different branch. Neither check fetches or pushes. Each functional push batch needs a newer version even if the previous version has not been tagged.
 
-Publish a release only when the owner requests one. Tag the exact source commit whose hosted checks passed; reuse that result rather than rerunning the same checks for the tag push. Check the tag's commit before publishing.
+A push does not create a release. Update the changelog when preparing a release; do not add an Unreleased placeholder. Coding agents follow the same rules in [AGENTS.md](../../AGENTS.md).
 
-## Before a release
+## Review the release contents
 
-- Compare the commits and changes since the previous published release with the exact proposed release commit. Update [CHANGELOG.md](../../CHANGELOG.md) before tagging: include meaningful features, fixes, setup changes and other relevant improvements in clear, useful groups, and attribute each change to the release that first included it. Keep releases newest first and do not add an Unreleased placeholder.
-- Run `.venv/bin/python scripts/check-release.py --release` to verify the release's version and dated changelog entry match.
-- Use the intended local publication date in the changelog and verify it before publishing. If the date changes before publication, update the entry, repeat the checks and ensure the release tag identifies the checked commit. Commit the changelog with the release version references before running the checks for that commit.
-- Prepare the GitHub release notes from the reviewed changelog entry, and check that the version, date and substantive changes agree before publication. The release script verifies version references; it cannot determine whether the changelog is complete or correctly attributes changes.
-- Review the exact staged/source archive and wheel/sdist contents, Git history and dependency licenses. Ignore rules alone do not remove tracked data.
-- Run guarded tests and credential-free discovery from a sanitized copy; build/install the package into a temporary environment with no private settings.
-- Distinguish reused installed dependencies from a fresh network dependency bootstrap and a clean OS test. Record versions, platform and limits.
-- Validate relative documentation links and all install paths after a move. Keep source/package version separate from app wrapper and tunnel-client versions.
-- Build the sdist, run `.venv/bin/python scripts/check-sdist.py dist/icloud_for_agents-VERSION.tar.gz`, then extract it into a disposable directory and run the documented offline/stdio checks there. The archive must contain every test runner and fixture, not just `test_*.py`.
-- GitHub private vulnerability reporting is enabled for the public repository. Before publishing a release, verify that the **Report a vulnerability** form linked from [SECURITY.md](../../SECURITY.md) is still available and that maintainers monitor incoming reports.
-- Review the complete relevant security surface. A partial scan or passing privacy patterns is not an exhaustive assurance.
-- Run `scripts/check-dependency-licenses.py` with the project interpreter and review its notice evidence. Preserve the distinction between inventory verification, advisory scans, an independent security audit and legal license review; do not call a release certified on the basis of automated checks.
-- Review the [upgrade, rollback and retained-data checklist](../getting-started/maintenance.md). The GitHub macOS workflow runs synthetic checks, license inventory verification and package checks; a workflow file alone is not a successful hosted CI run.
-- Obtain explicit approval before a remote, commit, push, package upload or publication.
+Compare the previous published release with the exact proposed source commit. Write a dated entry in [CHANGELOG.md](../../CHANGELOG.md) describing meaningful user-facing features, fixes and setup changes. Attribute each change to the release that first included it and keep releases newest first.
+
+Use the intended local publication date. If publication moves to another date, update the entry and repeat the checks before tagging. Commit the changelog in the source commit that will be checked and released.
+
+Review tracked files, Git history and distribution contents for private data. A source distribution must exclude working settings, credentials, tunnel profiles, account content, approval records and local test evidence. Ignore rules do not remove previously tracked data. Preserve notices and review dependency changes using [the licensing guide](licensing.md).
+
+## Validate the candidate
+
+Run:
+
+```sh
+.venv/bin/python scripts/check-release.py --release
+```
+
+Then run the applicable checks in [development](development.md) and the complete [source-check workflow](../../.github/workflows/checks.yml). Check the actual results for the proposed commit, including hosted CI. Automated version checks cannot determine whether release notes are complete or accurately attributed.
+
+Build source and wheel distributions with the project interpreter:
+
+```sh
+.venv/bin/python -c "import setuptools.build_meta as b; b.build_sdist('dist'); b.build_wheel('dist')"
+.venv/bin/python scripts/check-sdist.py dist/icloud_for_agents-VERSION.tar.gz
+.venv/bin/python scripts/check-branding-package.py dist/icloud_for_agents-VERSION-py3-none-any.whl
+```
+
+Replace the example filenames with the generated names. Install the candidate into a disposable environment, then run the relevant checks from an extracted source archive. Keep the working installation available for rollback. Record which platform and dependency installation were checked; a reused environment does not demonstrate a fresh installation.
+
+Check documentation links and install paths, and review the [maintenance guide](../getting-started/maintenance.md) against the release. Verify that the private vulnerability-reporting route in [SECURITY.md](../../SECURITY.md) is available and monitored.
+
+## Publish and verify
+
+Publish only with the repository owner's authorization. Create the release tag at the exact source commit whose hosted checks passed. The workflow does not rerun for tag pushes, so verify the tag target before publication.
+
+Base the GitHub release notes on the reviewed changelog entry. Confirm that the version, publication date and substantive changes agree. Publishing a GitHub release does not authorize uploading a Python package or changing a user's installed service.
+
+After publication, verify the public release and its tag target. Report the published version separately from any installed or running version. Upgrading a live installation is a separate operation covered by the [maintenance guide](../getting-started/maintenance.md).

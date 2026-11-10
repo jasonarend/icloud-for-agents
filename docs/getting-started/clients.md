@@ -2,7 +2,7 @@
 
 The server runs on your Mac and retrieves credentials from macOS Keychain. A local client launches it over stdio; ChatGPT connects through your private Secure MCP Tunnel. The model name does not determine the connection: Claude in a local app and Claude in a browser have different capabilities.
 
-ChatGPT connects through a private tunnel; Claude Desktop, Claude Code and compatible local clients connect over stdio. Unsloth Desktop, Hermes Desktop and OpenClaw have also been verified for the read-only operations described in their sections. The tested platform is macOS arm64 with Python 3.14. Other client routes remain unverified with this project unless stated otherwise. Check the installed client's documentation when its interface differs from these instructions.
+ChatGPT connects through a private OpenAI tunnel. Claude Desktop, Claude Code and other local clients can connect over stdio. Compatible hosted clients and custom agents can use an authenticated HTTP connection with an HTTPS route they can reach. The installation lock targets macOS arm64 with Python 3.14. Check the installed client's documentation when its interface differs from these instructions.
 
 ## Prepare the local server
 
@@ -20,7 +20,7 @@ Merge one named server into the existing configuration, preserving other servers
 
 Follow the full [ChatGPT private connection guide](chatgpt.md): check Tunnel availability in the owner's account/workspace, install the official tunnel client, configure the owner's tunnel and separate runtime credential, run preflight, start the connection, and let the human approve it in ChatGPT. Verify read-only calls from ChatGPT itself.
 
-A local stdio entry alone does not connect ChatGPT. If the account lacks the required Tunnel option, report that blocker and offer a compatible local client. This repository supplies no public HTTP endpoint.
+A local stdio entry alone does not connect ChatGPT. If the account lacks the required Tunnel option, explain that limitation and consider a compatible local client. The OpenAI tunnel does not provide a generic public endpoint for other clients.
 
 ## Claude Desktop on macOS
 
@@ -57,11 +57,11 @@ Source: [Claude Code MCP guide](https://code.claude.com/docs/en/mcp).
 
 Connect iCloud for Agents in Unsloth's interface:
 
-1. Complete the local server setup above, with only your chosen services enabled and access set to read-only for the first test. If an assistant is helping, it can obtain the launch values and handle local setup commands for you.
+1. Complete the local server setup above, with only your chosen services enabled and initial access set to read-only. Your assistant can obtain the launch values and handle local setup commands for you.
 2. In a chat, open **Tools and attachments → More → MCP** if the **MCP** control is hidden. Then open **MCP → Manage MCP servers → Add server**. Keep any existing servers.
 3. Set **Display name** to `iCloud for Agents`. In **URL or executable**, enter the absolute Python path from the existing installation, such as `/ABSOLUTE/PATH/icloud-for-agents/.venv/bin/python`. Add one **Arguments** row containing `/ABSOLUTE/PATH/icloud-for-agents/scripts/run-stdio.py`. Use the actual checkout path in both fields.
 4. Choose **Test connection**, then **Add server** after it connects. The number of tools depends on the services you selected.
-5. Keep the server enabled in the manager and enable MCP use in the chat. The server's row in the MCP menu also toggles its availability, so leave it enabled for the test. Choose a model that supports tool calling and keep Unsloth's normal tool approvals enabled.
+5. Keep the server enabled in the manager and enable MCP use in the chat. The server's row in the MCP menu also toggles its availability. Choose a model that supports tool calling and keep Unsloth's normal tool approvals enabled.
 6. Ask Unsloth to read something from a selected service, such as “Show my calendars.” Check the actual tool result. Follow the [verification guidance below](#verify-every-client-connection) for the services you chose.
 
 The standard launcher reads your service selections and access modes from `local/settings.json` and retrieves Apple credentials from Keychain. Leave credentials out of Unsloth's argument and environment fields. Environment overrides beside the standard launcher do not restrict the shared settings it loads.
@@ -252,7 +252,7 @@ Trying Grok Bot? [Open a GitHub issue](https://github.com/jasonarend/icloud-for-
 
 ### Grok web
 
-Grok web's custom connectors require a publicly reachable MCP server URL. The local command configuration above does not provide that URL, and the ChatGPT tunnel cannot be assumed to work with Grok web. This route has not been validated with the project; contributors are welcome to propose a secure connection that preserves local credential storage and the existing approval model.
+Grok web's custom connectors require a publicly reachable MCP server URL. The local command configuration above does not provide that URL, and the ChatGPT tunnel is specific to ChatGPT. The optional [authenticated HTTP connection and HTTPS routing guide](http.md) describe how a compatible hosted client can reach this Mac. Grok web's use of that route has not been verified with this project; check its current authentication and transport requirements before setup.
 
 Sources: [Grok Bot computer, apps and custom connectors](https://docs.x.ai/grok-bot/computer-and-apps), [Grok web custom connectors](https://docs.x.ai/grok/connectors).
 
@@ -298,7 +298,7 @@ Sources: [Muse connector help, including Custom Connectors](https://www.meta.com
 
 A local stdio client must launch a subprocess, exchange MCP messages over its stdin/stdout, and support tool discovery and invocation. Use the generated `command` and `args` with its documented stdio transport. SDK applications must retain the subprocess for the session and close it cleanly. Compatible Streamable HTTP clients may instead use the [optional authenticated HTTP connection](http.md). A model provider alone is not an MCP client.
 
-HTTP/SSE-only clients, browser-only clients and hosted agents cannot directly launch this Mac's stdio server. The HTTP endpoint remains on loopback unless a separately configured private connection is used. Legacy SSE-only clients are not supported by the Streamable HTTP endpoint. The documented ChatGPT tunnel is specific to that connection; it is not a generic URL for other clients.
+HTTP-only clients, browser-only clients and hosted agents cannot directly launch this Mac's stdio server. The HTTP endpoint listens on loopback; a client outside the Mac needs a separately configured private or public HTTPS route it can reach. Legacy SSE-only clients are not supported by the Streamable HTTP endpoint. The documented ChatGPT tunnel is specific to that connection; it is not a generic URL for other clients.
 
 ## Verify every client connection
 

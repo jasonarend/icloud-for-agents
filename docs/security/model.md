@@ -22,6 +22,7 @@ The bridge has no analytics or mail-content logging subsystem in the inspected a
 | Apple app-specific password | User-managed Keychain; captured in runtime memory when needed; not an MCP parameter |
 | Platform tunnel runtime key | User-managed separate Keychain item; captured in memory at explicit startup, inherited by the tunnel process, stripped from its MCP child |
 | HTTP client key | Separate Keychain item for each client; shown locally to the owner for secure client setup and checked on each request |
+| Cloudflare tunnel token, if used | Separate Keychain item for the selected tunnel; passed in the tunnel process environment at explicit startup |
 | Retrieved content | Bounded Mail, Calendar, Contacts, Notes, Reminders and supported attachment results reach the calling client and may enter its model-provider workflow |
 | Cursors | Account/folder/filter-bound traversal state; contain no password or body, but are private workflow metadata |
 | Proposals, receipts, grants and recovery records | Sensitive service/account identities, targets, content and before-snapshots stored locally for review and reconciliation |
@@ -33,7 +34,7 @@ Do not publish real mailbox examples, cursors, proposal files, screenshots conta
 
 The Apple app-specific password authenticates to Apple. The restricted Platform runtime key authenticates the tunnel client to OpenAI. Its separate service is `icloud-for-agents-tunnel-runtime`, account = exact tunnel ID; the Apple service remains `icloud-for-agents`, account = exact mailbox. Neither belongs in the custom plugin's No authentication fields, a URL query string, checked-in configuration, tool argument, shell command, or chat message.
 
-An optional [Streamable HTTP transport](../getting-started/http.md) uses separate client credentials and listens on loopback. Each reviewed key has server-enforced none/read/full access for each service and separately approved client-management authority. Global service settings and approval policies remain the upper bound; keys with access to the same service share its configured account and selected data sources. Per-key folder isolation is not provided. No authentication in the private Tunnel plugin setup is not a recipe for an unauthenticated mailbox endpoint. Do not forward this single-account process to the public internet without a separately reviewed security design.
+An optional [Streamable HTTP transport](../getting-started/http.md) uses separate client credentials and listens on loopback. Each reviewed key has server-enforced none/read/full access for each service and separately approved client-management authority. Global service settings and approval policies remain the upper bound; keys with access to the same service share its configured account and selected data sources. Per-key folder isolation is not provided. A separate HTTPS proxy can make the authenticated endpoint reachable remotely, including publicly. Review the chosen provider, exposure, key protection and authorized scope before enabling it; do not expose an unauthenticated endpoint. The OpenAI private-tunnel authentication configuration is separate from these HTTP client keys.
 
 The durable owner launcher retrieves the runtime key from its separate encrypted Keychain item, uses a process environment for the official client, and never writes a plaintext key. It defaults to nonsecret preflight only; explicit start uses the saved item. Same-user or privileged processes may still access process memory/environment. The Apple credential is retrieved lazily through `/usr/bin/security`; the server caches it in the service object for the process lifetime. Restarting clears that process's memory, not the user's Keychain item.
 
@@ -73,7 +74,7 @@ Ordinary Calendar/contact changes require a separately authorized write-enabled 
 
 ## Disconnect, revoke, or uninstall
 
-Stopping the configured foreground tunnel or login background service prevents that transport from serving calls while it is stopped. Disabling/uninstalling the ChatGPT plugin is a separate client action. Neither automatically revokes the Apple credential, deletes the Platform key/tunnel, removes Keychain items, or erases local plans or existing chat content.
+Stopping a configured server or tunnel prevents that connection from serving calls while it is stopped. Disconnecting a client and revoking its HTTP key are separate actions. Stopping a Cloudflare tunnel does not remove its route or tunnel token. Disabling the ChatGPT connection is also separate. None of these actions automatically revokes the Apple credential, removes other keys, deletes local plans or erases existing chat content.
 
 If credentials are exposed, the owner should revoke the specific affected credential through its issuer, then reconnect only after understanding the exposure. Secret rotation, tunnel deletion, local-data removal, and public publication are separate actions, not implied by a documentation update. There is no one-click comprehensive uninstaller in this repo.
 

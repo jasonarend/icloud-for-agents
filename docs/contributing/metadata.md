@@ -1,100 +1,43 @@
-# Project metadata and ChatGPT refresh
+# Server and package metadata
 
-There are separate metadata layers. Updating one does not publish or refresh the
-others.
+This guide explains where project identity and version information come from, and what to update when changing them. Client setup is covered in the [client guide](../getting-started/clients.md).
 
-## Repository, Python package and MCP server
+## Sources of metadata
 
-`src/icloud_for_agents/metadata.py` holds the public server name, description and
-URLs. The package metadata in `pyproject.toml` must match it. Tests check this
-without accessing credentials or services.
+| Metadata | Source | Used by |
+| --- | --- | --- |
+| Server name, description and public URLs | `src/icloud_for_agents/metadata.py` | MCP initialization and metadata tests |
+| Runtime version | `src/icloud_for_agents/version.py` | MCP `serverInfo.version` |
+| Package name, version, description and project URLs | `pyproject.toml` | Installed Python distribution metadata |
+| Runtime icon | `src/icloud_for_agents/branding.py` and `assets/icon-128.png` | MCP `serverInfo.icons` |
+| Client listing name, version and artwork | The client's own connection or listing settings | That client's interface |
 
-- **Homepage / MCP `websiteUrl`:**
-  <https://jasonarend.com/news/icloud-for-agents-apple-ai-assistants/>
-- **Repository:** <https://github.com/jasonarend/icloud-for-agents>
-- **Documentation:** <https://github.com/jasonarend/icloud-for-agents#readme>
-- **Issues:** <https://github.com/jasonarend/icloud-for-agents/issues>
-- **Changelog:** <https://github.com/jasonarend/icloud-for-agents/blob/main/CHANGELOG.md>
-- **Description:** Connect AI assistants to iCloud Mail, Calendar and Contacts,
-  plus Apple Notes and Reminders on macOS, with explicit access controls.
+Keep the package version, runtime version and README version consistent. Update the changelog when preparing a release, following [the release workflow](releasing.md).
 
-The MCP server advertises its name, title, description, release version, website
-and [packaged icon](branding.md). The version comes from
-`src/icloud_for_agents/version.py`, not a hardcoded `1.0` and not the MCP protocol
-date. Keep the Python package, runtime and README versions in sync. Update the
-dated changelog when preparing a release under [the release workflow](releasing.md).
+The MCP protocol revision is independent of the application version. A negotiated date such as `2026-07-28` identifies the protocol, while `serverInfo.version` identifies this project's release. A client's separately stored plugin version can differ from both.
 
-The reviewed FastMCP 4.x constructor supports version, website and icons but does
-not expose the SDK's title and description arguments. `server.py` sets those two
-public SDK attributes immediately after construction. Real stdio tests cover
-this adapter and the emitted metadata across supported protocol versions. This
-adds presentation information only; it does not change enabled services,
-authorization, tool permissions or approval requirements.
+## Implementation details
 
-`[project.urls]` also puts the links in built Python distribution metadata. Merely
-editing the checkout does not rebuild an installed wheel, restart an existing
-process, publish a package, change GitHub's About settings or publish the website.
-The homepage is the intended public destination; setting it is not a deployment
-or availability check.
+`server.py` constructs FastMCP with the runtime version, website URL and packaged icon. The current FastMCP constructor does not accept title and description, so the server assigns those public SDK attributes after construction. When updating FastMCP, check its API and retain protocol tests for the emitted metadata. This adapter affects presentation metadata; service selection and authorization are handled separately.
 
-## Why ChatGPT can still show version 1.0 or an old description
+Use package resources for runtime assets. The installed package must work outside the checkout without reading `pyproject.toml` or fetching an image from the network. See [branding](branding.md) for asset sizes and formats.
 
-A ChatGPT custom MCP connection has its own plugin/app listing. Its entered name
-and description, plugin release version and uploaded image are separate from the
-MCP server's `serverInfo` and Python package version. Do not change the server's
-version to match a listing, or assume a `1.0` listing means the bridge is running
-version 1.0. Check the actual MCP initialization metadata to diagnose the runtime.
+## Validate a metadata change
 
-For a custom MCP connection, OpenAI's documented metadata refresh is:
+Run the offline suite and both stdio checks from [development](development.md). They compare package/runtime identity and inspect actual initialization responses, including supported protocol revisions. Build a wheel and run:
 
-1. Install or deploy the intended server revision and restart the affected server
-   or tunnel process when safe to interrupt its active sessions.
-2. Open the existing connection in [ChatGPT Plugins](https://chatgpt.com/plugins).
-3. Select **Refresh** and confirm the advertised metadata has changed.
-4. Start a new conversation and test the affected tools.
+```sh
+.venv/bin/python scripts/check-branding-package.py dist/icloud_for_agents-VERSION.whl
+```
 
-Refreshing pulls tool descriptions and server instructions. It is not a promise
-that separately stored listing text, plugin release version or artwork will be
-replaced. If those remain old, update the existing plugin's presentation through
-its available management controls. Published plugin information changes follow
-the plugin's version/review/publication workflow. Keep the existing connection,
-audience and access scope unless a separate change is intended. Recreating a
-connection is not the default troubleshooting step.
+Use the actual wheel filename. This checks the packaged metadata module, icon, package summary, version and project URLs against the source tree.
 
-This repository does not contain an installed ChatGPT plugin manifest or publish
-one automatically. Updating the repository does not change the user's installed
-plugin, restart a live tunnel or grant new access.
+Installing an updated package does not restart an existing server or refresh a client's cached tool descriptions. Restart the affected connection when safe and use the client's refresh controls. For ChatGPT, follow [OpenAI's metadata refresh guidance](https://developers.openai.com/plugins/deploy/connect-chatgpt#refresh-metadata). Separately entered listing text, version or artwork may require its own update in that client's management interface.
 
-## MCP Registry and other directories
+## Directory publication
 
-An official MCP Registry `server.json` is a separate publication manifest, not
-an MCP initialization response and not a ChatGPT plugin manifest. It needs a
-verified registry namespace, a release version and a real installable package or
-remote endpoint, in addition to its description, repository and website fields.
-Validate that full manifest against the Registry's current schema before
-publishing. Do not invent a package release or expose a private tunnel endpoint
-just to populate a listing.
+Directory manifests and plugin listings are separate from MCP initialization metadata. The repository does not include an MCP Registry `server.json` or a ChatGPT plugin package. Those files are not required to use the documented direct connections.
 
-This checkout does not add a speculative `server.json` or submit a listing.
-[Branding documentation](branding.md) describes the HTTPS icon requirement and
-available directory exports. Publish and verify those assets before referring
-to them from an external listing. Standard MCP clients can use server metadata
-without any registry submission.
+A contribution adding a directory listing should use its current schema, a verified namespace and a real installable package or reachable service. Include validation and publication instructions, and avoid embedding a user's private endpoint. [Branding](branding.md) describes the available images. Directory publication requires the maintainer's approval.
 
-## Checks
-
-Run the [offline and both stdio suites](development.md) after editing metadata.
-The offline tests compare package/runtime values; stdio checks assert the name,
-title, current release version, description and homepage from actual MCP
-initialization/discovery. After building a wheel, run
-`scripts/check-branding-package.py` to verify the packaged metadata module, icon,
-summary, version and project URLs. Neither test establishes how a particular
-client renders its separately stored plugin listing.
-
-References:
-
-- [OpenAI: add a custom MCP server](https://developers.openai.com/api/docs/guides/custom-mcp-server#how-to-use)
-- [OpenAI: refresh custom MCP metadata](https://developers.openai.com/plugins/deploy/connect-chatgpt#refresh-metadata)
-- [MCP implementation metadata](https://modelcontextprotocol.io/specification/2026-07-28/basic)
-- [MCP Registry schema](https://github.com/modelcontextprotocol/registry/blob/main/docs/reference/server-json/draft/server.schema.json)
-- [Python project URLs](https://packaging.python.org/en/latest/guides/writing-pyproject-toml/#urls)
+References: [MCP implementation metadata](https://modelcontextprotocol.io/specification/2026-07-28/basic), [MCP Registry schema](https://github.com/modelcontextprotocol/registry/blob/main/docs/reference/server-json/draft/server.schema.json), [Python project URLs](https://packaging.python.org/en/latest/guides/writing-pyproject-toml/#urls).

@@ -1,7 +1,5 @@
-# Invitation replies: unsupported, separate proposed workflow
+# Calendar invitations
 
-The current bridge can read event resources but cannot accept/decline invitations. Its editor refuses events with ATTENDEE, ORGANIZER or METHOD; the separately scoped personal recurring-event operations do not apply to invitations. Schedule-Reply:F is scoped to permitted personal-event DELETE requests, not PUT. Updating a personal event is not an invitation response.
+iCloud for Agents can read calendar events but does not accept, decline or respond to invitations. The event editor refuses resources with attendees, an organizer or a scheduling method. Personal recurring-event operations do not change invitations or send scheduling responses.
 
-A future implementation would first discover actual iCloud scheduling capabilities, inbox/outbox and owner calendar-user identities. It would read the exact invitation/occurrence, UID, SEQUENCE, organizer, owner's attendee identity, current status and concurrency tokens. A separate reviewed plan would name accept/decline/tentative and explain which organizer/attendees may be notified. Only that owner attendee's participation status could change; organizer/content/other attendees stay fixed. Conditional updates must respect relevant ETag and Schedule-Tag behavior. Verify resource state and scheduling outcome; never treat uncertain notification delivery as safe to retry. Delegation, counters, organizer cancellation and recurring-series responses require separate designs. No real invitation response or scheduling capability probe has been performed.
-
-This proposal follows [CalDAV scheduling RFC6638](https://www.rfc-editor.org/rfc/rfc6638) and [iTIP RFC5546](https://www.rfc-editor.org/rfc/rfc5546). These standards do not prove that this account exposes every operation or that the current bridge implements them.
+Use Calendar or another supported calendar client to manage invitations. Changing a personal event through iCloud for Agents does not send an invitation response.

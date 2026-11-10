@@ -1,4 +1,6 @@
-# Restart-safe private startup
+# ChatGPT tunnel background startup
+
+This guide describes the optional OpenAI private tunnel service used for ChatGPT. It is separate from the [HTTP connection](http.md) available to other compatible clients. A local assistant can perform the technical steps below; you do not need to run Terminal commands.
 
 The macOS tunnel launcher uses an existing Keychain runtime key whose service is `icloud-for-agents-tunnel-runtime` and account is the exact tunnel ID. Selected Mail, Calendar or Contacts services separately use the Apple app-specific password described in [installation](installation.md). Notes and Reminders use macOS permissions instead. Create any needed credentials personally; keep secrets out of chat, arguments, YAML and JSON.
 

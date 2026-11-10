@@ -1,69 +1,76 @@
 # Contributing and testing
 
-Active code is under `src/icloud_for_agents/`, reusable setup utilities under `scripts/`, synthetic tests under `tests/`, and nonsecret templates under `deployment/`. The upstream server is not vendored or imported. Provenance and required notices live under `third_party/icloud-mcp/`, `third_party/remctl/` and root `NOTICE.md`.
+Contributions to features, fixes, client setup and documentation are welcome. Start with a focused issue or pull request that explains the problem, the resulting behavior and how you checked it. Report security vulnerabilities privately through [SECURITY.md](../../SECURITY.md).
 
-See [icons and client compatibility](branding.md) for the packaged MCP icon,
-directory/client exports, asset regeneration and the limits of client-side rendering.
-See [project metadata and ChatGPT refresh](metadata.md) for homepage/source links,
-version and description checks, and separately stored plugin-listing information.
+## Set up a development environment
 
-Use an isolated environment with the reviewed dependencies. From the root:
+Use a separate checkout and virtual environment so development does not interrupt a working installation. Follow the dependency installation steps in [installation](../getting-started/installation.md). The reviewed lock targets macOS arm64 and CPython 3.14. Synthetic tests do not need an Apple account or a client connection.
+
+The main directories are:
+
+| Location | Contents |
+| --- | --- |
+| `src/icloud_for_agents/` | Server, service adapters, permissions and recovery logic |
+| `src/icloud_for_agents/native/` | macOS helper sources |
+| `scripts/` | Installation, connection, build and validation utilities |
+| `tests/` | Synthetic fixtures, unit tests, protocol checks and native contracts |
+| `deployment/` | Nonsecret configuration templates |
+| `docs/` | User, setup-agent and contributor guides |
+
+Read [project metadata](metadata.md) when changing server identity or protocol metadata, [branding](branding.md) when changing icons, and [licensing](licensing.md) when adding or redistributing dependencies.
+
+## Choose the right checks
+
+From the project root, start with the offline suite and the real stdio protocol checks:
 
 ```sh
 .venv/bin/python tests/run_offline.py
 .venv/bin/python tests/stdio_smoke.py
 .venv/bin/python tests/modern_stdio_smoke.py
-.venv/bin/python tests/http_transport_smoke.py
-.venv/bin/python tests/http_services_smoke.py
-.venv/bin/python tests/http_once_smoke.py
-.venv/bin/python tests/http_pairing_stdio_smoke.py
-.venv/bin/python tests/http_service_process_smoke.py
-.venv/bin/python tests/cloudflare_tunnel_process_smoke.py
-.venv/bin/python tests/native_http_keychain_smoke.py
-.venv/bin/python tests/operation_lock_process_smoke.py
-.venv/bin/python tests/mail_operation_process_smoke.py
-.venv/bin/python tests/dual_transport_smoke.py
-.venv/bin/python tests/policy_stdio_smoke.py
-.venv/bin/python tests/native_stdio_smoke.py
-.venv/bin/python tests/native_script_contract.py
-.venv/bin/python tests/native_write_contract.py
-.venv/bin/python tests/native_reminder_metadata_contract.py
-.venv/bin/python tests/native_reminder_dates_contract.py
-.venv/bin/python tests/native_service_isolation_contract.py
-.venv/bin/python scripts/check-dependency-licenses.py
+.venv/bin/python scripts/check-release.py --local-commit
 ```
 
-If native contract tests report a compiler/SDK mismatch, select the matching SDK for the test process using the currently selected Apple developer installation. The source-check workflow does this without changing the Mac's system-wide developer-tool selection.
+The offline runner isolates its home directory and environment and rejects network, DNS, listeners and subprocesses. The stdio runners start guarded child servers to check initialization, tool discovery, schemas, metadata, errors and read-only enforcement. Reports are written under ignored `build/reports/`.
 
-Reports go to ignored `build/reports/`, not the root. The offline runner isolates HOME/environment and refuses network, DNS, listeners and subprocesses. The stdio smoke test separately starts a credential-free guarded child for real initialize/tools-list and input/read-only refusal checks. Neither connects to Apple or the tunnel. The modern stdio check additionally verifies current MCP negotiation, selected-service tool schemas, annotation boundaries and tool-error handling through the installed MCP client. The separate native-script contract runner executes the actual JXA read logic against synthetic application objects without Apple events; it requires macOS and does not establish native-app acceptance. Do not substitute live credentials for synthetic fixtures.
+Run additional checks for the area you change. The complete automated sequence is maintained in [the source-check workflow](../../.github/workflows/checks.yml), rather than duplicated here.
 
-The HTTP smoke test uses synthetic client credentials and a loopback listener; the dual-transport and operation-lock checks use temporary runtimes and synthetic operations across real subprocesses. These checks do not access Keychain, Apple accounts, a tunnel or any live client. The guarded offline suite separately exercises key lifecycle behavior with an in-memory Keychain substitute. The native HTTP Keychain smoke test uses a disposable standalone Keychain and synthetic credentials, verifies that the default and search list stay unchanged, and deletes the temporary Keychain. See the [HTTP setup guide](../getting-started/http.md) for the transport's security and coordination boundaries.
+| Area | Relevant checks |
+| --- | --- |
+| HTTP transport and client permissions | `http_transport_smoke.py`, `http_services_smoke.py`, `http_once_smoke.py`, `http_pairing_stdio_smoke.py` |
+| Connection startup | `http_service_process_smoke.py`, `cloudflare_tunnel_process_smoke.py`, `login_service_launchd_smoke.py` |
+| Shared operations and recovery | `operation_lock_process_smoke.py`, `mail_operation_process_smoke.py`, `dual_transport_smoke.py` |
+| Calendar recurrence | `calendar_*_stdio_smoke.py` and related unit tests |
+| Notes and Reminders | Relevant `native_*_stdio_smoke.py`, native contract runners and unit tests |
+| Owner review and standing permissions | `owner_review_stdio_smoke.py`, `policy_stdio_smoke.py`, `native_grant_stdio_smoke.py` |
+| Dependencies and packages | `check-dependency-licenses.py`, `check-sdist.py`, `check-branding-package.py` under `scripts/` |
 
-After building a source distribution, check its full validation workflow with `.venv/bin/python scripts/check-sdist.py dist/icloud_for_agents-VERSION.tar.gz`. Run the validation commands above again from an extracted copy using its own installed environment. The full current source-check list lives in `.github/workflows/checks.yml`; successful tests in the original checkout do not prove that the archive includes the required runners and fixtures.
+Run test files with `.venv/bin/python tests/FILE.py` and scripts with `.venv/bin/python scripts/FILE.py`. Some native contract runners require Apple developer tools. Use the SDK associated with the selected developer installation for that test process, as shown in the workflow; avoid changing the Mac's system-wide developer-tool selection to fix a test environment.
 
-Run `tests/policy_stdio_smoke.py` as well to exercise the opt-in production-policy tools through real JSON-RPC with fake IMAP and an isolated home. `tests/owner_review_stdio_smoke.py` exercises the local-review workflow with a simulated window; command-line receipt tests use a simulated TTY. Trusted-client admission is labeled as an assertion, not an authenticated human interaction. Test reports provide the current counts and failure details.
+The HTTP tests use synthetic credentials and loopback listeners. The native HTTP Keychain check uses a disposable standalone Keychain, verifies that the existing default and search list are unchanged, and removes its temporary Keychain. The login-service check temporarily registers an isolated launchd job. Review these runners before executing them on a shared machine. Native contract tests use synthetic application objects or in-memory Foundation/EventKit values; they do not establish that a feature works in the live Apple apps.
 
-Preserve exact accounts, folder/UIDVALIDITY and ETag identity checks, snapshot hashes, durable one-shot markers and uncertainty reconciliation. Do not retry writes blindly or treat tool annotations/model booleans as human authorization. Changes that widen access or destructive scope require separate review and owner authorization.
+## Changes to permissions and data operations
 
-Keep private settings, handoffs, mail bodies, real message/plan IDs and execution evidence outside distributable files. Tests use reserved synthetic data. Generated metadata and caches must stay ignored. Check links, package contents and candidate files before [release](releasing.md).
+Preserve account and item identity checks, ETags, snapshot comparisons, operation locks, one-time authorization markers and recovery behavior. Add regression coverage for failure and uncertain outcomes as well as success. A timed-out write may still have taken effect; an automatic retry must not duplicate it.
+
+Tool annotations describe behavior to a client. They do not authorize an operation. Keep server-side access controls and owner review effective through every transport. New transports must explain authentication, secret handling, startup and shutdown, and how existing approval and account checks remain enforced.
+
+Use invented data for automated tests. Live verification is optional and requires the account owner's permission for the exact access and changes involved. Keep credentials, account content, private settings, real object identifiers and local execution records out of commits and reports.
 
 ## Client and platform compatibility contributions
 
-Help test the [documented client routes](../getting-started/clients.md), including Grok Bot's custom MCP option, Grok coding CLI and Meta Muse Code, or propose secure remote connections for Grok web and the Meta Muse consumer app. Grok Bot has not been tested end to end because the maintainer did not have a Grok subscription; confirming its MCP execution location and service access would be especially useful. [Open an issue](https://github.com/jasonarend/icloud-for-agents/issues) with problems or successful setup results. Other macOS architectures and Python versions also need validation. Linux/Windows support needs a documented secure credential provider and installation workflow as well as dependency testing; a successful package install alone does not establish support.
+Help improve the [client setup guide](../getting-started/clients.md) by reporting a working setup or a reproducible problem. Include:
 
-Open an issue or pull request with:
+- Client and project versions, macOS version, architecture and Python version.
+- Where the MCP server runs, its transport and sanitized setup steps.
+- What succeeded: discovery, service reads, approval flows or changes. Describe any untested steps separately.
+- Relevant official client documentation and sanitized errors.
 
-- Client name/version, operating system/architecture, Python version and project revision.
-- Where the server runs, transport used, configuration scope and sanitized reproduction steps.
-- Results of the offline and stdio checks, tool discovery, and actual read-only calls for each service tested. Mark anything untested or blocked explicitly.
-- Required setup changes, relevant official documentation and sanitized errors, including any remaining authentication or client restrictions.
+For hosted clients, use the shared [HTTP connection](../getting-started/http.md) and HTTPS routing guidance when the client supports it. Client keys, Cloudflare Tunnel and tailnet routing are connection options for compatible clients, including custom agents. The OpenAI private tunnel is specific to ChatGPT.
 
-Use your own account for optional live verification and keep account details, credentials and private content out of reports. Test writes only under separate explicit authorization and describe their results separately. A read-only connection report is a useful contribution on its own.
+Other architectures and Python versions need their own dependency and runtime validation. A port to another operating system also needs a secure credential provider and alternatives to the native macOS integrations. Package installation alone does not establish service support.
 
-For new transports or credential providers, describe authentication, local secret handling, connection lifecycle and how existing approval and account checks remain effective. Include synthetic regression coverage and setup documentation. The OpenAI private tunnel is specific to ChatGPT; other remote clients need their own verified connection path. These are contribution opportunities, not commitments that the project already supports those environments.
+## Prepare a pull request
 
-The Reminders metadata contract compiles the shipped serializers against in-memory EventKit rules and alarms. It never opens an event store, requests OS access or changes reminder data.
+Keep changes focused, update the affected user or agent guide, and summarize the checks you ran and any practical limits. Do not include generated caches, private fixtures or personal setup records. Before a distribution change, inspect the source archive with `scripts/check-sdist.py` and the wheel with `scripts/check-branding-package.py` using the project interpreter. Confirm that the archive can run the relevant checks from an extracted copy.
 
-The date contract runs the shipped filtering logic on in-memory Foundation components, including timezone/DST boundaries, inclusive ranges, priorities, completion and undated items. It does not read a native account.
-
-The service-isolation contract instruments the helper's Reminders authorization-status query and verifies that Notes status and unknown-service rejection never call it. It probes Notes OS permission status only, without reading native content or opening an event store.
+Version and release preparation are described in [releasing](releasing.md). Ordinary documentation changes do not need a changelog entry.

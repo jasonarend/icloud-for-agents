@@ -32,4 +32,4 @@ The status result's `unavailable_feature_families` also lists the advanced route
 
 Native HTML rendering, cross-device synchronization, first-use prompt attribution across clients and the complete advanced-feature set are not fully verified. See the [native service guide](../getting-started/native-services.md) for setup and feature limits.
 
-For setup, exact tool options and operation-specific evidence, use the [native service guide](../getting-started/native-services.md). Keep a failed or uncertain write's audit and inspect its retained evidence before further work; do not replay the request or clear its guard based only on an apparently unchanged object.
+For exact tool options, operation requirements and recovery, use the [operations reference](native-operations.md). Keep a failed or uncertain write's audit and inspect its retained evidence before further work; do not replay the request or clear its guard based only on an apparently unchanged object.

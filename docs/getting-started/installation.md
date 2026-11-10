@@ -1,5 +1,7 @@
 # Installation and credentials
 
+This technical guide is for a setup assistant or someone who prefers manual installation. You can ask an assistant with access to your Mac to handle these commands and guide you through the personal credential steps; see [agent-assisted setup](agent-setup.md).
+
 ## Prerequisites
 
 The verified environment is macOS arm64, CPython 3.14. Python 3.11+ is declared in package metadata; other combinations require separate validation. The hash lock is platform/interpreter-specific. There is no Windows/Linux installer. Install only the root package, not an unrelated upstream server.

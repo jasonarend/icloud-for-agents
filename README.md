@@ -1,5 +1,5 @@
 # iCloud for Agents
-**Version 2.1.2**
+**Version 2.2.0**
 
 ![Illustration connecting iCloud Mail, Contacts, Calendar, Notes, and Reminders to an AI assistant](docs/assets/icloud-for-agents-apple-apps-ai-assistant.webp)
 
@@ -22,7 +22,7 @@ Connect through one of these assistants or a compatible MCP client:
 - Grok Bot, using custom MCP (end-to-end setup not yet verified)
 - Custom-built AI assistants and agents that support local stdio or Streamable HTTP MCP
 
-Grok Bot testing is pending because the maintainer did not have a Grok subscription. Confirm where its MCP command runs: it needs access to the Mac hosting this installation and its Keychain. See the [Grok Bot setup notes](docs/getting-started/clients.md#grok-bot-and-grok-web), and [open an issue](https://github.com/jasonarend/icloud-for-agents/issues) if you run into problems or can share a successful setup. The [client setup guide](docs/getting-started/clients.md) covers other local stdio clients and each client's compatibility details.
+Grok Bot testing is pending because the maintainer did not have a Grok subscription. For command-based setup, confirm the command runs on the Mac hosting this installation and its Keychain. A URL-based connector instead needs an appropriate [HTTPS connection](docs/getting-started/http.md). See the [Grok Bot setup notes](docs/getting-started/clients.md#grok-bot-and-grok-web), and [open an issue](https://github.com/jasonarend/icloud-for-agents/issues) if you run into problems or can share a successful setup. The [client setup guide](docs/getting-started/clients.md) covers other clients and their connection options.
 
 ## What you can do
 
