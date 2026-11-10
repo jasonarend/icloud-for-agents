@@ -280,9 +280,17 @@ Source: [Muse Code MCP configuration](https://dev.meta.ai/docs/muse-code/extendi
 
 Treat the consumer app separately from Muse Code. Muse's **Custom Connector** flow uses an HTTPS endpoint and can use a bearer key entered by the owner in Muse's secure credential form. It does not use the local stdio setup described for Muse Code.
 
-A connection to iCloud for Agents needs the [HTTP transport](http.md) and a secure HTTPS route that Muse can actually reach. The server listens on your Mac's loopback address, so enabling HTTP alone does not make it reachable from Muse. A private route from Muse to the Mac has not yet been established for this project. Do not expose your Apple data through a public tunnel as a setup shortcut.
+Ask a local assistant with access to your Mac to prepare the connection and guide you through the owner-operated steps:
 
-Muse has completed MCP discovery and read operations for all five services against an isolated synthetic server through a temporary HTTPS tunnel. This verifies that connection flow with invented data; reads from a real Apple account and a private remote route remain unverified. Muse's built-in Apple connectors are separate integrations. Keep keys out of chat and ordinary configuration files, and verify each selected service with a bounded read when a suitable connection is available.
+1. Choose which Apple services Muse may use and whether it can read or make supported changes. A new connection can start read-only. Client-management access is a separate choice.
+2. Prepare iCloud for Agents on the Mac using the existing installation and [HTTP connection guide](http.md). The local assistant creates a separate Muse key through the reviewed client-management tools; it does not put the key in a chat or settings file.
+3. Arrange an HTTPS address that Muse can reach, using an approved connection such as the Cloudflare option in the HTTP guide or another suitable route. The server itself listens only on your Mac. An internet-published address is publicly reachable and requires the client key on every request; discuss the provider, access scope, availability and any costs before enabling it.
+4. Ask Muse to create a **Custom Connector** for that HTTPS `/mcp` address using an API key in the `Authorization: Bearer` header. When Muse shows its secure key field, copy the key from the local iCloud for Agents window into that field yourself. Do not put it in the conversation.
+5. Have Muse discover the selected tools and verify a bounded read only when you want it to receive the selected data. Connecting a key does not itself prove the server is reachable. You can change or revoke Muse's permissions through the local assistant, and disconnect the connector in Muse's **Settings → Connectors**.
+
+If Muse cannot operate the local setup on your Mac, use another local assistant for steps 1–3; you do not need to run Terminal commands. Your selected results can be sent to Muse and its provider, so choose the scope you intend to share. Muse's own Apple connectors are separate from this connection.
+
+Muse has completed MCP discovery and reads for all five services against an isolated synthetic server through HTTPS. That confirms the custom connector and bearer-key flow with invented data; the specific HTTPS route and Apple account you select still need their own connection check. A private Muse-to-Mac route and all write scenarios have not been verified.
 
 Sources: [Muse connector help, including Custom Connectors](https://www.meta.com/help/superintelligence/1687253048996149/), [Muse Connector Platform guidelines](https://platform.muse.ai/docs), [Meta Muse product information](https://ai.meta.com/muse/).
 

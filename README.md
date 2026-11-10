@@ -5,21 +5,22 @@
 
 iCloud for Agents connects your AI assistant to iCloud Mail, Calendar, Contacts, Apple Notes, and Reminders. Your assistant can use them together to help you prepare for meetings, turn emails and notes into follow-up tasks, and plan your work around upcoming events.
 
-Choose which services to connect and what your assistant can access or change. The bridge runs on your Mac and stores credentials locally. Connect a compatible local MCP client, or use ChatGPT through your private OpenAI Secure MCP Tunnel.
+Choose which services to connect and what your assistant can access or change. The bridge runs on your Mac and stores credentials locally. Connect a compatible local MCP client, use ChatGPT through your private OpenAI Secure MCP Tunnel, or connect an HTTPS-capable assistant such as Meta Muse.
 
-An [optional authenticated HTTP connection](docs/getting-started/http.md) is available for compatible clients. It starts only when explicitly enabled and listens on loopback; private remote access requires a separately configured secure connection.
+An [optional authenticated HTTP connection](docs/getting-started/http.md) is available for compatible clients. It starts only when explicitly enabled and listens on loopback; a remote client also needs a separately configured HTTPS connection.
 
 ## AI assistants and MCP clients
 
-Connect through ChatGPT or a compatible local MCP client. Grok Bot also offers a custom MCP route to try:
+Connect through one of these assistants or a compatible MCP client:
 
 - ChatGPT, using your private OpenAI Secure MCP Tunnel
 - Claude Desktop and Claude Code
 - Unsloth Desktop
 - Hermes Desktop
 - OpenClaw
+- Meta Muse, using an authenticated HTTPS custom connector
 - Grok Bot, using custom MCP (end-to-end setup not yet verified)
-- Custom-built AI assistants and agents that support local stdio MCP
+- Custom-built AI assistants and agents that support local stdio or Streamable HTTP MCP
 
 Grok Bot testing is pending because the maintainer did not have a Grok subscription. Confirm where its MCP command runs: it needs access to the Mac hosting this installation and its Keychain. See the [Grok Bot setup notes](docs/getting-started/clients.md#grok-bot-and-grok-web), and [open an issue](https://github.com/jasonarend/icloud-for-agents/issues) if you run into problems or can share a successful setup. The [client setup guide](docs/getting-started/clients.md) covers other local stdio clients and each client's compatibility details.
 
@@ -183,7 +184,7 @@ The bridge checks account and item identities and whether records have changed b
 
 ## Learn more
 
-Want to help expand compatibility? We welcome client testing, setup improvements and contributions for additional platforms and connection methods, including Grok and Meta Muse. See the [client compatibility guide](docs/getting-started/clients.md) for current status and [contribution guidance](docs/contributing/development.md#client-and-platform-compatibility-contributions) for reporting results or proposing support.
+Want to help expand compatibility? We welcome client testing, setup improvements and contributions for additional platforms and connection methods. See the [client compatibility guide](docs/getting-started/clients.md) for current status and [contribution guidance](docs/contributing/development.md#client-and-platform-compatibility-contributions) for reporting results or proposing support.
 
 [Tool reference](docs/reference/tools.md) · [Recurring cleanup](docs/user-guide/cleanup.md) · [Troubleshooting](docs/user-guide/troubleshooting.md) · [Development](docs/contributing/development.md) · [Distribution and release checks](docs/contributing/releasing.md)
 
