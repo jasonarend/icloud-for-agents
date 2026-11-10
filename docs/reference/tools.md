@@ -9,7 +9,7 @@ When a proposal requires a local owner receipt, `owner_request_review` opens a f
 
 `http_prepare_client` prepares a specific client creation, permission change, rotation, revocation, Keychain authorization check or key handoff. It does not perform the action. The owner must review each request locally, including the exact service permissions and any separate client-management authority. After approval, `http_execute_client` starts the action; `http_client_status` checks its outcome and `http_clients` lists bounded client identities created through this workflow. These tools never return a bearer key. A key that needs to be transferred appears only in a local window for the owner to place in the client's secure credential field. See [HTTP connections](../getting-started/http.md).
 
-For HTTP callers, client-management tools and reviews of client-management proposals require the separately approved client-management permission. App service permissions, the server's own configuration and existing action approvals remain separate checks.
+For HTTP callers, managing another client requires separately approved client-management permission. A client without that permission can use `http_prepare_client` with `action: "permissions"` and no client ID to request a locally reviewed change to its own service access; it cannot change client-management authority. App service permissions, the server's own configuration and existing action approvals remain separate checks.
 
 ## Mail tools
 

@@ -22,6 +22,8 @@ Keys are bound to the installation, its private runtime and effective service se
 
 Ask your assistant to prepare a `rotate`, `revoke`, `show`, `permissions` or `authorize` action for the exact client. Each action needs its own local owner review. Rotation replaces that client's key; revocation disables that client without changing other keys. Permission changes apply on subsequent authenticated requests. These actions do not require an HTTP server restart, but already authorized work cannot be recalled. If Keychain is locked or access is unavailable, authentication fails until the owner resolves it. Secure delivery depends on the target client's actual credential interface; do not substitute a plaintext configuration file if the client lacks one. Existing keys without reviewed per-client permissions require an explicit permission review before they can authenticate.
 
+An HTTP client without client-management permission can ask you to review changes to its own service access. It cannot change its client-management authority or manage another client's key. The requested change takes effect only after your local approval.
+
 During creation or rotation, the pipe delivers a candidate before Keychain activation completes. The setup agent must wait for the successful lifecycle result before using it. If activation fails or its outcome is uncertain, do not assume the candidate works or repeat the action without checking the Keychain state first.
 
 ## Start and verify

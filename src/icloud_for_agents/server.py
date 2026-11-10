@@ -202,9 +202,26 @@ def http_prepare_client(action: str, label: str | None = None, client_id: str | 
     Actions are create, rotate, revoke, show, permissions or authorize. Client
     access uses explicit none/read/full per service; client management is a
     separate choice. Nothing is activated until the owner approves locally.
+    Without client-management authority, an HTTP caller may request only action
+    permissions for its own key; omit client_id to use that authenticated key.
+    This cannot change client-management authority or reveal any credential.
     """
-    return http_pairing().prepare(action, label=label, client_id=client_id,
-                                  permissions=permissions, manage_clients=manage_clients)
+    from .http_authorization import PRINCIPAL, self_permission_request
+    principal = PRINCIPAL.get()
+    pairing = http_pairing()
+    if principal is not None and principal.get('manage_clients') is not True:
+        from .core import digest
+        client_id = self_permission_request(dict(action=action, label=label, client_id=client_id,
+                                                 permissions=permissions, manage_clients=manage_clients))
+        before = pairing._record(client_id)
+        if before.get('manage_clients') is not False:
+            raise SafetyError('Client-management authority changed; prepare a fresh request')
+        prepared = pairing.prepare(action, client_id=client_id, permissions=permissions, manage_clients=False)
+        if prepared['review']['payload']['before_sha256'] != digest(before):
+            raise SafetyError('Client credential changed while preparing access; prepare a fresh request')
+        return prepared
+    return pairing.prepare(action, label=label, client_id=client_id,
+                           permissions=permissions, manage_clients=manage_clients)
 
 @mcp.tool(annotations=WRITE)
 @safe
@@ -215,7 +232,20 @@ def http_execute_client(plan_id: str) -> dict:
     The owner transfers it to the client's secure credential field. Poll
     http_client_status; a closed window does not prove a connection works.
     """
-    return http_pairing().request(plan_id)
+    from .http_authorization import PRINCIPAL, self_client_id
+    principal = PRINCIPAL.get()
+    pairing = http_pairing()
+    if principal is not None and principal.get('manage_clients') is not True:
+        from .core import digest
+        client_id = self_client_id()
+        plan = pairing.store.proposal(plan_id)
+        payload = plan.get('payload', {})
+        before = pairing._record(client_id)
+        if (plan.get('kind') != 'http_client' or payload.get('action') != 'permissions'
+                or payload.get('client_id') != client_id or payload.get('manage_clients') is not False
+                or before.get('manage_clients') is not False or payload.get('before_sha256') != digest(before)):
+            raise SafetyError('Self-service cannot change client-management authority or stale client permissions')
+    return pairing.request(plan_id)
 
 @mcp.tool(annotations=READ)
 @safe

@@ -1,5 +1,6 @@
 """Server-owned HTTP client permissions, independent of MCP advisory hints."""
 from contextvars import ContextVar
+import re
 
 from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware import Middleware
@@ -78,6 +79,25 @@ def validate_permissions(value):
     return {name: value[name] for name in SERVICES}
 
 
+def self_client_id():
+    """Return only the authenticated HTTP caller's valid, nonadmin identity."""
+    identity = PRINCIPAL.get()
+    client_id = identity.get("client_id") if isinstance(identity, dict) else None
+    if (not isinstance(client_id, str) or not re.fullmatch(r"[0-9a-f]{32}", client_id)
+            or identity.get("manage_clients") is not False):
+        raise SafetyError("Authenticated self-service client identity is unavailable")
+    return client_id
+
+
+def self_permission_request(arguments):
+    client_id = self_client_id()
+    if (arguments.get("action") != "permissions" or arguments.get("client_id", client_id) not in {None, client_id}
+            or arguments.get("label") is not None or arguments.get("manage_clients", False) is not False):
+        raise SafetyError("A client may request only its own service permissions, without changing client management")
+    validate_permissions(arguments.get("permissions"))
+    return client_id
+
+
 def service_for_tool(name):
     if name.startswith(("email_", "policy_")):
         return "mail"
@@ -119,6 +139,19 @@ class ClientPermissions(Middleware):
     def _manage_clients():
         identity = PRINCIPAL.get()
         return isinstance(identity, dict) and identity.get("manage_clients") is True
+
+    def _self_permission_plan(self, arguments):
+        import os
+        account = self.account if self.account is not None else os.environ.get("ICLOUD_MAIL_ACCOUNT", "")
+        store = self.store_factory()
+        plan = store.read(store.path(arguments.get("plan_id"), ".json"))
+        payload = plan.get("payload", {})
+        if (plan.get("kind") != "http_client" or not account or payload.get("account") != account
+                or payload.get("action") != "permissions" or payload.get("client_id") != self_client_id()
+                or payload.get("manage_clients") is not False):
+            raise SafetyError("Client permission proposal belongs to another client or action")
+        validate_permissions(payload.get("permissions"))
+        return True
 
     def _plan_service(self, name, arguments):
         import os
@@ -166,16 +199,36 @@ class ClientPermissions(Middleware):
 
     def allowed(self, name, policy, arguments=None, *, listing=False):
         if name in CLIENT_MANAGEMENT:
-            return self._manage_clients()
+            if self._manage_clients():
+                return True
+            if name == "http_clients":
+                return False
+            if listing:
+                try:
+                    self_client_id()
+                    return True
+                except SafetyError:
+                    return False
+            if name == "http_prepare_client":
+                self_permission_request(arguments or {})
+                return True
+            return self._self_permission_plan(arguments or {})
         if name in SHARED:
             if listing:
                 modes = [policy[s] for s in (("calendar", "contacts") if name == "dav_execute_approved" else SERVICES)]
                 admin = self._manage_clients() and name != "dav_execute_approved"
                 native_read = name == "owner_request_review" and any(policy[s] == "read" for s in ("notes", "reminders"))
-                return (admin or native_read or any(mode == "full" for mode in modes)) if name != "owner_review_status" else (admin or any(mode != "none" for mode in modes))
+                own_review = False
+                if name != "dav_execute_approved":
+                    try:
+                        self_client_id()
+                        own_review = True
+                    except SafetyError:
+                        pass
+                return (admin or own_review or native_read or any(mode == "full" for mode in modes)) if name != "owner_review_status" else (admin or own_review or any(mode != "none" for mode in modes))
             service = self._plan_service(name, arguments or {})
             if service == "http-client-management":
-                return self._manage_clients()
+                return self._manage_clients() or self._self_permission_plan(arguments or {})
             if name == "owner_request_review" and service in {"notes", "reminders"} and policy[service] == "read":
                 return self._native_access_plan(arguments or {}, service) == service
             return policy[service] == "full" if name != "owner_review_status" else policy[service] != "none"
