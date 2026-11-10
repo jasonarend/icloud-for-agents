@@ -19,10 +19,26 @@ function run() {
       typeof request.client !== 'string' || typeof request.key !== 'string' ||
       !/^ika_[0-9a-f]{32}\.[A-Za-z0-9_-]{43}$/.test(request.key)) throw new Error('invalid_request');
   const app = $.NSApplication.sharedApplication;
-  app.setActivationPolicy($.NSApplicationActivationPolicyAccessory);
+  // A regular app is visible in the Dock and app switcher. An accessory-only
+  // osascript can leave its modal panel behind the requesting client's window.
+  if (!app.setActivationPolicy($.NSApplicationActivationPolicyRegular)) throw new Error('display_unavailable');
+  const menu = $.NSMenu.alloc.initWithTitle($('iCloud for Agents'));
+  const applicationItem = $.NSMenuItem.alloc.initWithTitleActionKeyEquivalent($('iCloud for Agents'), null, $(''));
+  const applicationMenu = $.NSMenu.alloc.initWithTitle($('iCloud for Agents'));
+  applicationMenu.addItem($.NSMenuItem.alloc.initWithTitleActionKeyEquivalent($('Quit'), $('terminate:'), $('q')));
+  applicationItem.submenu = applicationMenu;
+  menu.addItem(applicationItem);
+  const editItem = $.NSMenuItem.alloc.initWithTitleActionKeyEquivalent($('Edit'), null, $(''));
+  const editMenu = $.NSMenu.alloc.initWithTitle($('Edit'));
+  editMenu.addItem($.NSMenuItem.alloc.initWithTitleActionKeyEquivalent($('Copy'), $('copy:'), $('c')));
+  editMenu.addItem($.NSMenuItem.alloc.initWithTitleActionKeyEquivalent($('Select All'), $('selectAll:'), $('a')));
+  editItem.submenu = editMenu;
+  menu.addItem(editItem);
+  app.mainMenu = menu;
+  app.finishLaunching;
   const alert = $.NSAlert.alloc.init;
   alert.messageText = $('Connect ' + request.client);
-  alert.informativeText = $('Copy this key only into the client’s secure credential field. Do not paste it into chat or a normal configuration file. This tool does not return the key to the assistant. Close this window after transferring it.');
+  alert.informativeText = $('The key below is selected. Press Command-C to copy it, then paste it only into the client’s secure credential field. Do not paste it into chat or a normal configuration file. This tool does not return the key to the assistant. Close this window after transferring it.');
   alert.alertStyle = $.NSAlertStyleInformational;
   const field = $.NSTextField.alloc.initWithFrame($.NSMakeRect(0, 0, 720, 48));
   field.stringValue = $(request.key);
@@ -31,8 +47,20 @@ function run() {
   field.font = $.NSFont.userFixedPitchFontOfSize(13);
   alert.accessoryView = field;
   alert.addButtonWithTitle($('Done'));
-  alert.window.title = $('iCloud for Agents');
+  alert.layout;
+  const window = alert.window;
+  window.title = $('iCloud for Agents');
+  window.collectionBehavior = $.NSWindowCollectionBehaviorMoveToActiveSpace | $.NSWindowCollectionBehaviorFullScreenAuxiliary;
+  window.level = $.NSFloatingWindowLevel;
+  window.hidesOnDeactivate = false;
+  window.movableByWindowBackground = true;
+  window.initialFirstResponder = field;
+  window.center;
+  window.makeKeyAndOrderFront(null);
   app.activateIgnoringOtherApps(true);
+  window.orderFrontRegardless;
+  window.makeFirstResponder(field);
+  field.selectText(null);
   if (Number(alert.runModal) !== 1000) throw new Error('display_closed');
   return 'CLOSED';
 }
