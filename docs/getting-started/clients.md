@@ -234,11 +234,27 @@ Source: [Grok coding CLI MCP servers](https://docs.x.ai/build/features/mcp-serve
 
 ## Grok Bot and Grok web
 
-Grok Bot supports custom MCP servers, including commands that run on the computer used by its conversation. Confirm that execution location: a command running on the Bot's cloud computer cannot access this Mac's installation or Keychain. Grok web's custom connectors require a publicly reachable MCP server URL. Neither route has been validated with this repository.
+### Grok Bot
 
-The repository currently provides stdio and a ChatGPT-specific private tunnel, rather than a general authenticated HTTP MCP endpoint. Connecting these Grok surfaces back to the Mac needs additional implementation and testing. Contributors are welcome to propose a secure connection that preserves local credential storage and the existing approval model.
+Grok Bot supports custom MCP connectors configured with either a **URL** or a **Command** and **Arguments**. The command-based option is a route to try with iCloud for Agents' existing stdio launcher. End-to-end use has not been tested because the maintainer did not have a Grok subscription. Whether it can launch this server on the local Mac and complete service calls still needs verification.
 
-Sources: [Grok Bot execution and custom servers](https://docs.x.ai/grok-bot/team-bots), [Grok custom connectors](https://docs.x.ai/grok/connectors).
+Confirm where the MCP command executes before adding the connector. Grok Bot uses a cloud computer by default and also documents approved command execution on your own computer. That alone does not establish where a custom MCP connector's command runs. A cloud process cannot access this Mac's installation, Keychain or native Apple apps.
+
+If the connector can run its command on the Mac hosting iCloud for Agents:
+
+1. Complete [installation and credentials](installation.md) and the [local server preparation above](#prepare-the-local-server). Keep initial access read-only.
+2. Choose the custom connector's **Command** option. Use the absolute `command` and `args` returned by `scripts/configure-local.py --show-stdio-config`: the installed Python executable and `scripts/run-stdio.py` argument. Leave passwords and API keys out of the connector fields.
+3. Confirm tool discovery, then make an actual read-only call for each selected service using [the verification steps below](#verify-every-client-connection). Report discovery separately from successful service access; test writes only with explicit authorization.
+
+If your connector runs only in the cloud or asks for a URL, a secure connection to the Mac must be verified separately. The [optional authenticated HTTP transport](http.md) listens on loopback and does not by itself make the server reachable from the cloud. The OpenAI private tunnel is specific to ChatGPT. Do not copy Apple credentials into cloud connector fields to work around the execution location.
+
+Trying Grok Bot? [Open a GitHub issue](https://github.com/jasonarend/icloud-for-agents/issues) if you run into a problem, or share a working setup so the guide can improve. Include the Grok client/version, where the MCP command ran, your macOS and project versions, and sanitized setup steps or errors. Keep credentials, account details and private content out of reports. See the [compatibility contribution guide](../contributing/development.md#client-and-platform-compatibility-contributions) for details.
+
+### Grok web
+
+Grok web's custom connectors require a publicly reachable MCP server URL. The local command configuration above does not provide that URL, and the ChatGPT tunnel cannot be assumed to work with Grok web. This route has not been validated with the project; contributors are welcome to propose a secure connection that preserves local credential storage and the existing approval model.
+
+Sources: [Grok Bot computer, apps and custom connectors](https://docs.x.ai/grok-bot/computer-and-apps), [Grok web custom connectors](https://docs.x.ai/grok/connectors).
 
 ## Meta Muse Code
 
@@ -262,15 +278,19 @@ Source: [Muse Code MCP configuration](https://dev.meta.ai/docs/muse-code/extendi
 
 ## Meta Muse consumer app
 
-Treat the consumer app separately from Muse Code. We have not verified an official local stdio configuration route or a working connection to this repository. Its connector features alone do not establish compatibility with the Mac-hosted server. Contributors can help identify an officially documented connection method and test it; until then, compatibility remains unconfirmed.
+Treat the consumer app separately from Muse Code. A setup inspection on November 10, 2026, used Muse for Mac 11.1 (build 1109246656) on macOS 27.2 arm64. Its inspected **Settings → Connectors** panel had no iCloud for Agents entry or local stdio configuration control. No connection to this server was established: MCP initialization, tool discovery and live service calls through Muse were not tested. This is a limited setup finding, not proof that every possible Muse integration is unsupported.
 
-Source: [Meta Muse product information](https://ai.meta.com/muse/).
+Meta documents asking Muse to create a **Custom Connector** using a service's API information. Its separate Connector Platform also describes submitting an endpoint, authentication setup and tool documentation for review. Neither document establishes a direct local stdio connection to this project or specifies a verified private connection to its [HTTP transport](http.md).
+
+Muse's built-in Apple connectors are separate integrations and do not verify iCloud for Agents. Any proposed remote adapter needs its own security review, explicit access approval and read-only verification from the actual Muse conversation. Keep credentials out of chat and project files, preserve existing connections, and do not treat a client's capability explanation as a successful service test. Consumer Muse compatibility remains unconfirmed; Muse Code's documented route is covered separately above.
+
+Sources: [Muse connector help, including Custom Connectors](https://www.meta.com/help/superintelligence/1687253048996149/), [Muse Connector Platform guidelines](https://platform.muse.ai/docs), [Meta Muse product information](https://ai.meta.com/muse/).
 
 ## Other MCP clients and agent SDKs
 
-A compatible client must launch a local stdio subprocess, exchange MCP messages over its stdin/stdout, and support tool discovery and invocation. Use the generated `command` and `args` with its documented stdio transport. SDK applications must retain the subprocess for the session and close it cleanly. A model provider alone is not an MCP client.
+A local stdio client must launch a subprocess, exchange MCP messages over its stdin/stdout, and support tool discovery and invocation. Use the generated `command` and `args` with its documented stdio transport. SDK applications must retain the subprocess for the session and close it cleanly. Compatible Streamable HTTP clients may instead use the [optional authenticated HTTP connection](http.md). A model provider alone is not an MCP client.
 
-HTTP/SSE-only clients, browser-only clients and hosted agents cannot directly launch this Mac's server. The documented ChatGPT tunnel is specific to that connection; it is not a generic URL for other clients. Additional adapters or hosted deployment require separate implementation and review.
+HTTP/SSE-only clients, browser-only clients and hosted agents cannot directly launch this Mac's stdio server. The HTTP endpoint remains on loopback unless a separately configured private connection is used. Legacy SSE-only clients are not supported by the Streamable HTTP endpoint. The documented ChatGPT tunnel is specific to that connection; it is not a generic URL for other clients.
 
 ## Verify every client connection
 

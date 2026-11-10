@@ -1,6 +1,7 @@
 include README.md NOTICE.md CHANGELOG.md LICENSE SECURITY.md AGENTS.md
 include requirements-macos-arm64-py314.lock
 recursive-include docs *.md *.json
+recursive-include docs/assets *.png *.ico *.webp
 recursive-include scripts *.py
 recursive-include tests *.py
 recursive-include deployment *.json *.example

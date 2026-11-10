@@ -8,6 +8,8 @@ import sys
 import tempfile
 
 from mcp import Client, StdioServerParameters
+from test_branding import assert_server_branding
+from test_metadata import assert_server_metadata
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -37,6 +39,8 @@ async def run():
         )
         async with Client(params, mode="auto", read_timeout_seconds=20) as client:
             assert client.session.protocol_version == "2026-07-28"
+            assert_server_branding(client.server_info.model_dump(by_alias=True, exclude_none=True))
+            assert_server_metadata(client.server_info.model_dump(by_alias=True, exclude_none=True))
             result = await client.list_tools()
             tools = {tool.name: tool for tool in result.tools}
             assert {"email_inspect", "calendar_list", "contacts_get", "notes_query", "reminders_query"} <= tools.keys()

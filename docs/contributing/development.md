@@ -2,12 +2,21 @@
 
 Active code is under `src/icloud_for_agents/`, reusable setup utilities under `scripts/`, synthetic tests under `tests/`, and nonsecret templates under `deployment/`. The upstream server is not vendored or imported. Provenance and required notices live under `third_party/icloud-mcp/`, `third_party/remctl/` and root `NOTICE.md`.
 
+See [icons and client compatibility](branding.md) for the packaged MCP icon,
+directory/client exports, asset regeneration and the limits of client-side rendering.
+See [project metadata and ChatGPT refresh](metadata.md) for homepage/source links,
+version and description checks, and separately stored plugin-listing information.
+
 Use an isolated environment with the reviewed dependencies. From the root:
 
 ```sh
 .venv/bin/python tests/run_offline.py
 .venv/bin/python tests/stdio_smoke.py
 .venv/bin/python tests/modern_stdio_smoke.py
+.venv/bin/python tests/http_transport_smoke.py
+.venv/bin/python tests/native_http_keychain_smoke.py
+.venv/bin/python tests/operation_lock_process_smoke.py
+.venv/bin/python tests/dual_transport_smoke.py
 .venv/bin/python tests/policy_stdio_smoke.py
 .venv/bin/python tests/native_stdio_smoke.py
 .venv/bin/python tests/native_script_contract.py
@@ -18,7 +27,11 @@ Use an isolated environment with the reviewed dependencies. From the root:
 .venv/bin/python scripts/check-dependency-licenses.py
 ```
 
+If native contract tests report a compiler/SDK mismatch, select the matching SDK for the test process using the currently selected Apple developer installation. The source-check workflow does this without changing the Mac's system-wide developer-tool selection.
+
 Reports go to ignored `build/reports/`, not the root. The offline runner isolates HOME/environment and refuses network, DNS, listeners and subprocesses. The stdio smoke test separately starts a credential-free guarded child for real initialize/tools-list and input/read-only refusal checks. Neither connects to Apple or the tunnel. The modern stdio check additionally verifies current MCP negotiation, selected-service tool schemas, annotation boundaries and tool-error handling through the installed MCP client. The separate native-script contract runner executes the actual JXA read logic against synthetic application objects without Apple events; it requires macOS and does not establish native-app acceptance. Do not substitute live credentials for synthetic fixtures.
+
+The HTTP smoke test uses synthetic client credentials and a loopback listener; the dual-transport and operation-lock checks use temporary runtimes and synthetic operations across real subprocesses. These checks do not access Keychain, Apple accounts, a tunnel or any live client. The guarded offline suite separately exercises key lifecycle behavior with an in-memory Keychain substitute. The native HTTP Keychain smoke test uses a disposable standalone Keychain and synthetic credentials, verifies that the default and search list stay unchanged, and deletes the temporary Keychain. See the [HTTP setup guide](../getting-started/http.md) for the transport's security and coordination boundaries.
 
 After building a source distribution, check its full validation workflow with `.venv/bin/python scripts/check-sdist.py dist/icloud_for_agents-VERSION.tar.gz`. Run the validation commands above again from an extracted copy using its own installed environment. The full current source-check list lives in `.github/workflows/checks.yml`; successful tests in the original checkout do not prove that the archive includes the required runners and fixtures.
 
@@ -30,7 +43,7 @@ Keep private settings, handoffs, mail bodies, real message/plan IDs and executio
 
 ## Client and platform compatibility contributions
 
-Help test the [documented client routes](../getting-started/clients.md), including Grok coding CLI and Meta Muse Code, or implement missing connections for Grok Bot, Grok web and the Meta Muse consumer app. Other macOS architectures and Python versions also need validation. Linux/Windows support needs a documented secure credential provider and installation workflow as well as dependency testing; a successful package install alone does not establish support.
+Help test the [documented client routes](../getting-started/clients.md), including Grok Bot's custom MCP option, Grok coding CLI and Meta Muse Code, or propose secure remote connections for Grok web and the Meta Muse consumer app. Grok Bot has not been tested end to end because the maintainer did not have a Grok subscription; confirming its MCP execution location and service access would be especially useful. [Open an issue](https://github.com/jasonarend/icloud-for-agents/issues) with problems or successful setup results. Other macOS architectures and Python versions also need validation. Linux/Windows support needs a documented secure credential provider and installation workflow as well as dependency testing; a successful package install alone does not establish support.
 
 Open an issue or pull request with:
 

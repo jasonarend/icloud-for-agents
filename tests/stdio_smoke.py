@@ -7,12 +7,14 @@ import subprocess
 import sys
 import tempfile
 import time
+from test_branding import assert_server_branding
+from test_metadata import assert_server_metadata
 
 ROOT = Path(__file__).resolve().parents[1]
 (ROOT / "build/reports").mkdir(parents=True, exist_ok=True)
 
 
-def run(native=False):
+def run(native=False, protocol_version="2025-11-25"):
     with tempfile.TemporaryDirectory(prefix="icloud-bridge-offline-") as directory:
         home = Path(directory)
         audit_path = home / "audit.json"
@@ -49,10 +51,13 @@ def run(native=False):
 
             try:
                 send({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
-                    "protocolVersion": "2025-11-25", "capabilities": {},
+                    "protocolVersion": protocol_version, "capabilities": {},
                     "clientInfo": {"name": "offline-safety-smoke", "version": "1"}}})
                 initialized = receive(1)
                 assert "result" in initialized, initialized
+                assert initialized["result"]["protocolVersion"] == protocol_version
+                assert_server_branding(initialized["result"]["serverInfo"])
+                assert_server_metadata(initialized["result"]["serverInfo"])
                 send({"jsonrpc": "2.0", "method": "notifications/initialized"})
                 send({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
                 listed = receive(2)
@@ -138,5 +143,7 @@ def run(native=False):
 
 if __name__ == "__main__":
     result = run()
+    legacy = run(protocol_version="2025-06-18")
+    result["pre_icon_protocol_compatibility"] = legacy["protocol"]
     (ROOT / "build/reports/STDIO-DISCOVERY.json").write_text(json.dumps(result, indent=2) + "\n")
     print(json.dumps({key: value for key, value in result.items() if key != "tools"}, indent=2))

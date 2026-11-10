@@ -28,11 +28,11 @@ The bridge has no analytics or mail-content logging subsystem in the inspected a
 
 Do not publish real mailbox examples, cursors, proposal files, screenshots containing mail, or raw process environments in issues or support requests. Redact private paths/account identifiers when preparing public documentation or a release.
 
-## Two distinct credentials
+## Separate credentials
 
 The Apple app-specific password authenticates to Apple. The restricted Platform runtime key authenticates the tunnel client to OpenAI. Its separate service is `icloud-for-agents-tunnel-runtime`, account = exact tunnel ID; the Apple service remains `icloud-for-agents`, account = exact mailbox. Neither belongs in the custom plugin's No authentication fields, a URL query string, checked-in configuration, tool argument, shell command, or chat message.
 
-The current private MCP server itself is stdio-only and has no HTTP authentication service. No authentication in its private Tunnel plugin setup is not a recipe for an unauthenticated public mailbox endpoint. Do not forward this single-account process to the public internet.
+An optional [Streamable HTTP transport](../getting-started/http.md) uses separate client credentials and listens on loopback. Client credentials authenticate connections but do not create independent per-client service permissions: everyone using one HTTP instance shares its configured access and approval policy. No authentication in the private Tunnel plugin setup is not a recipe for an unauthenticated mailbox endpoint. Do not forward this single-account process to the public internet without a separately reviewed security design.
 
 The durable owner launcher retrieves the runtime key from its separate encrypted Keychain item, uses a process environment for the official client, and never writes a plaintext key. It defaults to nonsecret preflight only; explicit start uses the saved item. Same-user or privileged processes may still access process memory/environment. The Apple credential is retrieved lazily through `/usr/bin/security`; the server caches it in the service object for the process lifetime. Restarting clears that process's memory, not the user's Keychain item.
 

@@ -31,10 +31,16 @@ jobs:
           .venv/bin/python -m pip check
       - name: Guarded synthetic checks
         run: |
+          export DEVELOPER_DIR="${DEVELOPER_DIR:-$(xcode-select -p)}"
+          export SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
           .venv/bin/python tests/run_offline.py
           .venv/bin/python tests/login_service_launchd_smoke.py
           .venv/bin/python tests/stdio_smoke.py
           .venv/bin/python tests/modern_stdio_smoke.py
+          .venv/bin/python tests/http_transport_smoke.py
+          .venv/bin/python tests/native_http_keychain_smoke.py
+          .venv/bin/python tests/operation_lock_process_smoke.py
+          .venv/bin/python tests/dual_transport_smoke.py
           .venv/bin/python tests/calendar_once_stdio_smoke.py
           .venv/bin/python tests/calendar_future_stdio_smoke.py
           .venv/bin/python tests/calendar_future_split_stdio_smoke.py
@@ -184,3 +190,4 @@ jobs:
         run: |
           .venv/bin/python -c "import setuptools.build_meta as b; b.build_sdist('dist'); b.build_wheel('dist')"
           .venv/bin/python scripts/check-sdist.py dist/icloud_for_agents-*.tar.gz
+          .venv/bin/python scripts/check-branding-package.py dist/icloud_for_agents-*.whl

@@ -1,23 +1,27 @@
 # iCloud for Agents
-
 **Version 2.1.2**
+
+![Illustration connecting iCloud Mail, Contacts, Calendar, Notes, and Reminders to an AI assistant](docs/assets/icloud-for-agents-apple-apps-ai-assistant.webp)
 
 iCloud for Agents connects your AI assistant to iCloud Mail, Calendar, Contacts, Apple Notes, and Reminders. Your assistant can use them together to help you prepare for meetings, turn emails and notes into follow-up tasks, and plan your work around upcoming events.
 
 Choose which services to connect and what your assistant can access or change. The bridge runs on your Mac and stores credentials locally. Connect a compatible local MCP client, or use ChatGPT through your private OpenAI Secure MCP Tunnel.
 
+An [optional authenticated HTTP connection](docs/getting-started/http.md) is available for compatible clients. It starts only when explicitly enabled and listens on loopback; private remote access requires a separately configured secure connection.
+
 ## AI assistants and MCP clients
 
-Connect through ChatGPT or a local MCP client, including:
+Connect through ChatGPT or a compatible local MCP client. Grok Bot also offers a custom MCP route to try:
 
 - ChatGPT, using your private OpenAI Secure MCP Tunnel
 - Claude Desktop and Claude Code
 - Unsloth Desktop
 - Hermes Desktop
 - OpenClaw
+- Grok Bot, using custom MCP (end-to-end setup not yet verified)
 - Custom-built AI assistants and agents that support local stdio MCP
 
-Other local stdio MCP clients may also connect. Grok Bot supports MCP, but connecting it to your Mac requires additional work. See the [client setup guide](docs/getting-started/clients.md) for configuration instructions and compatibility details.
+Grok Bot testing is pending because the maintainer did not have a Grok subscription. Confirm where its MCP command runs: it needs access to the Mac hosting this installation and its Keychain. See the [Grok Bot setup notes](docs/getting-started/clients.md#grok-bot-and-grok-web), and [open an issue](https://github.com/jasonarend/icloud-for-agents/issues) if you run into problems or can share a successful setup. The [client setup guide](docs/getting-started/clients.md) covers other local stdio clients and each client's compatibility details.
 
 ## What you can do
 
