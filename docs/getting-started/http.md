@@ -8,6 +8,8 @@ Ask your assistant to review your existing installation and explain the client, 
 
 Each client can be granted no access, read access or full supported access to each service. Managing other client credentials is a separate permission. The server enforces these permissions for every request, and its configured services, access modes, selected sources and existing approval safeguards remain the upper limit. Clients allowed to read the same service share that service's configured data scope; client keys do not currently restrict individual Mail folders or create separate data accounts. Supported Mail read-state changes, archive and Trash restoration use the same durable operation and recovery checks over HTTP and stdio.
 
+A read-only Notes or Reminders client can ask for the macOS access needed to read its selected service. The owner reviews that exact request locally and handles any macOS prompt; this does not give the client permission to edit data. macOS may describe the underlying permission more broadly than the application's selected access.
+
 The processes serving the same account must use the same private runtime directory and load the updated code for the shared operation locks to coordinate. An older process that is already running does not acquire the new lock. Plan and approve a coordinated restart of all affected clients and services before using them together; do not assume updating the files changed an existing process. Separate runtime directories do not share locks, approval records or recovery state.
 
 ## Client keys

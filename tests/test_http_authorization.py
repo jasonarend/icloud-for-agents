@@ -13,7 +13,7 @@ from fastmcp import FastMCP
 from starlette.testclient import TestClient
 
 from icloud_for_agents.approvals import PlanStore
-from icloud_for_agents.core import SafetyError
+from icloud_for_agents.core import SafetyError, digest
 from icloud_for_agents.http_authorization import READ_TOOLS, WRITE_TOOLS, SHARED, CLIENT_MANAGEMENT, validate_permissions
 from icloud_for_agents.http_transport import create_app
 
@@ -50,6 +50,9 @@ class PermissionsTests(unittest.TestCase):
                 mail = store.prepare("send", {"account": "synthetic@example.invalid"})["plan_id"]
                 other = store.prepare("send", {"account": "other@example.invalid"})["plan_id"]
                 admin = store.prepare("http_client", {"account": "synthetic@example.invalid"})["plan_id"]
+                notes_access = store.prepare("notes_access", {"account": "synthetic@example.invalid", "operation": "request_os_access"})["plan_id"]
+                reminders_access = store.prepare("reminders_access", {"account": "synthetic@example.invalid", "operation": "request_os_access"})["plan_id"]
+                notes_write = store.prepare("notes_change", {"account": "synthetic@example.invalid"})["plan_id"]
                 server = FastMCP("Synthetic scoped server")
                 calls = []
 
@@ -62,7 +65,8 @@ class PermissionsTests(unittest.TestCase):
 
                 for name in ("email_list_folders", "email_archive", "calendar_list", "dav_execute_approved",
                              "owner_request_review", "owner_review_status", "email_plan_status", "email_unclassified",
-                             "http_prepare_client"):
+                             "http_prepare_client", "notes_prepare_os_access", "notes_request_os_access",
+                             "reminders_prepare_os_access", "reminders_request_os_access"):
                     register(name)
 
                 class Keys:
@@ -71,6 +75,7 @@ class PermissionsTests(unittest.TestCase):
                             b"reader": {"client_id": "reader", "permissions": dict(NONE, mail="read"), "manage_clients": False},
                             b"full": {"client_id": "full", "permissions": {name: "full" for name in NONE}, "manage_clients": False},
                             b"admin": {"client_id": "admin", "permissions": dict(NONE), "manage_clients": True},
+                            b"notes-reader": {"client_id": "notes-reader", "permissions": dict(NONE, notes="read"), "manage_clients": False},
                         }
                     def authenticate(self, token):
                         return self.values.get(token)
@@ -101,6 +106,16 @@ class PermissionsTests(unittest.TestCase):
                     self.assertFalse(success(call("reader", "dav_execute_approved", {"plan_id": calendar})))
                     self.assertFalse(success(call("full", "owner_request_review", {"plan_id": admin})))
                     self.assertTrue(success(call("admin", "owner_request_review", {"plan_id": admin})))
+                    self.assertTrue(success(call("notes-reader", "notes_prepare_os_access")))
+                    self.assertTrue(success(call("notes-reader", "owner_request_review", {"plan_id": notes_access})))
+                    self.assertFalse(success(call("notes-reader", "owner_request_review", {"plan_id": notes_write})))
+                    self.assertFalse(success(call("notes-reader", "owner_request_review", {"plan_id": reminders_access})))
+                    self.assertFalse(success(call("notes-reader", "notes_request_os_access", {"plan_id": notes_access})))
+                    self.assertFalse(success(call("notes-reader", "reminders_request_os_access", {"plan_id": notes_access})))
+                    plan = store.proposal(notes_access)
+                    store.write_once(store.path(notes_access, ".approved"), {"plan_id": notes_access, "sha256": digest(plan)})
+                    self.assertTrue(success(call("notes-reader", "notes_request_os_access", {"plan_id": notes_access})))
+                    self.assertFalse(success(call("notes-reader", "notes_request_os_access", {"plan_id": reminders_access})))
                     def concurrent(index):
                         token = "reader" if index % 2 else "full"
                         return token, success(call(token, "email_archive"))

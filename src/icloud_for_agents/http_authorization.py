@@ -5,7 +5,7 @@ from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware import Middleware
 
 from .approvals import PlanStore
-from .core import SafetyError
+from .core import SafetyError, digest
 
 
 SERVICES = ("mail", "calendar", "contacts", "notes", "reminders")
@@ -65,6 +65,8 @@ policy_execute_approved policy_revoke_proposal
 """.split())
 SHARED = frozenset({"owner_request_review", "owner_review_status", "dav_execute_approved"})
 CLIENT_MANAGEMENT = frozenset({"http_prepare_client", "http_execute_client", "http_client_status", "http_clients"})
+NATIVE_OS_PREPARE = frozenset({"notes_prepare_os_access", "reminders_prepare_os_access"})
+NATIVE_OS_REQUEST = frozenset({"notes_request_os_access", "reminders_request_os_access"})
 KINDS = {"send": "mail", "trash": "mail", "cleanup_grant": "mail", "mail_recovery": "mail",
          "calendar_change": "calendar", "contact_change": "contacts"}
 
@@ -144,6 +146,24 @@ class ClientPermissions(Middleware):
             raise SafetyError("HTTP plan kind mismatch")
         return service
 
+    def _native_access_plan(self, arguments, service=None, *, receipt=False):
+        import os
+        account = self.account if self.account is not None else os.environ.get("ICLOUD_MAIL_ACCOUNT", "")
+        store = self.store_factory()
+        plan_id = arguments.get("plan_id")
+        plan = store.proposal(plan_id)
+        kind = plan.get("kind")
+        if (kind not in {"notes_access", "reminders_access"}
+                or (service is not None and kind != service + "_access")
+                or not account or plan.get("payload", {}).get("account") != account
+                or plan.get("payload", {}).get("operation") != "request_os_access"):
+            raise SafetyError("HTTP OS access proposal scope mismatch")
+        if receipt:
+            approval = store.read(store.path(plan_id, ".approved"))
+            if approval.get("plan_id") != plan_id or approval.get("sha256") != digest(plan):
+                raise SafetyError("HTTP OS access requires exact local owner approval")
+        return kind.removesuffix("_access")
+
     def allowed(self, name, policy, arguments=None, *, listing=False):
         if name in CLIENT_MANAGEMENT:
             return self._manage_clients()
@@ -151,11 +171,21 @@ class ClientPermissions(Middleware):
             if listing:
                 modes = [policy[s] for s in (("calendar", "contacts") if name == "dav_execute_approved" else SERVICES)]
                 admin = self._manage_clients() and name != "dav_execute_approved"
-                return (admin or any(mode == "full" for mode in modes)) if name != "owner_review_status" else (admin or any(mode != "none" for mode in modes))
+                native_read = name == "owner_request_review" and any(policy[s] == "read" for s in ("notes", "reminders"))
+                return (admin or native_read or any(mode == "full" for mode in modes)) if name != "owner_review_status" else (admin or any(mode != "none" for mode in modes))
             service = self._plan_service(name, arguments or {})
             if service == "http-client-management":
                 return self._manage_clients()
+            if name == "owner_request_review" and service in {"notes", "reminders"} and policy[service] == "read":
+                return self._native_access_plan(arguments or {}, service) == service
             return policy[service] == "full" if name != "owner_review_status" else policy[service] != "none"
+        if name in NATIVE_OS_PREPARE | NATIVE_OS_REQUEST:
+            service = service_for_tool(name)
+            if policy[service] == "none":
+                return False
+            if listing or name in NATIVE_OS_PREPARE or policy[service] == "full":
+                return True
+            return self._native_access_plan(arguments or {}, service, receipt=True) == service
         if name not in READ_TOOLS and name not in WRITE_TOOLS:
             return False
         service = service_for_tool(name)

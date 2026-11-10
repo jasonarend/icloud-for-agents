@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import patch,PropertyMock
 from icloud_for_agents.approvals import PlanStore
-from icloud_for_agents.core import SafetyError
+from icloud_for_agents.core import SafetyError,digest
 from icloud_for_agents.native_permissions import NativePermissions
 
 
@@ -22,6 +22,9 @@ class NativePermissionTests(unittest.TestCase):
         for name in ('NotesCreateAdapter','RemindersCreateAdapter'):
             p=patch('icloud_for_agents.native_permissions.'+name+'.backend_id',new_callable=PropertyMock,return_value='synthetic-helper');p.start();self.addCleanup(p.stop)
         self.access=NativePermissions('notes','synthetic@example.com',self.store)
+    def approve(self,p):
+        plan=self.store.proposal(p['plan_id'])
+        self.store.write_once(self.store.path(p['plan_id'],'.approved'),{'plan_id':p['plan_id'],'sha256':digest(plan)})
     def test_preview_is_readonly_and_discloses_os_scope(self):
         with patch('subprocess.run',side_effect=AssertionError('No native call')):
             p=self.access.prepare()
@@ -29,6 +32,11 @@ class NativePermissionTests(unittest.TestCase):
         self.assertEqual(os.environ['ICLOUD_MAIL_ACCESS'],'read-only')
     def test_approved_request_never_changes_application_access_and_never_replays(self):
         p=self.access.prepare()
+        self.assertEqual(p['authorization_path'],'local-receipt')
+        with patch('icloud_for_agents.native_permissions.NativeReader._dispatch') as dispatch,self.assertRaises(FileNotFoundError):
+            self.access.execute(p['plan_id'])
+        dispatch.assert_not_called()
+        self.approve(p)
         with patch('icloud_for_agents.native_permissions.NativeReader._dispatch',return_value={'permission_state':'granted'}) as dispatch:
             result=self.access.execute(p['plan_id'])
             self.assertEqual(dispatch.call_args.args[0]['action'],'request_access')
@@ -39,6 +47,7 @@ class NativePermissionTests(unittest.TestCase):
         identity={'bundle_identifier':'com.jasonarend.icloud-for-agents.native','bundle_name':'iCloud for Agents Native',
                   'process_name':'icloud-agents-native','launch_mode':'application_exchange','dialog_attribution':'not_verified'}
         proposal=self.access.prepare()
+        self.approve(proposal)
         with patch('icloud_for_agents.native_permissions.NativeReader._dispatch',return_value={'permission_state':'granted','requester_identity':identity}):
             result=self.access.execute(proposal['plan_id'])
         self.assertEqual(result['requester_identity'],identity)
@@ -47,7 +56,7 @@ class NativePermissionTests(unittest.TestCase):
     def test_unexpected_identity_shape_is_omitted_from_receipt(self):
         for extra in ({'dialog_attribution':'verified'}, {'process_name':'x'*201}, {'unknown':'private data'}):
             identity={'bundle_identifier':'test','bundle_name':'test','process_name':'test','launch_mode':'application_exchange','dialog_attribution':'not_verified'}
-            identity.update(extra);proposal=self.access.prepare()
+            identity.update(extra);proposal=self.access.prepare();self.approve(proposal)
             with patch('icloud_for_agents.native_permissions.NativeReader._dispatch',return_value={'permission_state':'denied','requester_identity':identity}):
                 result=self.access.execute(proposal['plan_id'])
             self.assertEqual(result['permission_state'],'denied');self.assertNotIn('requester_identity',result)
@@ -63,6 +72,7 @@ class NativePermissionTests(unittest.TestCase):
             self.assertFalse(self.store.path(p['plan_id'],'.started').exists())
     def test_timeout_does_not_repeat_prompt_or_claim_a_grant(self):
         p=self.access.prepare()
+        self.approve(p)
         with patch('icloud_for_agents.native_permissions.NativeReader._dispatch',side_effect=SafetyError('Timed out')) as dispatch:
             result=self.access.execute(p['plan_id'])
         self.assertEqual(dispatch.call_count,1);self.assertEqual(result['permission_state'],'unverified')

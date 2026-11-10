@@ -82,7 +82,7 @@ def trusted_calendar_deletion(plan):
 
 def authorization_path(plan):
     """Informational routing only; execution independently enforces every guard."""
-    if plan['kind'] in {'mail_recovery', 'http_client'}:
+    if plan['kind'] in {'mail_recovery', 'http_client', 'notes_access', 'reminders_access'}:
         return 'local-receipt', True
     if plan['kind'] == 'trash' and os.environ.get('ICLOUD_CLEANUP_GRANT_ID'):
         return 'standing-cleanup', False
@@ -1000,7 +1000,7 @@ class PlanStore:
             if plan["payload"].get("account") != account:
                 raise SafetyError("Approval belongs to a different account")
             irreversible = any(item.get("operation") in {"delete", "delete_occurrence", "delete_future_occurrences"} for item in plan["payload"].get("changes", []))
-            trusted = (plan.get('kind') not in {'mail_recovery', 'http_client'} and policy == "trusted-client"
+            trusted = (plan.get('kind') not in {'mail_recovery', 'http_client', 'notes_access', 'reminders_access'} and policy == "trusted-client"
                        and (not irreversible or trusted_calendar_deletion(plan)))
             future_split = any(item.get('operation') == 'update' and item.get('recurrence_scope') == 'future'
                                and isinstance(item.get('future_split'), dict) for item in plan['payload'].get('changes', []))
