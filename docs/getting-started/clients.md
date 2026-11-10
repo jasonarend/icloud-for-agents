@@ -278,11 +278,11 @@ Source: [Muse Code MCP configuration](https://dev.meta.ai/docs/muse-code/extendi
 
 ## Meta Muse consumer app
 
-Treat the consumer app separately from Muse Code. A setup inspection on November 10, 2026, used Muse for Mac 11.1 (build 1109246656) on macOS 27.2 arm64. Its inspected **Settings → Connectors** panel had no iCloud for Agents entry or local stdio configuration control. No connection to this server was established: MCP initialization, tool discovery and live service calls through Muse were not tested. This is a limited setup finding, not proof that every possible Muse integration is unsupported.
+Treat the consumer app separately from Muse Code. Muse's **Custom Connector** flow uses an HTTPS endpoint and can use a bearer key entered by the owner in Muse's secure credential form. It does not use the local stdio setup described for Muse Code.
 
-Meta documents asking Muse to create a **Custom Connector** using a service's API information. Its separate Connector Platform also describes submitting an endpoint, authentication setup and tool documentation for review. Neither document establishes a direct local stdio connection to this project or specifies a verified private connection to its [HTTP transport](http.md).
+A connection to iCloud for Agents needs the [HTTP transport](http.md) and a secure HTTPS route that Muse can actually reach. The server listens on your Mac's loopback address, so enabling HTTP alone does not make it reachable from Muse. A private route from Muse to the Mac has not yet been established for this project. Do not expose your Apple data through a public tunnel as a setup shortcut.
 
-Muse's built-in Apple connectors are separate integrations and do not verify iCloud for Agents. Any proposed remote adapter needs its own security review, explicit access approval and read-only verification from the actual Muse conversation. Keep credentials out of chat and project files, preserve existing connections, and do not treat a client's capability explanation as a successful service test. Consumer Muse compatibility remains unconfirmed; Muse Code's documented route is covered separately above.
+Muse has completed MCP discovery and read operations for all five services against an isolated synthetic server through a temporary HTTPS tunnel. This verifies that connection flow with invented data; reads from a real Apple account and a private remote route remain unverified. Muse's built-in Apple connectors are separate integrations. Keep keys out of chat and ordinary configuration files, and verify each selected service with a bounded read when a suitable connection is available.
 
 Sources: [Muse connector help, including Custom Connectors](https://www.meta.com/help/superintelligence/1687253048996149/), [Muse Connector Platform guidelines](https://platform.muse.ai/docs), [Meta Muse product information](https://ai.meta.com/muse/).
 
