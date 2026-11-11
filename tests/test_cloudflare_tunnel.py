@@ -88,6 +88,22 @@ class CloudflareTunnelTests(unittest.TestCase):
                 tunnel.start(self.root, self.binary, ID, self.checksum,
                              key_loader=Mock(return_value=token), exec_runner=Mock())
 
+    def test_accepts_provider_secret_lengths_without_guessing_a_fixed_size(self):
+        for length in (32, 36, 48):
+            value = base64.b64encode(json.dumps({"a": "a" * 32, "t": ID,
+                "s": base64.b64encode(b"x" * length).decode()}).encode()).decode()
+            with self.subTest(length=length):
+                launch = Mock()
+                tunnel.start(self.root, self.binary, ID, self.checksum,
+                             key_loader=Mock(return_value=value), exec_runner=launch)
+                launch.assert_called_once()
+
+    def test_refuses_an_empty_tunnel_secret(self):
+        value = base64.b64encode(json.dumps({"a": "a" * 32, "t": ID, "s": ""}).encode()).decode()
+        with self.assertRaises(RuntimeSetupError):
+            tunnel.start(self.root, self.binary, ID, self.checksum,
+                         key_loader=Mock(return_value=value), exec_runner=Mock())
+
     def test_lock_refuses_a_second_launcher_before_keychain(self):
         held = tunnel._lock(self.root, ID)
         self.addCleanup(os.close, held)

@@ -75,7 +75,7 @@ def _validate_token(value, tunnel_id):
                 or token["t"] != tunnel_id or token.get("e", "") != ""
                 or not isinstance(token["a"], str) or not re.fullmatch(r"[0-9a-f]{32}", token["a"])
                 or not isinstance(token["s"], str)
-                or len(base64.b64decode(token["s"], validate=True)) != 32):
+                or not base64.b64decode(token["s"], validate=True)):
             raise ValueError()
     except (ValueError, TypeError, UnicodeError):
         raise RuntimeSetupError("The saved Cloudflare token does not match the reviewed tunnel") from None
