@@ -44,6 +44,17 @@ A hosted assistant needs an HTTPS address it can reach; `127.0.0.1` refers to th
 
 The server remains bound to loopback. Configure its exact `--proxy-host` for the approved HTTPS hostname, retain the individual bearer key, and do not use forwarded identity headers as authorization. Keep the Mac and the chosen connection running when the client needs access. If the route stops, the client will not be able to reach the server. A connection provider can process traffic passing through its service; a model provider can receive the tool results requested by its client.
 
+### Tailscale Serve
+
+[Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve) can proxy the local HTTP server to an HTTPS address available inside a tailnet. It is an external option for any compatible client that can actually connect to that tailnet; a hosted client is not automatically a member. This project does not install or configure Tailscale, and this route has not been verified end to end with iCloud for Agents.
+
+1. Check the installed Tailscale client, signed-in account, device name, access policy and existing Serve configuration. Confirm that the intended client can reach the tailnet and review the requested route with the owner. Do not overwrite existing routes or change tailnet policy as a setup shortcut.
+2. Serve requires HTTPS certificates and MagicDNS. If enabling HTTPS is needed, explain that the device and tailnet DNS names appear in public certificate-transparency records, even though Serve access remains restricted to authorized tailnet devices. The owner handles any account or administrative prompts.
+3. Start the approved loopback HTTP server, setting its proxy host to the exact Tailscale DNS hostname. After reviewing an unused HTTPS port and mount, a local assistant can configure Serve with the [current CLI](https://tailscale.com/docs/reference/tailscale-cli/serve), for example `tailscale serve --bg --https=<APPROVED_PORT> 127.0.0.1:<HTTP_PORT>`. Use actual reviewed ports, not placeholders. Port forwarding does not require root. Do not use `tailscale serve reset`, change an existing port's configuration, or use Funnel as a substitute for private Serve.
+4. Inspect `tailscale serve status` and use its displayed HTTPS address with `/mcp`. Create the separately reviewed HTTP client key and have the owner enter it in the client's secure credential field. Verify discovery and an approved bounded read from the actual client; a running proxy alone does not verify access. Keep the server and Tailscale available.
+
+Serve configured with `--bg` persists until disabled and can resume when Tailscale restarts. Before changing or removing it, inspect the exact configuration and use Tailscale's documented controls for that approved route. Disconnecting the proxy does not revoke the HTTP client key or erase information already shared with a client.
+
 ### Cloudflare Tunnel
 
 A separately configured [Cloudflare Tunnel](https://developers.cloudflare.com/tunnel/get-started/) is one way to give an HTTPS-capable hosted client a stable address. Cloudflare's named, remotely managed tunnel requires a Cloudflare account and a domain on Cloudflare. Cloudflare's [Quick Tunnels](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/) are temporary development connections; their changing addresses are not a durable client setup. Cloudflare is optional and is not a Python dependency of iCloud for Agents.

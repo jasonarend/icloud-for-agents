@@ -14,6 +14,7 @@ An [optional authenticated HTTP connection](docs/getting-started/http.md) is ava
 Connect through one of these assistants or a compatible MCP client:
 
 - ChatGPT, using your private OpenAI Secure MCP Tunnel
+- Codex CLI, desktop app and IDE extension, using local MCP
 - Claude Desktop and Claude Code
 - Unsloth Desktop
 - Hermes Desktop
@@ -144,10 +145,11 @@ Read README.md and docs/getting-started/agent-setup.md, then follow
 the linked installation, security and client-specific guides.
 
 Check my Mac, Python version, existing installation and AI client
-configuration. Ask which iCloud services I want to connect and
+configuration. Confirm which iCloud services I want to connect and
 explain the proposed setup, permissions and any costs before
 making changes. Follow docs/getting-started/clients.md for my client:
-ChatGPT uses a private tunnel; compatible local clients use stdio MCP.
+ChatGPT uses a private tunnel; local clients can use stdio MCP;
+compatible remote HTTP clients need an approved HTTPS connection.
 
 For services that need an Apple app-specific password, guide me
 through creating it and storing it securely in macOS Keychain.
@@ -164,7 +166,7 @@ approved changes later.
 
 You will need a supported MCP client and the credentials and permissions required by your selected services. Mail, Calendar and Contacts use an iCloud app-specific password; Notes and Reminders use separate macOS permissions. The agent may install the reviewed dependencies after authorization, but you must handle credential creation, secure entry and account/security approvals yourself. Keep secrets out of the conversation. Every user needs their own credentials and connection.
 
-Prefer manual setup? Follow [installation and credentials](docs/getting-started/installation.md), then [ChatGPT setup](docs/getting-started/chatgpt.md) or the [client setup guide](docs/getting-started/clients.md) for local stdio clients. Optional [background startup](docs/getting-started/background-service.md) requires explicit installation; a graphical installer is not included.
+Prefer manual setup? Follow [installation and credentials](docs/getting-started/installation.md), then the [client setup guide](docs/getting-started/clients.md) for your chosen client. Optional [ChatGPT tunnel background startup](docs/getting-started/background-service.md) requires explicit installation; a graphical installer is not included.
 
 ## Choose services and customize safeguards
 
