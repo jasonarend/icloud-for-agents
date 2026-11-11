@@ -2,7 +2,7 @@
 
 Releases are listed newest first. Dates are the local dates on which the GitHub releases were published.
 
-## 2.2.1 — 2026-11-10
+## 2.2.1 — 2026-11-11
 
 ### Added
 
@@ -18,6 +18,10 @@ Releases are listed newest first. Dates are the local dates on which the GitHub 
 - Coordinate supported Mail and other operations when local and HTTP clients share an installation, and improve HTTP service recovery after a rapid restart.
 - Accept the reviewed HTTPS proxy origin while continuing to reject unrelated browser origins.
 - Update the setup, security and contributor guides, including assistant-led Meta Muse setup and technical references for HTTP connections and native services.
+
+### Fixed
+
+- Accept valid Cloudflare Tunnel token secrets while still verifying the reviewed tunnel identity.
 
 ## 2.1.2 — 2026-11-08
 
