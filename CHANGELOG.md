@@ -2,6 +2,22 @@
 
 Releases are listed newest first. Dates are the local dates on which the GitHub releases were published.
 
+## 2.2.0 — 2026-11-10
+
+### Added
+
+- Connect compatible MCP clients over an optional authenticated Streamable HTTP endpoint, including Meta Muse and custom-built agents. The server listens on the Mac; remote clients also need a separately configured HTTPS connection.
+- Create separate client keys with reviewed access for each Apple service and optional client-management authority. Review keys locally, transfer them through a secure handoff, and change, rotate or revoke them without restarting the server.
+- Let HTTP clients request a review of their own permissions and prepare individually approved Calendar, Notes and Reminders changes within the selected service scope.
+- Manage the optional HTTP server as a separately reviewed background service. Add setup guidance for private Tailscale connections and an optional Cloudflare Tunnel launcher.
+- Include a server icon and expanded MCP identity metadata for clients that display them.
+
+### Improved
+
+- Keep durable records for supported Mail read-state changes, archive and restore operations. Inspect uncertain outcomes and review recovery without automatically repeating a write.
+- Coordinate supported Mail and other operations when local and HTTP clients share an installation, and improve HTTP service recovery after a rapid restart.
+- Update the setup, security and contributor guides, including assistant-led Meta Muse setup and technical references for HTTP connections and native services.
+
 ## 2.1.2 — 2026-11-08
 
 ### Fixed
