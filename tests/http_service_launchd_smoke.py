@@ -6,6 +6,7 @@ The temporary project gives the product's label function a unique job identity.
 import json
 import os
 from pathlib import Path
+import shlex
 import socket
 import subprocess
 import sys
@@ -40,7 +41,11 @@ def run():
             home.mkdir(mode=0o700)
             (root / "local").mkdir(parents=True, mode=0o700)
             (root / ".venv/bin").mkdir(parents=True)
-            (root / ".venv/bin/python").symlink_to(Path(sys.executable).resolve())
+            # Exercise launchd with an owned launcher, independently of the
+            # shared CI interpreter's ownership or group-write permissions.
+            python = root / ".venv/bin/python"
+            python.write_text("#!/bin/sh\nexec " + shlex.quote(str(Path(sys.executable).resolve())) + " \"$@\"\n")
+            python.chmod(0o700)
             (root / "scripts").mkdir()
             (root / "scripts/run-http.py").write_text("# Synthetic placeholder; never executed\n")
             (root / "scripts/manage-http.py").write_text(
@@ -54,6 +59,8 @@ def run():
                 "signal.signal(signal.SIGTERM, stop)\n"
                 f"Path({str(ready)!r}).write_text(str(os.getpid()))\n"
                 "while True: time.sleep(1)\n")
+            for name in ("manage-http.py", "run-http.py"):
+                (root / "scripts" / name).chmod(0o600)
             settings = root / "local/settings.json"
             settings.write_text(json.dumps({"account": "synthetic@example.invalid",
                                             "apple_keychain_service": "synthetic",

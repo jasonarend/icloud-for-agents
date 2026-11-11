@@ -4,7 +4,6 @@ import os
 from pathlib import Path
 import plistlib
 import subprocess
-import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -63,10 +62,16 @@ def fixture(directory):
     home.mkdir(mode=0o700)
     (root / "local").mkdir(parents=True, mode=0o700)
     (root / ".venv/bin").mkdir(parents=True)
-    (root / ".venv/bin/python").symlink_to(Path(sys.executable).resolve())
+    # Lifecycle unit tests never execute Python. Keep this owned fixture
+    # independent of the shared CI interpreter's ownership and permissions.
+    python = root / ".venv/bin/python"
+    python.write_text("#!/bin/sh\nexit 99\n")
+    python.chmod(0o700)
     (root / "scripts").mkdir()
     for name in ("manage-http.py", "run-http.py"):
-        (root / "scripts" / name).write_text("# Synthetic script, never executed\n")
+        script = root / "scripts" / name
+        script.write_text("# Synthetic script, never executed\n")
+        script.chmod(0o600)
     settings = root / "local/settings.json"
     settings.write_text(json.dumps({"account": "synthetic@example.invalid", "apple_keychain_service": "synthetic",
                                     "access_mode": "read-only", "dav_reads": False}))
@@ -101,6 +106,18 @@ class HttpServiceTests(unittest.TestCase):
         self.assertEqual(keys.configuration, preview["profile"]["configuration"])
         self.assertEqual(keys.instance, preview["profile"]["instance"])
         self.assertFalse(preview["remote_proxy_configured"])
+
+    def test_writable_executables_remain_rejected(self):
+        for relative in (".venv/bin/python", "scripts/manage-http.py", "scripts/run-http.py"):
+            executable = self.root / relative
+            original_mode = executable.stat().st_mode & 0o777
+            with self.subTest(executable=relative):
+                executable.chmod(original_mode | 0o020)
+                try:
+                    with self.assertRaisesRegex(service.HttpServiceError, "not owner-controlled"):
+                        service.prepare(self.root, home=self.home)
+                finally:
+                    executable.chmod(original_mode)
 
     def test_exact_review_and_existing_profile_are_required(self):
         preview = service.prepare(self.root, home=self.home)

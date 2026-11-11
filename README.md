@@ -1,5 +1,5 @@
 # iCloud for Agents
-**Version 2.2.0**
+**Version 2.2.1**
 
 ![Illustration connecting iCloud Mail, Contacts, Calendar, Notes, and Reminders to an AI assistant](docs/assets/icloud-for-agents-apple-apps-ai-assistant.webp)
 

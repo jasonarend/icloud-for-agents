@@ -2,7 +2,7 @@
 
 Releases are listed newest first. Dates are the local dates on which the GitHub releases were published.
 
-## 2.2.0 — 2026-11-10
+## 2.2.1 — 2026-11-10
 
 ### Added
 
@@ -16,6 +16,7 @@ Releases are listed newest first. Dates are the local dates on which the GitHub 
 
 - Keep durable records for supported Mail read-state changes, archive and restore operations. Inspect uncertain outcomes and review recovery without automatically repeating a write.
 - Coordinate supported Mail and other operations when local and HTTP clients share an installation, and improve HTTP service recovery after a rapid restart.
+- Accept the reviewed HTTPS proxy origin while continuing to reject unrelated browser origins.
 - Update the setup, security and contributor guides, including assistant-led Meta Muse setup and technical references for HTTP connections and native services.
 
 ## 2.1.2 — 2026-11-08

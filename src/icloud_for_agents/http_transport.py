@@ -84,7 +84,8 @@ def create_app(server, keys, proxy_host=None):
         server._icloud_client_permissions = True
     app = server.http_app(path="/mcp", transport="streamable-http", json_response=True,
                           stateless_http=True, host_origin_protection=True,
-                          allowed_hosts=[proxy_host] if proxy_host else None)
+                          allowed_hosts=[proxy_host] if proxy_host else None,
+                          allowed_origins=[f"https://{proxy_host}"] if proxy_host else None)
     return BearerGate(app, keys)
 
 

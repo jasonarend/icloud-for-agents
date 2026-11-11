@@ -81,6 +81,12 @@ class HttpTransportTests(unittest.TestCase):
                                          host="attacker.example")[0], 421)
                 self.assertNotEqual(request(headers=[("Authorization", "Bearer " + TOKEN.decode())],
                                             host="synthetic.example")[0], 421)
+                self.assertEqual(request(headers=[("Authorization", "Bearer " + TOKEN.decode()),
+                                                  ("Origin", "https://synthetic.example")],
+                                         host="synthetic.example")[0], 405)
+                self.assertEqual(request(headers=[("Authorization", "Bearer " + TOKEN.decode()),
+                                                  ("Origin", "https://attacker.example")],
+                                         host="synthetic.example")[0], 403)
                 self.assertEqual(request(method="DELETE")[0], 401)
                 self.assertEqual(request(method="POST", path="/other")[0], 401)
 
