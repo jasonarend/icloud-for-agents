@@ -22,6 +22,9 @@ from .http_transport import PROXY_HOST_PATTERN
 from .local_config import child_environment, read_settings
 
 TIMEOUT = 5
+# launchd's default spawn throttle is ten seconds. A single kickstart can
+# legitimately wait for that interval when recovering a recently exited job.
+ACTIVATION_TIMEOUT = 15
 PROFILE = "http-service.json"
 
 
@@ -263,7 +266,7 @@ def start(root, home=None, runner=subprocess.run, *, clock=time.monotonic, sleep
             raise HttpServiceError("HTTP service startup was not confirmed; inspect status before another action")
     if recovering or not profile["start_at_login"]:
         result = runner(["/bin/launchctl", "kickstart", f"gui/{os.getuid()}/{label(root)}"],
-                        capture_output=True, check=False, timeout=TIMEOUT)
+                        capture_output=True, check=False, timeout=ACTIVATION_TIMEOUT)
         if result.returncode != 0:
             raise HttpServiceError("HTTP service activation was not confirmed; inspect status before another action")
     deadline = clock() + 5

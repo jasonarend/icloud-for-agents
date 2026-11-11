@@ -273,6 +273,39 @@ class HttpServiceTests(unittest.TestCase):
         self.assertEqual(sum(call[1] == "kickstart" for call in runner.calls), 1)
         self.assertTrue((self.root / "local/http-service.json").exists())
 
+    def test_recovery_allows_macos_launch_throttle(self):
+        _, runner = self.installed()
+        runner.loaded = True
+
+        def throttled(command, **options):
+            if command[1] == "kickstart" and options["timeout"] <= 10:
+                raise subprocess.TimeoutExpired(command, options["timeout"])
+            return runner(command, **options)
+
+        with patch.object(service, "_port_free"):
+            result = service.start(self.root, self.home, throttled)
+        self.assertTrue(result["started"])
+        self.assertFalse(result["connection_verified"])
+        self.assertEqual(sum(call[1] == "kickstart" for call in runner.calls), 1)
+
+    def test_recovery_timeout_is_bounded_and_never_replayed(self):
+        _, runner = self.installed()
+        runner.loaded = True
+        activations = []
+
+        def unavailable(command, **options):
+            if command[1] == "kickstart":
+                activations.append((command, options["timeout"]))
+                raise subprocess.TimeoutExpired(command, options["timeout"])
+            return runner(command, **options)
+
+        with patch.object(service, "_port_free"), self.assertRaises(subprocess.TimeoutExpired):
+            service.start(self.root, self.home, unavailable)
+        self.assertEqual(len(activations), 1)
+        self.assertGreater(activations[0][1], 10)
+        self.assertLessEqual(activations[0][1], 20)
+        self.assertTrue((self.root / "local/http-service.json").exists())
+
     def test_recovery_requires_running_readback(self):
         _, runner = self.installed()
         runner.loaded = True

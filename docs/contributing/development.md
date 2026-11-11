@@ -37,7 +37,7 @@ Run additional checks for the area you change. The complete automated sequence i
 | Area | Relevant checks |
 | --- | --- |
 | HTTP transport and client permissions | `http_transport_smoke.py`, `http_services_smoke.py`, `http_once_smoke.py`, `http_pairing_stdio_smoke.py` |
-| Connection startup | `http_service_process_smoke.py`, `cloudflare_tunnel_process_smoke.py`, `login_service_launchd_smoke.py` |
+| Connection startup | `http_service_process_smoke.py`, `http_service_launchd_smoke.py`, `cloudflare_tunnel_process_smoke.py`, `login_service_launchd_smoke.py` |
 | Shared operations and recovery | `operation_lock_process_smoke.py`, `mail_operation_process_smoke.py`, `dual_transport_smoke.py` |
 | Calendar recurrence | `calendar_*_stdio_smoke.py` and related unit tests |
 | Notes and Reminders | Relevant `native_*_stdio_smoke.py`, native contract runners and unit tests |
@@ -46,7 +46,7 @@ Run additional checks for the area you change. The complete automated sequence i
 
 Run test files with `.venv/bin/python tests/FILE.py` and scripts with `.venv/bin/python scripts/FILE.py`. Some native contract runners require Apple developer tools. Use the SDK associated with the selected developer installation for that test process, as shown in the workflow; avoid changing the Mac's system-wide developer-tool selection to fix a test environment.
 
-The HTTP tests use synthetic credentials and loopback listeners. The native HTTP Keychain check uses a disposable standalone Keychain, verifies that the existing default and search list are unchanged, and removes its temporary Keychain. The login-service check temporarily registers an isolated launchd job. Review these runners before executing them on a shared machine. Native contract tests use synthetic application objects or in-memory Foundation/EventKit values; they do not establish that a feature works in the live Apple apps.
+The HTTP tests use synthetic credentials and loopback listeners. The native HTTP Keychain check uses a disposable standalone Keychain, verifies that the existing default and search list are unchanged, and removes its temporary Keychain. The launchd checks temporarily register isolated jobs with harmless dummy processes, then remove them. Review these runners before executing them on a shared machine. Native contract tests use synthetic application objects or in-memory Foundation/EventKit values; they do not establish that a feature works in the live Apple apps.
 
 ## Changes to permissions and data operations
 
