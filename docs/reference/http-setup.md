@@ -46,7 +46,7 @@ The server remains bound to loopback. Configure its exact `--proxy-host` for the
 
 ### Tailscale Serve
 
-[Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve) can proxy the local HTTP server to an HTTPS address available inside a tailnet. It is an external option for any compatible client that can actually connect to that tailnet; a hosted client is not automatically a member. This project does not install or configure Tailscale, and this route has not been verified end to end with iCloud for Agents.
+[Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve) can proxy the local HTTP server to an HTTPS address available inside a tailnet. It is an external option for any compatible client that can actually connect to that tailnet; a hosted client is not automatically a member. This project does not install or configure Tailscale. A synthetic MCP read and access checks have passed over a private Serve route using the same Mac as the HTTPS client; reachability from another device or a hosted client depends on that client's tailnet access.
 
 1. Check the installed Tailscale client, signed-in account, device name, access policy and existing Serve configuration. Confirm that the intended client can reach the tailnet and review the requested route with the owner. Do not overwrite existing routes or change tailnet policy as a setup shortcut.
 2. Serve requires HTTPS certificates and MagicDNS. If enabling HTTPS is needed, explain that the device and tailnet DNS names appear in public certificate-transparency records, even though Serve access remains restricted to authorized tailnet devices. The owner handles any account or administrative prompts.

@@ -48,6 +48,8 @@ Run test files with `.venv/bin/python tests/FILE.py` and scripts with `.venv/bin
 
 The HTTP tests use synthetic credentials and loopback listeners. The native HTTP Keychain check uses a disposable standalone Keychain, verifies that the existing default and search list are unchanged, and removes its temporary Keychain. The launchd checks temporarily register isolated jobs with harmless dummy processes, then remove them. Review these runners before executing them on a shared machine. Native contract tests use synthetic application objects or in-memory Foundation/EventKit values; they do not establish that a feature works in the live Apple apps.
 
+For an optional real Tailscale Serve check, inspect `tests/tailscale_serve_smoke.py` and run it with `--run` only on an approved connected tailnet with HTTPS available and no existing Serve routes. It uses invented data and a temporary authenticated route, then verifies removal. It checks the HTTPS route from the same Mac, not another device or hosted client; it is not part of unattended CI.
+
 ## Changes to permissions and data operations
 
 Preserve account and item identity checks, ETags, snapshot comparisons, operation locks, one-time authorization markers and recovery behavior. Add regression coverage for failure and uncertain outcomes as well as success. A timed-out write may still have taken effect; an automatic retry must not duplicate it.
