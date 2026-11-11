@@ -36,7 +36,7 @@ Run additional checks for the area you change. The complete automated sequence i
 
 | Area | Relevant checks |
 | --- | --- |
-| HTTP transport and client permissions | `http_transport_smoke.py`, `http_services_smoke.py`, `http_once_smoke.py`, `http_pairing_stdio_smoke.py` |
+| HTTP transport and client permissions | `http_transport_smoke.py`, `http_services_smoke.py`, `http_once_smoke.py`, `http_pairing_stdio_smoke.py`, `http_client_lifecycle_smoke.py` |
 | Connection startup | `http_service_process_smoke.py`, `http_service_launchd_smoke.py`, `cloudflare_tunnel_process_smoke.py`, `login_service_launchd_smoke.py` |
 | Shared operations and recovery | `operation_lock_process_smoke.py`, `mail_operation_process_smoke.py`, `dual_transport_smoke.py` |
 | Calendar recurrence | `calendar_*_stdio_smoke.py` and related unit tests |

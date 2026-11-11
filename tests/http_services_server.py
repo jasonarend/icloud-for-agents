@@ -156,6 +156,41 @@ class SyntheticKeys:
         return None
 
 
+keys = SyntheticKeys()
+if os.environ.get("BRIDGE_TEST_REAL_KEYS") == "1":
+    # Exercise the production key lifecycle against an isolated in-memory
+    # provider. Deterministic values below are invented test credentials only.
+    from unittest.mock import patch
+    from icloud_for_agents.http_keys import HttpKeys
+    from icloud_for_agents.http_pairing import HttpPairing
+    from test_http_keys import MemoryKeychain
+
+    keys = HttpKeys(MemoryKeychain(), store)
+    for identity, char in (("read", "a"), ("other", "d"), ("admin", "e")):
+        reader, writer = os.pipe()
+        try:
+            with patch("icloud_for_agents.http_keys.secrets.token_urlsafe", return_value=char * 43):
+                keys.create("Synthetic " + identity, writer, client_id=char * 32,
+                            permissions={name: "none" if identity == "admin" else "read" for name in SERVICES},
+                            manage_clients=identity == "admin", owner_approved=True)
+            os.close(writer)
+            writer = None
+            assert os.read(reader, 512) == ("ika_" + char * 32 + "." + char * 43).encode()
+        finally:
+            os.close(reader)
+            if writer is not None:
+                os.close(writer)
+
+    def present(label, token):
+        # A private synthetic owner channel, never an MCP result or log.
+        path = Path(os.environ["BRIDGE_TEST_KEY_DELIVERY"])
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(token)
+
+    server._http_pairing = HttpPairing(os.environ["ICLOUD_MAIL_ACCOUNT"], store, keys, presenter=present)
+
+
 import uvicorn
 
 
@@ -171,5 +206,5 @@ class SyntheticServer(uvicorn.Server):
             signal.signal(signal.SIGTERM, previous)
 
 
-SyntheticServer(uvicorn.Config(create_app(server.mcp, SyntheticKeys()), host="127.0.0.1", port=PORT,
+SyntheticServer(uvicorn.Config(create_app(server.mcp, keys), host="127.0.0.1", port=PORT,
                               access_log=False, log_level="warning")).run()
