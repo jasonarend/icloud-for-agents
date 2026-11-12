@@ -290,7 +290,7 @@ Ask a local assistant with access to your Mac to prepare the connection and guid
 
 If Muse cannot operate the local setup on your Mac, use another local assistant for steps 1–3; you do not need to run Terminal commands. Your selected results can be sent to Muse and its provider, so choose the scope you intend to share. Muse's own Apple connectors are separate from this connection.
 
-Muse has completed MCP discovery and reads for all five services against an isolated synthetic server through HTTPS. That confirms the custom connector and bearer-key flow with invented data; the specific HTTPS route and Apple account you select still need their own connection check. A private Muse-to-Mac route and all write scenarios have not been verified.
+If discovery times out, ask your assistant to check the connection and try discovery again. If a change has an uncertain outcome, ask it to inspect the operation's status before trying the change again.
 
 Sources: [Muse connector help, including Custom Connectors](https://www.meta.com/help/superintelligence/1687253048996149/), [Muse Connector Platform guidelines](https://platform.muse.ai/docs), [Meta Muse product information](https://ai.meta.com/muse/).
 

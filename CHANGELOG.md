@@ -2,7 +2,7 @@
 
 Releases are listed newest first. Dates are the local dates on which the GitHub releases were published.
 
-## 2.2.1 — 2026-11-11
+## 2.2.1 — 2026-11-12
 
 ### Added
 

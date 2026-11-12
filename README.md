@@ -20,7 +20,7 @@ Connect through one of these assistants or a compatible MCP client:
 - Hermes Desktop
 - OpenClaw
 - Meta Muse, using an authenticated HTTPS custom connector
-- Grok Bot, using custom MCP (end-to-end setup not yet verified)
+- Grok Bot, using custom MCP
 - Custom-built AI assistants and agents that support local stdio or Streamable HTTP MCP
 
 Grok Bot testing is pending because the maintainer did not have a Grok subscription. For command-based setup, confirm the command runs on the Mac hosting this installation and its Keychain. A URL-based connector instead needs an appropriate [HTTPS connection](docs/getting-started/http.md). See the [Grok Bot setup notes](docs/getting-started/clients.md#grok-bot-and-grok-web), and [open an issue](https://github.com/jasonarend/icloud-for-agents/issues) if you run into problems or can share a successful setup. The [client setup guide](docs/getting-started/clients.md) covers other clients and their connection options.

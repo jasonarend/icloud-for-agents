@@ -67,4 +67,4 @@ A separately configured [Cloudflare Tunnel](https://developers.cloudflare.com/tu
 
 The launcher verifies that the token names the reviewed tunnel and uses Cloudflare's default edge; tokens with a custom endpoint are not supported. The tunnel token permits operating the Cloudflare tunnel; the client key permits the selected iCloud for Agents access. Rotate or revoke each through its own service when appropriate. Stopping the local tunnel disconnects the route but does not delete either credential or erase information already sent to a client. Cloudflare's dashboard may offer a command containing the tunnel token: the owner should extract the token privately for Keychain rather than running or sharing that command.
 
-This named-tunnel setup follows Cloudflare's documented configuration; its complete setup with iCloud for Agents has not yet been verified. For client-specific steps, see the [client guide](../getting-started/clients.md).
+For client-specific connection steps, see the [client guide](../getting-started/clients.md).

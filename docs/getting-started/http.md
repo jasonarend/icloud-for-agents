@@ -19,6 +19,6 @@ For specific client instructions, see the [client guide](clients.md). Your assis
 
 Ask your assistant to review, change, rotate or revoke a client's key. Each action needs your local approval. Revoking a key prevents new requests using it; it does not erase data already sent to the client or stop work already in progress. Clients with access to the same service share that service's configured account and selected sources; individual keys do not restrict specific Mail folders.
 
-The Mac and the chosen connection must be running when a remote client needs access. The local HTTP server can optionally start at login. The Cloudflare launcher currently runs in the foreground and needs to be started again after it stops. Cloudflare and Tailscale are optional; use the route that your client can actually reach. A named Cloudflare tunnel requires a Cloudflare account and domain, and its full setup with this project has not yet been verified.
+The Mac and the chosen connection must be running when a remote client needs access. The local HTTP server can optionally start at login. The Cloudflare launcher runs in the foreground and needs to be started again after it stops. Cloudflare and Tailscale are optional; use the route that your client can actually reach. A named Cloudflare tunnel requires a Cloudflare account and a domain configured with Cloudflare.
 
 An AI client and its provider can receive the content returned by the tools you allow. A connection provider can process traffic passing through its service. Review the scope and providers before connecting.
