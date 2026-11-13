@@ -9,6 +9,7 @@ from unittest.mock import Mock, patch
 
 import yaml
 from icloud_for_agents import tunnel_runtime as runtime
+from icloud_for_agents import secure_executable
 
 
 class DurableRuntimeTests(unittest.TestCase):
@@ -19,11 +20,15 @@ class DurableRuntimeTests(unittest.TestCase):
         (self.root/'tools/tunnel-client-v0.0.16').mkdir(parents=True)
         (self.root/'.venv/bin').mkdir(parents=True)
         (self.root/'scripts').mkdir()
-        (self.root/'.venv/bin/python').touch()
+        (self.root/'.venv/bin/python').touch();(self.root/'.venv/bin/python').chmod(0o700)
         (self.root/'scripts/run-stdio.py').touch()
         binary=self.root/'tools/tunnel-client-v0.0.16/tunnel-client';binary.touch();binary.chmod(0o700)
+        cache=self.root/'private-cache';cache.mkdir(mode=0o700)
+        self.cache_patch=patch.object(secure_executable,'_cache_directory',return_value=cache)
+        self.cache_patch.start();self.addCleanup(self.cache_patch.stop)
         import json
         self.settings={'account':'synthetic@example.com','apple_keychain_service':'test-apple','tunnel_id':'tunnel_synthetic','runtime_keychain_service':runtime.KEYCHAIN_SERVICE,'access_mode':'read-only','dav_reads':True}
+        self.settings['tunnel_client_sha256']=secure_executable.executable_digest(binary)
         setting=self.root/'local/settings.json';setting.write_text(json.dumps(self.settings));setting.chmod(0o600)
         self.profile=self.root/'local/tunnel/icloud-for-agents.yaml'
         self.data={'config_version':1,'control_plane':{'base_url':'https://api.openai.com','tunnel_id':'tunnel_synthetic','api_key':'env:CONTROL_PLANE_API_KEY'},
@@ -56,6 +61,92 @@ class DurableRuntimeTests(unittest.TestCase):
         with patch.object(runtime,'project_root',return_value=self.root),patch.object(runtime,'start') as start,patch('subprocess.run') as run:
             with contextlib.redirect_stdout(io.StringIO()):runtime.main(['--check'])
             start.assert_not_called();run.assert_not_called()
+
+    def test_missing_reviewed_checksum_refuses_before_keychain(self):
+        import json
+        del self.settings['tunnel_client_sha256']
+        (self.root/'local/settings.json').write_text(json.dumps(self.settings))
+        loader=Mock();execute=Mock()
+        with self.assertRaisesRegex(runtime.RuntimeSetupError,'setup assistant'):
+            runtime.start(self.root,key_loader=loader,exec_runner=execute)
+        loader.assert_not_called();execute.assert_not_called()
+
+    def test_path_replacement_during_keychain_cannot_change_executed_bytes(self):
+        original=self.root/'tools/tunnel-client-v0.0.16/tunnel-client'
+        def loader():
+            original.unlink()
+            original.write_bytes(b'attacker replacement')
+            original.chmod(0o700)
+            return 'fake-key'
+        def execute(binary,argv,environment):
+            self.assertNotEqual(Path(binary),original)
+            self.assertEqual(Path(binary).read_bytes(),b'')
+            self.assertEqual(argv[0],binary)
+        with contextlib.redirect_stdout(io.StringIO()):
+            runtime.start(self.root,key_loader=loader,exec_runner=execute)
+
+    def test_profile_replacement_during_keychain_cannot_change_launched_profile(self):
+        original=self.profile
+        def loader():
+            self.data['control_plane']['base_url']='https://attacker.invalid'
+            self.save()
+            return 'fake-key'
+        def execute(binary,argv,environment):
+            staged=Path(argv[argv.index('--config')+1])
+            self.assertNotEqual(staged,original)
+            self.assertEqual(yaml.safe_load(staged.read_text())['control_plane']['base_url'],'https://api.openai.com')
+            self.assertEqual(staged.stat().st_mode & 0o777,0o600)
+        with contextlib.redirect_stdout(io.StringIO()):
+            runtime.start(self.root,key_loader=loader,exec_runner=execute)
+
+    def test_staged_child_command_strips_key_before_interpreter_startup(self):
+        original = self.profile.read_bytes()
+        def execute(binary, argv, environment):
+            import shlex
+            staged = yaml.safe_load(Path(argv[argv.index('--config') + 1]).read_text())
+            command = staged['mcp']['commands'][0]['command']
+            self.assertEqual(shlex.split(command), ['/usr/bin/env', '-u', 'CONTROL_PLANE_API_KEY',
+                str(self.root/'.venv/bin/python'), str(self.root/'scripts/run-stdio.py')])
+            self.assertEqual(environment['CONTROL_PLANE_API_KEY'], 'synthetic-runtime-key')
+            self.assertEqual(staged['control_plane']['api_key'], 'env:CONTROL_PLANE_API_KEY')
+        with contextlib.redirect_stdout(io.StringIO()):
+            runtime.start(self.root,key_loader=lambda:'synthetic-runtime-key',exec_runner=execute)
+        self.assertEqual(self.profile.read_bytes(), original)
+
+    def test_replaceable_profile_and_command_ancestors_refuse_before_keychain(self):
+        for directory in (self.root,self.profile.parent,self.root/'.venv/bin',self.root/'scripts'):
+            with self.subTest(directory=directory):
+                previous=directory.stat().st_mode & 0o777
+                directory.chmod(0o777)
+                loader=Mock();execute=Mock()
+                try:
+                    with self.assertRaisesRegex(runtime.RuntimeSetupError,'protected|private'):
+                        runtime.start(self.root,key_loader=loader,exec_runner=execute)
+                    loader.assert_not_called();execute.assert_not_called()
+                finally:directory.chmod(previous)
+
+    def test_safe_interpreter_symlink_supported_but_unsafe_target_refuses(self):
+        interpreter=self.root/'.venv/bin/python'
+        actual=self.root/'private-python';actual.write_bytes(b'synthetic');actual.chmod(0o700)
+        interpreter.unlink();interpreter.symlink_to(actual)
+        runtime.launch_plan(self.root)
+        shared=self.root/'shared';shared.mkdir(mode=0o777);shared.chmod(0o777)
+        unsafe=shared/'python';unsafe.write_bytes(b'synthetic');unsafe.chmod(0o700)
+        interpreter.unlink();interpreter.symlink_to(unsafe)
+        loader=Mock()
+        with self.assertRaises(runtime.RuntimeSetupError):runtime.start(self.root,key_loader=loader)
+        loader.assert_not_called()
+
+    def test_nested_interpreter_relay_refuses_before_keychain(self):
+        actual=self.root/'private-python';actual.write_bytes(b'synthetic');actual.chmod(0o700)
+        shared=self.root/'shared';shared.mkdir(mode=0o777);shared.chmod(0o777)
+        relay=shared/'relay';relay.symlink_to(actual)
+        intermediate=self.root/'.venv/bin/intermediate';intermediate.symlink_to(relay)
+        interpreter=self.root/'.venv/bin/python';interpreter.unlink();interpreter.symlink_to(intermediate)
+        loader=Mock();execute=Mock()
+        with self.assertRaisesRegex(runtime.RuntimeSetupError,'protected'):
+            runtime.start(self.root,key_loader=loader,exec_runner=execute)
+        loader.assert_not_called();execute.assert_not_called()
 
     def test_default_is_check_only(self):
         with patch.object(runtime,'project_root',return_value=self.root),patch.object(runtime,'start') as start:

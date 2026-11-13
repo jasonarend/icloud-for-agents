@@ -1,5 +1,6 @@
 """Client-neutral configuration tests; no client install, secrets or live calls."""
 import importlib.util
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -42,6 +43,31 @@ class ClientNeutralSetupTests(unittest.TestCase):
         self.assertEqual(settings['tunnel_id'], 'tunnel_synthetic')
         self.assertTrue((self.root / 'local/tunnel/icloud-for-agents.yaml').is_file())
         self.assertEqual((self.root / 'local/settings.json').stat().st_mode & 0o777, 0o600)
+
+    def test_reviewed_tunnel_selection_supports_new_and_existing_setup(self):
+        binary=self.root/'reviewed-client';binary.write_bytes(b'reviewed');binary.chmod(0o700)
+        checksum=hashlib.sha256(binary.read_bytes()).hexdigest()
+        setup.configure(self.root,'synthetic@example.com','tunnel_synthetic',
+                        tunnel_client_path=str(binary),tunnel_client_sha256=checksum)
+        before=read_settings(self.root)
+        profile=(self.root/'local/tunnel/icloud-for-agents.yaml').read_bytes()
+        replacement=self.root/'new-client';replacement.write_bytes(b'new reviewed');replacement.chmod(0o700)
+        replacement_checksum=hashlib.sha256(replacement.read_bytes()).hexdigest()
+        setup.select_tunnel_executable(self.root,str(replacement),replacement_checksum)
+        after=read_settings(self.root)
+        self.assertEqual(after,{**before,'tunnel_client_path':str(replacement),
+                                'tunnel_client_sha256':replacement_checksum})
+        self.assertEqual((self.root/'local/tunnel/icloud-for-agents.yaml').read_bytes(),profile)
+        self.assertEqual((self.root/'local/settings.json').stat().st_mode&0o777,0o600)
+
+    def test_tunnel_selection_does_not_trust_changed_binary_or_overwrite_settings(self):
+        setup.configure(self.root,'synthetic@example.com','tunnel_synthetic')
+        binary=self.root/'client';binary.write_bytes(b'changed');binary.chmod(0o700)
+        settings=self.root/'local/settings.json';before=settings.read_bytes()
+        for checksum in ('0'*64,'bad',None):
+            with self.subTest(checksum=checksum),self.assertRaises(ValueError):
+                setup.select_tunnel_executable(self.root,str(binary),checksum)
+            self.assertEqual(settings.read_bytes(),before)
 
     def test_dav_and_write_flags_are_explicit(self):
         setup.configure(self.root, 'synthetic@example.com', write_enabled=True, dav_reads=True)

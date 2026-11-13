@@ -3,7 +3,6 @@
 import argparse
 import base64
 import fcntl
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -13,6 +12,7 @@ import uuid
 
 from .local_config import read_settings
 from .tunnel_runtime import RuntimeSetupError, keychain_runtime_key
+from .secure_executable import executable_digest, stage_executable
 
 KEYCHAIN_SERVICE = "icloud-for-agents-cloudflare-tunnel"
 
@@ -34,13 +34,7 @@ def _binary(path, expected):
     if not binary.is_absolute() or binary.is_symlink():
         raise RuntimeSetupError("Use the exact reviewed Cloudflare executable, not a symlink")
     try:
-        fd = os.open(binary, os.O_RDONLY | os.O_NOFOLLOW)
-        with os.fdopen(fd, "rb") as stream:
-            info = os.fstat(stream.fileno())
-            if (not stat.S_ISREG(info.st_mode) or info.st_uid not in {0, os.getuid()}
-                    or stat.S_IMODE(info.st_mode) & 0o022 or not info.st_mode & 0o111):
-                raise ValueError()
-            checksum = hashlib.file_digest(stream, "sha256").hexdigest()
+        checksum = executable_digest(binary)
         if checksum != expected:
             raise ValueError()
     except (OSError, ValueError):
@@ -128,16 +122,19 @@ def start(root, binary, tunnel_id, expected_sha256, *, key_loader=keychain_runti
     plan = preflight(root, binary, tunnel_id, expected_sha256)
     lock = _lock(plan["root"], plan["tunnel_id"])
     try:
+        try:
+            staged = stage_executable(plan["binary"], plan["expected_sha256"])
+        except (OSError, ValueError):
+            raise RuntimeSetupError("The reviewed Cloudflare executable could not be staged privately; no key was requested") from None
         secret = key_loader(service=KEYCHAIN_SERVICE, account=plan["tunnel_id"])
         _validate_token(secret, plan["tunnel_id"])
-        _binary(plan["binary"], plan["expected_sha256"])
         env = {k: os.environ[k] for k in ("HOME", "TMPDIR", "LANG") if k in os.environ}
         env.update(PATH="/usr/bin:/bin:/usr/sbin:/sbin", TUNNEL_TOKEN=secret)
         # cloudflared receives the credential only in its process environment.
         # Third-party stdout/stderr are discarded by the fixed launcher.
         # Override cloudflared's default config discovery so another tunnel's
         # settings cannot silently alter this reviewed connection.
-        exec_runner(str(plan["binary"]), [str(plan["binary"]), "tunnel", "--config", os.devnull,
+        exec_runner(str(staged), [str(staged), "tunnel", "--config", os.devnull,
                                           "--no-autoupdate", "run"], env)
     finally:
         os.close(lock)

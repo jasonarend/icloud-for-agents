@@ -15,7 +15,7 @@ def read_settings(root):
         raise ValueError("Settings must be a private owned regular file")
     data = json.loads(path.read_text())
     required = {"account", "apple_keychain_service", "access_mode", "dav_reads"}
-    optional = {"folder_overrides", "cleanup_grant_id", "approval_policy", "tunnel_id", "runtime_keychain_service", "services", "policy_management_enabled", "runtime_directory", "tunnel_client_path", "native_services"}
+    optional = {"folder_overrides", "cleanup_grant_id", "approval_policy", "tunnel_id", "runtime_keychain_service", "services", "policy_management_enabled", "runtime_directory", "tunnel_client_path", "tunnel_client_sha256", "native_services"}
     if not isinstance(data, dict) or not required <= set(data) or set(data) - required - optional:
         raise ValueError("Unexpected settings fields")
     tunnel_fields = {"tunnel_id", "runtime_keychain_service"} & set(data)
@@ -48,6 +48,9 @@ def read_settings(root):
     if binary is not None and (not isinstance(binary, str) or not Path(binary).is_absolute()
                                or any(ord(c) < 32 or ord(c) == 127 for c in binary)):
         raise ValueError("Tunnel client must be an explicit absolute executable path")
+    checksum = data.get("tunnel_client_sha256")
+    if checksum is not None and (not isinstance(checksum, str) or re.fullmatch(r"[0-9a-f]{64}", checksum) is None):
+        raise ValueError("Tunnel client checksum must be the reviewed lowercase SHA-256")
     from .services import configured
     configured(data)
     from .native_read import validate_config

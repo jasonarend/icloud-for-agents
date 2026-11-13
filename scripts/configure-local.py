@@ -4,8 +4,48 @@ import json
 import os
 from pathlib import Path
 import shlex
+import tempfile
 import yaml
 from icloud_for_agents.local_config import read_settings
+from icloud_for_agents.secure_executable import executable_digest
+
+
+def selected_executable(path, checksum):
+    if path is None and checksum is None:
+        return {}
+    import re
+    if (not isinstance(checksum, str) or re.fullmatch(r"[0-9a-f]{64}", checksum) is None
+            or path is None or executable_digest(path) != checksum):
+        raise ValueError("Supply the exact executable path and its separately reviewed SHA-256")
+    return {"tunnel_client_path": str(Path(path)), "tunnel_client_sha256": checksum}
+
+
+def select_tunnel_executable(root, path, checksum):
+    """Save a publisher-verified selection after the owner's setup review."""
+    root = Path(root).resolve()
+    data = read_settings(root)
+    if not data.get("tunnel_id"):
+        raise ValueError("Configure the optional OpenAI tunnel before selecting its executable")
+    selection = selected_executable(path, checksum)
+    if not selection:
+        raise ValueError("Select the exact reviewed executable and SHA-256")
+    data.update(selection)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=root / "local",
+                                         prefix=".tunnel-selection-", delete=False) as stream:
+            temporary = Path(stream.name)
+            os.fchmod(stream.fileno(), 0o600)
+            json.dump(data, stream, indent=2)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, root / "local/settings.json")
+        temporary = None
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+    return stdio_configuration(root)
 
 
 def stdio_configuration(root):
@@ -16,7 +56,8 @@ def stdio_configuration(root):
             "args": [str(root / "scripts/run-stdio.py")]}
 
 
-def configure(root, account, tunnel_id=None, write_enabled=False, dav_reads=False, services=None):
+def configure(root, account, tunnel_id=None, write_enabled=False, dav_reads=False, services=None,
+              *, tunnel_client_path=None, tunnel_client_sha256=None):
     root = Path(root).resolve()
     local = root / "local"
     settings = local / "settings.json"
@@ -26,6 +67,10 @@ def configure(root, account, tunnel_id=None, write_enabled=False, dav_reads=Fals
     local.mkdir(parents=True, exist_ok=True, mode=0o700)
     data = {"account": account, "apple_keychain_service": "icloud-for-agents",
             "access_mode": "write-enabled" if write_enabled else "read-only", "dav_reads": dav_reads}
+    selection = selected_executable(tunnel_client_path, tunnel_client_sha256)
+    if selection and tunnel_id is None:
+        raise ValueError("A tunnel executable selection requires the optional OpenAI tunnel")
+    data.update(selection)
     if services is not None:
         data["services"] = services
     if tunnel_id is not None:
@@ -57,14 +102,23 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--account", help="Exact nonsecret iCloud login; required for new setup")
     parser.add_argument("--tunnel-id", help="Optional existing owner-controlled OpenAI tunnel")
+    parser.add_argument("--tunnel-client-path", help="Exact publisher-verified executable path")
+    parser.add_argument("--tunnel-client-sha256", help="Separately reviewed lowercase SHA-256 of that executable")
+    parser.add_argument("--set-tunnel-executable", action="store_true", help="Save a reviewed executable selection in an existing optional tunnel configuration")
     parser.add_argument("--enable-writes", action="store_true", help="Only after explicit owner approval of ongoing writes")
     parser.add_argument("--enable-dav-reads", action="store_true", help="Only after owner approves calendar/contact reads")
     parser.add_argument("--services", help="Comma-separated mail,calendar,contacts,notes,reminders; use none to disable all")
     parser.add_argument("--show-stdio-config", action="store_true", help="Show generic command/args for existing validated settings")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
-    if args.show_stdio_config:
-        if args.account or args.tunnel_id or args.enable_writes or args.enable_dav_reads or args.services is not None:
+    if args.set_tunnel_executable:
+        if (args.show_stdio_config or args.account or args.tunnel_id or args.enable_writes
+                or args.enable_dav_reads or args.services is not None):
+            parser.error("Updating the selected tunnel executable preserves other settings")
+        config = select_tunnel_executable(root, args.tunnel_client_path, args.tunnel_client_sha256)
+    elif args.show_stdio_config:
+        if (args.account or args.tunnel_id or args.enable_writes or args.enable_dav_reads
+                or args.services is not None or args.tunnel_client_path or args.tunnel_client_sha256):
             parser.error("Showing existing configuration does not modify settings")
         config = stdio_configuration(root)
     else:
@@ -78,5 +132,6 @@ if __name__ == "__main__":
             if len(set(names)) != len(names) or set(names) - {"mail", "calendar", "contacts", "notes", "reminders"}:
                 parser.error("Unknown or duplicate service selection")
             selection = {name: name in names for name in ("mail", "calendar", "contacts", "notes", "reminders")}
-        config = configure(root, args.account, args.tunnel_id, args.enable_writes, args.enable_dav_reads, selection)
+        config = configure(root, args.account, args.tunnel_id, args.enable_writes, args.enable_dav_reads, selection,
+                           tunnel_client_path=args.tunnel_client_path, tunnel_client_sha256=args.tunnel_client_sha256)
     print(json.dumps({"stdio": config, "note": "Use your client's supported registration format; no credential is included."}, indent=2))

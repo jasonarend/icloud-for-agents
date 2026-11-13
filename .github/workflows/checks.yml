@@ -46,6 +46,7 @@ jobs:
           .venv/bin/python tests/http_service_process_smoke.py
           .venv/bin/python tests/http_service_launchd_smoke.py
           .venv/bin/python tests/cloudflare_tunnel_process_smoke.py
+          .venv/bin/python tests/tunnel_child_environment_smoke.py
           .venv/bin/python tests/native_http_keychain_smoke.py
           .venv/bin/python tests/operation_lock_process_smoke.py
           .venv/bin/python tests/mail_operation_process_smoke.py

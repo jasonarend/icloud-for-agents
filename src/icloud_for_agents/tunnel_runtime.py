@@ -4,11 +4,13 @@ import fcntl
 import os
 from pathlib import Path
 import stat
+import re
 import shlex
 import subprocess
 
 import yaml
 from .local_config import read_settings
+from .secure_executable import ExecutableSafetyError, executable_digest, stage_executable, stage_profile, trusted_path
 
 KEYCHAIN_SERVICE = "icloud-for-agents-tunnel-runtime"
 
@@ -22,7 +24,11 @@ def project_root():
 
 
 def launch_plan(root):
-    root = Path(root).resolve()
+    try:
+        root = trusted_path(Path(root), directory=True)
+    except (OSError, ValueError) as exc:
+        raise RuntimeSetupError("OpenAI tunnel installation is not protected from other users. "
+                                + str(exc) + "; ask your setup assistant to migrate to a private installation; no key was requested") from None
     profile = root / "local/tunnel/icloud-for-agents.yaml"
     settings = read_settings(root)
     # Owner-selected executable, never an inherited PATH/environment override.
@@ -30,8 +36,15 @@ def launch_plan(root):
     binary = Path(settings.get("tunnel_client_path", root / "tools/tunnel-client-v0.0.16/tunnel-client"))
     if not settings.get("tunnel_id") or not settings.get("runtime_keychain_service"):
         raise RuntimeSetupError("This is a direct stdio configuration; an OpenAI tunnel is optional and is not configured")
+    expected = settings.get("tunnel_client_sha256")
+    if not isinstance(expected, str) or re.fullmatch(r"[0-9a-f]{64}", expected) is None:
+        raise RuntimeSetupError("Have your setup assistant verify the installed tunnel client and save its reviewed tunnel_client_sha256; no key was requested")
     command = shlex.join([str(root / ".venv/bin/python"), str(root / "scripts/run-stdio.py")])
     try:
+        trusted_path(root / "local/settings.json")
+        trusted_path(profile)
+        trusted_path(root / ".venv/bin/python", executable=True)
+        trusted_path(root / "scripts/run-stdio.py")
         if profile.is_symlink() or not profile.is_file():
             raise ValueError()
         info = profile.stat()
@@ -51,16 +64,17 @@ def launch_plan(root):
             raise ValueError()
         if set(data) != {"config_version", "control_plane", "health", "admin_ui", "log", "mcp"}:
             raise ValueError()
-        if not binary.is_file() or binary.is_symlink() or not os.access(binary, os.X_OK):
-            raise ValueError()
-        info = binary.stat()
-        if info.st_uid not in {0, os.getuid()} or stat.S_IMODE(info.st_mode) & 0o022:
+        checksum = executable_digest(binary)
+        if checksum != expected:
             raise ValueError()
         if not (root / ".venv/bin/python").exists() or not (root / "scripts/run-stdio.py").is_file():
             raise ValueError()
+    except ExecutableSafetyError as exc:
+        raise RuntimeSetupError("OpenAI tunnel paths need a protected installation. " + str(exc)
+                                + "; ask your setup assistant to migrate the installation or Python runtime; no key was requested") from None
     except Exception:
         raise RuntimeSetupError("Nonsecret preflight failed: verify the exact private tunnel profile and installed paths; no key was requested.") from None
-    return {"root": root, "binary": binary, "profile": profile, "settings": settings,
+    return {"root": root, "binary": binary, "sha256": checksum, "profile": profile, "profile_data": data, "settings": settings,
             "argv": [str(binary), "run", "--config", str(profile)]}
 
 
@@ -115,16 +129,32 @@ def runtime_environment(key, source=None):
     return environment
 
 
+def mcp_child_command(root):
+    """Remove the tunnel credential before Python startup or package imports."""
+    return shlex.join(["/usr/bin/env", "-u", "CONTROL_PLANE_API_KEY",
+                       str(root / ".venv/bin/python"), str(root / "scripts/run-stdio.py")])
+
+
 def start(root=None, key_loader=keychain_runtime_key, exec_runner=os.execve):
     os.umask(0o077)
     plan = launch_plan(project_root() if root is None else root)
     fd = runtime_lock(plan["root"])
     try:
+        try:
+            trusted_path(Path("/usr/bin/env"), executable=True)
+            binary = stage_executable(plan["binary"], plan["sha256"])
+            # Keep existing owner profiles compatible, but give the tunnel's
+            # MCP subprocess a system-owned credential-stripping launcher.
+            profile_data = dict(plan["profile_data"], mcp={"commands": [
+                {"channel": "main", "command": mcp_child_command(plan["root"])}]})
+            profile = stage_profile(yaml.safe_dump(profile_data))
+        except (OSError, ValueError):
+            raise RuntimeSetupError("The reviewed tunnel launch files could not be staged privately; no key was requested") from None
         key = (key_loader(service=plan["settings"]["runtime_keychain_service"], account=plan["settings"]["tunnel_id"])
                if key_loader is keychain_runtime_key else key_loader())
         environment = runtime_environment(key)
         print("Starting the exact private tunnel from user-managed Keychain; key is not printed or saved. Runtime lifetime is controlled by the foreground owner or login service.")
-        exec_runner(str(plan["binary"]), plan["argv"], environment)
+        exec_runner(str(binary), [str(binary), "run", "--config", str(profile)], environment)
     finally:
         # Successful exec never returns; failure releases the lock and drops this
         # process's in-memory key. No key persistence or keychain writes occur.

@@ -9,6 +9,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from icloud_for_agents import cloudflare_tunnel as tunnel
+from icloud_for_agents import secure_executable
 from icloud_for_agents.tunnel_runtime import RuntimeSetupError
 
 ID = "12345678-1234-4234-8234-123456789abc"
@@ -30,6 +31,9 @@ class CloudflareTunnelTests(unittest.TestCase):
         self.binary.write_bytes(b"synthetic executable")
         self.binary.chmod(0o700)
         self.checksum = hashlib.sha256(self.binary.read_bytes()).hexdigest()
+        self.cache=self.root/'private-cache';self.cache.mkdir(mode=0o700)
+        self.cache_patch=patch.object(secure_executable,'_cache_directory',return_value=self.cache)
+        self.cache_patch.start();self.addCleanup(self.cache_patch.stop)
 
     def test_preflight_never_reads_a_secret_or_starts_a_process(self):
         with patch.object(tunnel, "keychain_runtime_key") as loader, patch.object(tunnel.os, "execve") as launch:
@@ -44,8 +48,8 @@ class CloudflareTunnelTests(unittest.TestCase):
         tunnel.start(self.root, self.binary, ID, self.checksum, key_loader=loader, exec_runner=launch)
         loader.assert_called_once_with(service=tunnel.KEYCHAIN_SERVICE, account=ID)
         binary, args, env = launch.call_args.args
-        self.assertEqual(binary, str(self.binary))
-        self.assertEqual(args, [str(self.binary), "tunnel", "--config", os.devnull, "--no-autoupdate", "run"])
+        self.assertEqual(binary, str(self.cache/self.checksum))
+        self.assertEqual(args, [binary, "tunnel", "--config", os.devnull, "--no-autoupdate", "run"])
         self.assertNotIn(TOKEN, args)
         self.assertEqual(env["TUNNEL_TOKEN"], TOKEN)
         self.assertNotIn("CONTROL_PLANE_API_KEY", env)
@@ -59,14 +63,14 @@ class CloudflareTunnelTests(unittest.TestCase):
                 tunnel.start(self.root, binary, identity, checksum, key_loader=loader, exec_runner=Mock())
         loader.assert_not_called()
 
-    def test_rechecks_binary_after_owner_keychain_prompt(self):
+    def test_executes_reviewed_snapshot_after_original_changes_during_keychain(self):
         def changed(**kwargs):
             self.binary.write_bytes(b"changed after review")
             return TOKEN
-        launch = Mock()
-        with self.assertRaises(RuntimeSetupError):
-            tunnel.start(self.root, self.binary, ID, self.checksum, key_loader=changed, exec_runner=launch)
-        launch.assert_not_called()
+        def launch(binary,argv,environment):
+            self.assertNotEqual(Path(binary),self.binary)
+            self.assertEqual(Path(binary).read_bytes(),b'synthetic executable')
+        tunnel.start(self.root, self.binary, ID, self.checksum, key_loader=changed, exec_runner=launch)
 
     def test_refuses_symlink_and_unprivate_runtime(self):
         alias = self.root / "alias"
