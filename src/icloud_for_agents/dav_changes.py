@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .version import __version__
 from .core import SafetyError
-from .dav import DAVReader, apple_url
+from .dav import DAVReader, apple_url, collection_resource_url
 
 
 class DAVWriteRefused(SafetyError):
@@ -295,9 +295,7 @@ class DAVChanges:
             if operation == "create" and change.get("url") is not None:
                 raise SafetyError("Create resource identity is assigned by the reviewed proposal")
             url = (collection.rstrip('/')+'/'+uuid.uuid4().hex+('.ics' if kind=='cal' else '.vcf')) if operation=='create' else change.get("url", "")
-            apple_url(url, kind)
-            if not url.startswith(collection.rstrip('/') + '/') or any(segment in {'.','..'} for segment in urlsplit(url).path.split('/')) or re.search(r'%2e|%2f|%5c', urlsplit(url).path, re.I):
-                raise SafetyError("Resource must remain inside the exact discovered collection")
+            url = collection_resource_url(collection, url, kind)
             if url in identities:
                 raise SafetyError("Duplicate resource in one batch")
             identities.add(url)
@@ -439,10 +437,8 @@ class DAVChanges:
         if (not isinstance(created, dict) or set(created) != {'operation', 'url', 'before', 'content'}
                 or created['operation'] != 'create' or created['before'] is not None):
             raise SafetyError('Invalid future-series creation request')
-        url = apple_url(created['url'], 'cal')
-        if (url == item['url'] or not url.startswith(collection.rstrip('/') + '/')
-                or any(part in {'.', '..'} for part in urlsplit(url).path.split('/'))
-                or re.search(r'%2e|%2f|%5c', urlsplit(url).path, re.I)):
+        url = collection_resource_url(collection, created['url'], 'cal')
+        if url == item['url']:
             raise SafetyError('Future series must use a new resource in the reviewed calendar')
         expected = split_future(item['before']['content'], item['occurrence_start'], item['fields'], split['future_uid'])
         verify_created(expected.pop('original_content'), item['content'])

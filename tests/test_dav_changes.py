@@ -85,7 +85,7 @@ class DAVChangeTests(unittest.TestCase):
         with self.assertRaises(SafetyError):self.editor.prepare('card',self.collection,[{'operation':'create','fields':{'full_name':'A'}}]*21)
         change={'operation':'update','url':self.resource,'fields':{'full_name':'A'}}
         with self.assertRaises(SafetyError):self.editor.prepare('card',self.collection,[change,change])
-        for suffix in ('../x.vcf','%2e%2e/x.vcf'):
+        for suffix in ('./x.vcf','../x.vcf','%2e%2e/x.vcf','folder%2fx.vcf','folder%5cx.vcf','folder\\x.vcf'):
             with self.assertRaises(SafetyError):self.editor.prepare('card',self.collection,[{'operation':'update','url':self.collection+suffix,'fields':{'full_name':'A'}}])
 
     def test_partial_failure_blocks_replay_and_records_completed_only(self):
@@ -94,6 +94,16 @@ class DAVChangeTests(unittest.TestCase):
         result=self.editor.execute(p['plan_id'])
         self.assertEqual(result['status'],'failed_or_uncertain');self.assertEqual(len(result['completed']),1)
         with self.assertRaises(SafetyError):self.editor.execute(p['plan_id'])
+
+    def test_nested_encoded_write_targets_refused_before_read_or_proposal(self):
+        for suffix in ('%252e%252e%252fx.vcf', '%25252e%25252e/x.vcf',
+                       'folder%255cx.vcf', '%25%32%65%25%32%65%25%32%66x.vcf'):
+            with self.subTest(suffix=suffix), self.assertRaises(SafetyError):
+                self.editor.prepare('card',self.collection,[{'operation':'update',
+                    'url':self.collection+suffix,'fields':{'full_name':'After'}}])
+        self.transport.assert_not_called()
+        self.writer.assert_not_called()
+        self.assertEqual(list(self.store.root.glob('*.json')),[])
 
     def test_weak_etag_is_refused_and_long_utf8_lines_are_folded(self):
         self.etag='W/"weak"'
