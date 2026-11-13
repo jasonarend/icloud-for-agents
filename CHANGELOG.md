@@ -2,6 +2,20 @@
 
 Releases are listed newest first. Dates are the local dates on which the GitHub releases were published.
 
+## 2.2.2 — 2026-11-13
+
+### Security
+
+- Keep Contacts reads and redirects within the selected address book, including when paths contain nested encodings.
+- Bound HTTP authentication work and concurrent connections so malformed or excessive requests cannot create an unbounded backlog of Keychain lookups.
+- Limit unattended requests to change an HTTP client's own permissions while preserving reviewed and started records.
+- Verify and protect tunnel executables before accessing their credentials, protect OpenAI tunnel startup paths from replacement by other Mac users, and keep the tunnel key out of the MCP process.
+- Generate opaque Message-IDs without exposing the local hostname or internal approval identifier. New identifiers are included in the reviewed send proposal.
+
+### Setup
+
+- Guide existing OpenAI tunnel users through verifying the tunnel client and, if necessary, moving to a protected installation and Python runtime. Local stdio and Cloudflare connections remain available separately.
+
 ## 2.2.1 — 2026-11-12
 
 ### Added
