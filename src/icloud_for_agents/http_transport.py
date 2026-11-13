@@ -6,13 +6,19 @@ nor client requests belong in application logs.
 
 import argparse
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import os
 from pathlib import Path
 import re
+import threading
 from .http_authorization import PRINCIPAL, ClientPermissions
+from .http_keys import BEARER
 
 
 PROXY_HOST_PATTERN = re.compile(r"(?=.{1,253}\Z)(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,63}\Z")
+AUTHENTICATION_CONCURRENCY = 4
+AUTHENTICATION_TIMEOUT = 5.0
+HTTP_CONCURRENCY = 64
 
 
 def validated_environment(source):
@@ -33,10 +39,33 @@ class BearerGate:
     def __init__(self, app, keys):
         self.app = app
         self._keys = keys
+        self._auth_slots = threading.BoundedSemaphore(AUTHENTICATION_CONCURRENCY)
+        # Keychain can serialize or stall. Keep its bounded work off the shared
+        # executor, which other application operations may also need.
+        self._auth_executor = ThreadPoolExecutor(max_workers=AUTHENTICATION_CONCURRENCY,
+                                                 thread_name_prefix="icloud-http-auth")
+
+    async def _refuse(self, send, status):
+        headers = [(b"cache-control", b"no-store")]
+        headers.append((b"www-authenticate", b"Bearer") if status == 401 else (b"retry-after", b"1"))
+        await send({"type": "http.response.start", "status": status, "headers": headers})
+        await send({"type": "http.response.body", "body": b"Unauthorized" if status == 401
+                    else b"Authentication temporarily unavailable"})
+
+    def _authenticate(self, candidate):
+        try:
+            return self._keys.authenticate(candidate)
+        except Exception:
+            # Handle native failures in the worker: a late exception must not
+            # be logged by an abandoned or shielded asyncio future.
+            return None
 
     async def __call__(self, scope, receive, send):
         if scope["type"] == "lifespan":
-            await self.app(scope, receive, send)
+            try:
+                await self.app(scope, receive, send)
+            finally:
+                self._auth_executor.shutdown(wait=False, cancel_futures=True)
             return
         if scope["type"] != "http":
             if scope["type"] == "websocket":
@@ -46,16 +75,31 @@ class BearerGate:
         identity = None
         if len(values) == 1:
             scheme, separator, candidate = values[0].partition(b" ")
-            if separator == b" " and scheme.lower() == b"bearer":
+            if separator == b" " and scheme.lower() == b"bearer" and BEARER.fullmatch(candidate):
+                if not self._auth_slots.acquire(blocking=False):
+                    await self._refuse(send, 503)
+                    return
                 try:
-                    identity = await asyncio.to_thread(self._keys.authenticate, candidate)
+                    worker = self._auth_executor.submit(self._authenticate, candidate)
+                except Exception:
+                    self._auth_slots.release()
+                    await self._refuse(send, 503)
+                    return
+                # A canceled or timed-out HTTP request cannot stop a native
+                # Keychain call. Release its slot only when that work finishes.
+                worker.add_done_callback(lambda completed: self._auth_slots.release())
+                authentication = asyncio.wrap_future(worker)
+                try:
+                    identity = await asyncio.wait_for(asyncio.shield(authentication),
+                                                      timeout=AUTHENTICATION_TIMEOUT)
+                except TimeoutError:
+                    await self._refuse(send, 503)
+                    return
                 except Exception:
                     # Never expose Keychain or credential-bearing errors to clients or logs.
                     identity = None
         if identity is None:
-            await send({"type": "http.response.start", "status": 401,
-                        "headers": [(b"www-authenticate", b"Bearer"), (b"cache-control", b"no-store")]})
-            await send({"type": "http.response.body", "body": b"Unauthorized"})
+            await self._refuse(send, 401)
             return
         token = PRINCIPAL.set(identity)
         try:
@@ -115,7 +159,8 @@ def main():
     from .server import mcp
     import uvicorn
     uvicorn.run(create_app(mcp, keys, args.proxy_host), host="127.0.0.1", port=args.port,
-                access_log=False, proxy_headers=False, server_header=False, log_level="warning")
+                access_log=False, proxy_headers=False, server_header=False, log_level="warning",
+                limit_concurrency=HTTP_CONCURRENCY)
 
 
 if __name__ == "__main__":

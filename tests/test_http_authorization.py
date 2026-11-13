@@ -19,6 +19,8 @@ from icloud_for_agents.http_transport import create_app
 
 
 NONE = {name: "none" for name in ("mail", "calendar", "contacts", "notes", "reminders")}
+TOKENS = {name: "ika_" + char * 32 + "." + char * 43
+          for name, char in zip(("reader", "full", "admin", "notes-reader", "mixed"), "abcde")}
 
 
 class PermissionsTests(unittest.TestCase):
@@ -91,12 +93,13 @@ class PermissionsTests(unittest.TestCase):
                             b"mixed": {"client_id": "mixed", "permissions": dict(NONE, calendar="read", contacts="full"), "manage_clients": False},
                         }
                     def authenticate(self, token):
-                        return self.values.get(token)
+                        label = next((name for name, bearer in TOKENS.items() if bearer.encode() == token), "")
+                        return self.values.get(label.encode())
 
                 keys = Keys()
                 with TestClient(create_app(server, keys), base_url="http://127.0.0.1") as client:
                     def call(token, name, args=None):
-                        response = client.post("/mcp", headers={"Authorization": "Bearer " + token,
+                        response = client.post("/mcp", headers={"Authorization": "Bearer " + TOKENS[token],
                             "Accept": "application/json, text/event-stream", "Mcp-Protocol-Version": "2025-11-25"},
                             json={"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": args or {}}})
                         self.assertEqual(response.headers.get("cache-control"), "no-store")
@@ -141,7 +144,7 @@ class PermissionsTests(unittest.TestCase):
                             self.assertEqual(allowed, token == "full")
                     keys.values.pop(b"full")
                     self.assertEqual(call("full", "email_archive")[0], 401)
-                    listing = client.post("/mcp", headers={"Authorization": "Bearer reader", "Accept": "application/json, text/event-stream",
+                    listing = client.post("/mcp", headers={"Authorization": "Bearer " + TOKENS["reader"], "Accept": "application/json, text/event-stream",
                         "Mcp-Protocol-Version": "2025-11-25"}, json={"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}).json()
                     names = {tool["name"] for tool in listing["result"]["tools"]}
                     self.assertIn("email_list_folders", names)
