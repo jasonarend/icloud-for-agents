@@ -76,6 +76,24 @@ def apple_url(url, kind):
     return url
 
 
+def collection_resource_url(collection_url, resource_url, kind):
+    """Require one DAV resource to remain inside its exact collection."""
+    collection = urlsplit(apple_url(collection_url, kind))
+    resource = urlsplit(apple_url(resource_url, kind))
+    for path in (collection.path, resource.path):
+        if ("\\" in path or any(segment in {".", ".."} for segment in path.split("/"))
+                or re.search(r"%2e|%2f|%5c", path, re.I)):
+            raise SafetyError("Resource must remain inside the exact discovered collection")
+    collection_origin = (collection.scheme, collection.hostname, collection.port or 443)
+    resource_origin = (resource.scheme, resource.hostname, resource.port or 443)
+    collection_path = tuple(collection.path.rstrip("/").split("/"))
+    resource_path = tuple(resource.path.rstrip("/").split("/"))
+    if (resource_origin != collection_origin or len(resource_path) <= len(collection_path)
+            or resource_path[:len(collection_path)] != collection_path):
+        raise SafetyError("Resource must remain inside the exact discovered collection")
+    return resource_url
+
+
 def xml_document(raw):
     if b"\x00" in raw or len(raw) > LIMIT or b"<!doctype" in raw.lower() or b"<!entity" in raw.lower():
         raise SafetyError("Oversized or entity-bearing DAV XML refused")
@@ -104,11 +122,15 @@ class DAVReader:
         finally:
             connection.close()
 
-    def request(self, kind, method, url, body="", depth=0):
+    def request(self, kind, method, url, body="", depth=0, collection_url=None):
         if method not in {"PROPFIND", "REPORT", "GET"}:
             raise SafetyError("Calendar/contact write and invitation operations are disabled")
         for _ in range(4):
-            apple_url(url, kind)  # Validate BEFORE attaching credentials on every redirect.
+            if collection_url is None:
+                apple_url(url, kind)
+            else:
+                collection_resource_url(collection_url, url, kind)
+            # Validate BEFORE attaching credentials on every redirect.
             status, headers, data = self.transport(method, url, body, depth)
             if status in {301, 302, 307, 308}:
                 if "location" not in headers:
@@ -231,8 +253,7 @@ class DAVReader:
             if row.find('.//d:resourcetype/d:collection', NS) is not None:
                 continue
             resource = self.href(row, 'd:href', final, "card")
-            if not resource.startswith(addressbook_url.rstrip('/') + '/'):
-                raise SafetyError("Contact reference escapes its discovered addressbook")
+            collection_resource_url(addressbook_url, resource, "card")
             tag = row.find('.//d:getetag', NS)
             refs.append({"url": resource, "etag": tag.text if tag is not None else None})
         if len(refs) > 5000:
@@ -246,10 +267,7 @@ class DAVReader:
 
     def contact(self, addressbook_url, contact_url):
         addressbook_url = self.known_collection("card", addressbook_url)
-        apple_url(contact_url, "card")
-        if not contact_url.startswith(addressbook_url.rstrip('/') + '/'):
-            raise SafetyError("Contact URL must be inside the discovered addressbook")
-        final, raw = self.request("card", "GET", contact_url)
+        final, raw = self.request("card", "GET", contact_url, collection_url=addressbook_url)
         if len(raw) > 262144:
             raise SafetyError("Contact exceeds 256 KiB inspection limit")
         return {"url": final, "vcard": raw.decode("utf-8", "replace"), "untrusted_content": True}

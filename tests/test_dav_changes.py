@@ -85,7 +85,7 @@ class DAVChangeTests(unittest.TestCase):
         with self.assertRaises(SafetyError):self.editor.prepare('card',self.collection,[{'operation':'create','fields':{'full_name':'A'}}]*21)
         change={'operation':'update','url':self.resource,'fields':{'full_name':'A'}}
         with self.assertRaises(SafetyError):self.editor.prepare('card',self.collection,[change,change])
-        for suffix in ('../x.vcf','%2e%2e/x.vcf'):
+        for suffix in ('./x.vcf','../x.vcf','%2e%2e/x.vcf','folder%2fx.vcf','folder%5cx.vcf','folder\\x.vcf'):
             with self.assertRaises(SafetyError):self.editor.prepare('card',self.collection,[{'operation':'update','url':self.collection+suffix,'fields':{'full_name':'A'}}])
 
     def test_partial_failure_blocks_replay_and_records_completed_only(self):

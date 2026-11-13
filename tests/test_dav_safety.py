@@ -46,8 +46,32 @@ class DAVSafetyTests(unittest.TestCase):
     def test_contact_cannot_escape_addressbook(self):
         reader=DAVReader('a','fake',Mock())
         reader.known_collection=lambda kind,url:url
-        with self.assertRaises(SafetyError):reader.contact('https://contacts.icloud.com/a/','https://contacts.icloud.com/b/x.vcf')
+        collection='https://contacts.icloud.com/a/'
+        for target in ('https://contacts.icloud.com/b/x.vcf', collection+'./x.vcf', collection+'../x.vcf',
+                       collection+'%2e%2e/x.vcf', collection+'folder%2fx.vcf',
+                       collection+'folder%5cx.vcf', collection+'folder\\x.vcf'):
+            with self.subTest(target=target), self.assertRaises(SafetyError):
+                reader.contact(collection,target)
         reader.transport.assert_not_called()
+
+    def test_contact_redirect_cannot_escape_addressbook(self):
+        collection='https://contacts.icloud.com/a/'
+        transport=Mock(return_value=(302,{'location':'https://contacts.icloud.com/b/x.vcf'},b''))
+        reader=DAVReader('a','fake',transport)
+        reader.known_collection=lambda kind,url:url
+        with self.assertRaises(SafetyError):reader.contact(collection,collection+'x.vcf')
+        self.assertEqual(transport.call_count,1)
+
+    def test_contact_child_and_inside_redirect_remain_readable(self):
+        collection='https://contacts.icloud.com/a/'
+        redirected=collection+'renamed.vcf'
+        transport=Mock(side_effect=[(302,{'location':redirected},b''),(200,{},b'BEGIN:VCARD\r\nEND:VCARD\r\n')])
+        reader=DAVReader('a','fake',transport)
+        reader.known_collection=lambda kind,url:url
+        result=reader.contact(collection,collection+'x.vcf')
+        self.assertEqual(result['url'],redirected)
+        self.assertEqual(result['vcard'],'BEGIN:VCARD\r\nEND:VCARD\r\n')
+        self.assertEqual(transport.call_count,2)
 
     def test_only_five_read_tools_registered_without_credentials(self):
         registered=[]
