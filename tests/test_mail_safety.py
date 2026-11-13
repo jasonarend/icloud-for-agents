@@ -328,6 +328,45 @@ class ApprovalTests(unittest.TestCase):
                 service.execute(proposal["plan_id"])
             smtp.assert_not_called()
 
+    def test_sent_message_id_is_reviewed_opaque_and_does_not_reveal_host_or_plan(self):
+        c = FakeIMAP()
+        service = MailService("me@example.com", "synthetic-only", store=self.store, connector=lambda: c)
+        with patch("socket.getfqdn", return_value="private-host.example.invalid"):
+            proposal = service.prepare_send(["you@example.com"], "review", "exact body")
+            message_id = proposal["review"]["payload"]["message_id"]
+            self.assertRegex(message_id, r"^<[0-9a-f]{32}@icloud\.com>$")
+            self.assertNotIn(proposal["plan_id"], message_id)
+            self.assertNotIn("private-host", message_id)
+            self.approve_fixture(proposal)
+            with patch("icloud_for_agents.service.smtplib.SMTP") as smtp:
+                smtp.return_value.__enter__.return_value.send_message.return_value = {}
+                result = service.execute(proposal["plan_id"])
+                sent = smtp.return_value.__enter__.return_value.send_message.call_args.args[0]
+                self.assertEqual(result["message_id"], message_id)
+                self.assertEqual(str(sent["Message-ID"]), message_id)
+
+    def test_legacy_message_id_is_opaque_and_invalid_reviewed_id_is_refused(self):
+        payload = core.compose("me@example.com", ["you@example.com"], "review", "body")
+        with patch("socket.getfqdn", return_value="private-host.example.invalid"):
+            self.assertRegex(str(core.mime_message(payload)["Message-ID"]), r"^<[0-9a-f]{32}@icloud\.com>$")
+        payload["message_id"] = "<private-plan@private-host.example.invalid>"
+        with self.assertRaises(core.SafetyError):
+            core.mime_message(payload)
+
+    def test_message_id_change_invalidates_approval(self):
+        c = FakeIMAP()
+        service = MailService("me@example.com", "synthetic-only", store=self.store, connector=lambda: c)
+        proposal = service.prepare_send(["you@example.com"], "review", "body")
+        self.approve_fixture(proposal)
+        path = self.store.path(proposal["plan_id"], ".json")
+        plan = json.loads(path.read_text())
+        plan["payload"]["message_id"] = core.new_message_id()
+        path.write_text(core.canonical(plan))
+        with patch("icloud_for_agents.service.smtplib.SMTP") as smtp:
+            with self.assertRaises(core.SafetyError):
+                service.execute(proposal["plan_id"])
+            smtp.assert_not_called()
+
     def test_partial_smtp_acceptance_and_sent_append_failure_never_replays(self):
         c = FakeIMAP()
         service = MailService("me@example.com", "synthetic-only", store=self.store, connector=lambda: c)

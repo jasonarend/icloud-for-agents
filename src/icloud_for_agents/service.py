@@ -151,6 +151,7 @@ class MailService:
 
     def prepare_send(self, to, subject, body, cc=None, bcc=None):
         payload = core.compose(self.account, to, subject, body, cc, bcc)
+        payload["message_id"] = core.new_message_id()
         with self.imap() as client:
             payload["sent_folder"] = core.role_folder(client, "Sent", self.overrides)
         return self.store.prepare("send", payload)
@@ -215,7 +216,7 @@ class MailService:
         with self.imap() as client:
             if core.role_folder(client, "Sent", self.overrides) != payload["sent_folder"]:
                 raise core.SafetyError("Sent folder changed since review")
-        message = core.mime_message(payload, plan_id)
+        message = core.mime_message(payload)
         recipients = payload["to"] + payload["cc"] + payload["bcc"]
         with smtplib.SMTP("smtp.mail.me.com", 587, timeout=30) as smtp:
             smtp.ehlo()

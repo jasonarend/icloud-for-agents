@@ -5,9 +5,10 @@ import email
 import hashlib
 import json
 import re
+import uuid
 from email import policy
 from email.message import EmailMessage
-from email.utils import getaddresses, make_msgid, formatdate
+from email.utils import getaddresses, formatdate
 
 MAX_UID = 2**32 - 1
 MAX_BATCH = 100
@@ -351,7 +352,12 @@ def compose(account, to, subject, body, cc=None, bcc=None):
     return {"account": account, **normalized, "subject": subject, "body": body}
 
 
-def mime_message(payload, plan_id):
+def new_message_id():
+    """Use an opaque identifier without a machine hostname or plan ID."""
+    return f"<{uuid.uuid4().hex}@icloud.com>"
+
+
+def mime_message(payload):
     msg = EmailMessage(policy=policy.SMTP)
     msg["From"] = payload["account"]
     msg["To"] = ", ".join(payload["to"])
@@ -359,6 +365,13 @@ def mime_message(payload, plan_id):
         msg["Cc"] = ", ".join(payload["cc"])
     msg["Subject"] = payload["subject"]
     msg["Date"] = formatdate(localtime=False)
-    msg["Message-ID"] = make_msgid(idstring=plan_id)
+    # Older already-reviewed proposals have no ID. Give those a fresh opaque
+    # value rather than breaking their existing approval or revealing metadata.
+    message_id = payload.get("message_id")
+    if message_id is None:
+        message_id = new_message_id()
+    if not isinstance(message_id, str) or not re.fullmatch(r"<[0-9a-f]{32}@icloud\.com>", message_id):
+        raise SafetyError("Invalid reviewed message identifier")
+    msg["Message-ID"] = message_id
     msg.set_content(payload["body"])
     return msg
