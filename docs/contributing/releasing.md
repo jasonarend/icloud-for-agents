@@ -6,7 +6,7 @@ This guide is for maintainers publishing iCloud for Agents. For a personal insta
 
 Local progress commits may keep the current version. Run the relevant checks and `.venv/bin/python scripts/check-release.py --local-commit` before committing.
 
-Before pushing runtime, dependency or setup changes, choose one version for the complete batch: a patch for compatible fixes, a minor version for compatible features, or a major version for breaking changes. Documentation-only and test-only batches may keep the existing version unless preparing a release.
+Before pushing runtime, dependency or setup changes, choose a version newer than the latest reachable release tag: a patch for compatible fixes, a minor version for compatible features, or a major version for breaking changes. Later changes intended for the same unreleased version can keep it, provided it still reflects the scope of the upcoming release. Documentation-only and test-only batches may keep the existing version unless preparing a release.
 
 Update `pyproject.toml`, `src/icloud_for_agents/version.py` and the README version together, then run:
 
@@ -20,7 +20,7 @@ The check uses local release tags, so fetch the release tags when preparing from
 .venv/bin/python scripts/check-release.py --pre-push
 ```
 
-The pre-push check compares committed `HEAD` with `origin/main`, requires a newer version for outgoing functional changes, and refuses uncommitted version references. Use `--remote-ref` when pushing to a different branch. Neither check fetches or pushes. Each functional push batch needs a newer version even if the previous version has not been tagged.
+The pre-push check compares committed `HEAD` with `origin/main` and the latest reachable release tag. It refuses uncommitted version references or a version older than the remote branch, and requires functional changes to use a version newer than the latest release tag. An unreleased version may be reused across pushes until it is tagged. Use `--remote-ref` when pushing to a different branch. Neither check fetches or pushes.
 
 A push does not create a release. Update the changelog when preparing a release; do not add an Unreleased placeholder. Coding agents follow the same rules in [AGENTS.md](../../AGENTS.md).
 

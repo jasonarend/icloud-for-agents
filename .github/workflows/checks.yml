@@ -34,6 +34,7 @@ jobs:
           export DEVELOPER_DIR="${DEVELOPER_DIR:-$(xcode-select -p)}"
           export SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
           .venv/bin/python tests/run_offline.py
+          .venv/bin/python tests/release_check_git_smoke.py
           .venv/bin/python tests/login_service_launchd_smoke.py
           .venv/bin/python tests/stdio_smoke.py
           .venv/bin/python tests/modern_stdio_smoke.py

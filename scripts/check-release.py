@@ -61,6 +61,14 @@ def committed_version(ref):
     return version_from_text(lambda path: '\n'.join(git('show', f'{ref}:{path}')))
 
 
+def latest_release_tag():
+    tags = [tag for tag in git('tag', '--merged', 'HEAD', '--list', 'v*')
+            if VERSION.fullmatch(tag[1:])]
+    if not tags:
+        raise ValueError('No reachable release tags found. Fetch release tags before checking the next version.')
+    return max(tags, key=lambda tag: version_tuple(tag[1:]))
+
+
 def check_pre_push(remote_ref='origin/main'):
     try:
         git('rev-parse', '--verify', remote_ref + '^{commit}')
@@ -77,7 +85,10 @@ def check_pre_push(remote_ref='origin/main'):
     remote = committed_version(remote_ref)
     paths = git('diff', '--name-only', remote_ref + '..HEAD', '--')
     try:
-        validate_change_version(current, remote, paths)
+        # An unreleased version can accumulate several functional pushes. Never
+        # move backwards from the remote, or add functionality to a released version.
+        validate_change_version(current, remote, ())
+        validate_change_version(current, latest_release_tag()[1:], paths)
     except ValueError as exc:
         raise ValueError(f'Outgoing commits compared with {remote_ref}: {exc}') from exc
     return current, remote_ref
@@ -97,11 +108,7 @@ def main():
             print(f'Pre-push release check passed: committed {current}; compared with {base}.')
             return 0
         current = project_version(ROOT, require_changelog=args.release)
-        tags = [tag for tag in git('tag', '--merged', 'HEAD', '--list', 'v*')
-                if VERSION.fullmatch(tag[1:])]
-        if not tags:
-            raise ValueError('No reachable release tags found. Fetch release tags before checking the next version.')
-        base = max(tags, key=lambda tag: version_tuple(tag[1:]))
+        base = latest_release_tag()
         paths = set() if args.local_commit else set(git('diff', '--name-only', base, '--'))
         if not args.local_commit:
             paths.update(git('ls-files', '--others', '--exclude-standard'))

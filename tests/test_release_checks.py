@@ -15,7 +15,7 @@ CHECK = runpy.run_path(str(ROOT / 'scripts/check-release.py'))
 
 
 class ReleaseCheckTests(unittest.TestCase):
-    def pre_push(self, head='2.1.1', remote='2.1.0', paths=(), dirty=(), mismatch=False):
+    def pre_push(self, head='2.1.1', remote='2.1.0', released='2.1.0', paths=(), dirty=(), mismatch=False):
         def read_ref(ref, path):
             version = head if ref == 'HEAD' else remote
             return {'pyproject.toml': f'[project]\nversion="{version}"',
@@ -23,6 +23,8 @@ class ReleaseCheckTests(unittest.TestCase):
                     'README.md': f'**Version {"0.0.0" if mismatch and ref == "HEAD" else version}**',
                     'CHANGELOG.md': f'## {version} — 2026-11-08'}[path].splitlines()
         def fake_git(*args):
+            if args[0] == 'tag':
+                return ['v' + released] if released is not None else []
             if args[0] == 'show':
                 return read_ref(*args[1].split(':', 1))
             if args[0] == 'diff':
@@ -83,15 +85,25 @@ class ReleaseCheckTests(unittest.TestCase):
                 with self.assertRaises(SystemExit):
                     function()
 
-    def test_pre_push_checks_committed_versions_against_remote_each_batch(self):
+    def test_pre_push_allows_one_unreleased_version_across_functional_batches(self):
         self.assertEqual(self.pre_push(paths=['src/icloud_for_agents/server.py']), ('2.1.1', 'origin/main'))
         with self.assertRaisesRegex(ValueError, 'version bump'):
             self.pre_push(head='2.1.0', paths=['src/icloud_for_agents/server.py'])
-        # A previously pushed but unreleased version cannot be reused for a new
-        # functional batch merely because its release tag has not been created.
+        self.assertEqual(self.pre_push(head='2.1.1', remote='2.1.1', paths=['scripts/setup.py']),
+                         ('2.1.1', 'origin/main'))
+        # Once that version is tagged as released, another functional push needs
+        # a newer version even when HEAD and the remote still match it.
         with self.assertRaisesRegex(ValueError, 'version bump'):
-            self.pre_push(head='2.1.1', remote='2.1.1', paths=['scripts/setup.py'])
+            self.pre_push(head='2.1.1', remote='2.1.1', released='2.1.1', paths=['scripts/setup.py'])
         self.pre_push(head='2.1.0', paths=['docs/setup.md', 'tests/test_example.py'])
+
+    def test_pre_push_refuses_regression_and_missing_release_tags(self):
+        with self.assertRaisesRegex(ValueError, 'older'):
+            self.pre_push(head='2.1.1', remote='2.1.2', paths=['docs/setup.md'])
+        with self.assertRaisesRegex(ValueError, 'older'):
+            self.pre_push(head='2.1.1', remote='2.1.2', paths=['scripts/setup.py'])
+        with self.assertRaisesRegex(ValueError, 'Fetch release tags'):
+            self.pre_push(released=None, paths=['scripts/setup.py'])
 
     def test_pre_push_refuses_uncommitted_bump_or_inconsistent_head(self):
         with self.assertRaisesRegex(ValueError, 'Commit the release version references'):
