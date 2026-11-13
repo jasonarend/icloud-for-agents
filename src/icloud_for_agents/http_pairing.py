@@ -74,7 +74,8 @@ class HttpPairing:
         except Exception:
             return {"client_id": client_id, "status": "unavailable_or_unknown"}
 
-    def prepare(self, action, *, label=None, client_id=None, permissions=None, manage_clients=False):
+    def prepare(self, action, *, label=None, client_id=None, permissions=None, manage_clients=False,
+                self_request=False):
         if action not in ACTIONS or type(manage_clients) is not bool:
             raise SafetyError("Choose a supported client action and explicit management setting")
         if action == "create":
@@ -116,6 +117,12 @@ class HttpPairing:
                    "label": label, "permissions": permissions, "manage_clients": manage_clients,
                    "instance": self.keys.instance, "configuration": self.keys.configuration,
                    "before_sha256": before, "warning": warnings[action]}
+        if self_request:
+            from .http_authorization import self_client_id
+            from .http_proposal_quota import prepare_self_permission
+            if self_client_id() != client_id:
+                raise SafetyError("Permission request belongs to another client")
+            return prepare_self_permission(self.store, client_id, payload)
         return self.store.prepare("http_client", payload)
 
     def _proposal(self, plan_id):

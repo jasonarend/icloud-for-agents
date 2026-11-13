@@ -1143,10 +1143,12 @@ def approve_interactively(store, plan_id):
         answer = terminal.readline().rstrip("\n")
     if answer != phrase:
         raise SafetyError("No approval recorded")
-    if digest(store.proposal(plan_id)) != fingerprint:
-        raise SafetyError("Proposal changed while it was being reviewed")
-    store.write_once(store.path(plan_id, ".approved"),
-                     {"plan_id": plan_id, "sha256": fingerprint, "approved_at": store.clock()})
+    from .http_proposal_quota import approval_lock
+    with approval_lock(store):
+        if digest(store.proposal(plan_id)) != fingerprint:
+            raise SafetyError("Proposal changed while it was being reviewed")
+        store.write_once(store.path(plan_id, ".approved"),
+                         {"plan_id": plan_id, "sha256": fingerprint, "approved_at": store.clock()})
 
 
 def main():

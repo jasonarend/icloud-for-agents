@@ -221,7 +221,8 @@ def http_prepare_client(action: str, label: str | None = None, client_id: str | 
         before = pairing._record(client_id)
         if before.get('manage_clients') is not False:
             raise SafetyError('Client-management authority changed; prepare a fresh request')
-        prepared = pairing.prepare(action, client_id=client_id, permissions=permissions, manage_clients=False)
+        prepared = pairing.prepare(action, client_id=client_id, permissions=permissions, manage_clients=False,
+                                   self_request=True)
         if prepared['review']['payload']['before_sha256'] != digest(before):
             raise SafetyError('Client credential changed while preparing access; prepare a fresh request')
         return prepared

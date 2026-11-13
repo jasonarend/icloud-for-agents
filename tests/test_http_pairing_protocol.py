@@ -151,6 +151,13 @@ class PairingProtocolTests(unittest.TestCase):
                         refused(call(restricted, "http_execute_client", {"plan_id": own["plan_id"]}))
                         refused(call(restricted, "http_execute_client", {"plan_id": stale["plan_id"]}))
                         self.assertFalse(store.path(stale["plan_id"], ".started").exists())
+                        from icloud_for_agents.http_proposal_quota import SLOTS
+                        for _ in range(SLOTS - 2):
+                            value(call(restricted, "http_prepare_client", own_args))
+                        before = set(store.root.glob("*.json"))
+                        for _ in range(12):
+                            refused(call(restricted, "http_prepare_client", own_args))
+                        self.assertEqual(set(store.root.glob("*.json")), before)
                         self.assertEqual(presented, ["Synthetic paired client"])
         finally:
             importlib.reload(server)
