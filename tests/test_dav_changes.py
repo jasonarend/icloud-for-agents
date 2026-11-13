@@ -95,6 +95,16 @@ class DAVChangeTests(unittest.TestCase):
         self.assertEqual(result['status'],'failed_or_uncertain');self.assertEqual(len(result['completed']),1)
         with self.assertRaises(SafetyError):self.editor.execute(p['plan_id'])
 
+    def test_nested_encoded_write_targets_refused_before_read_or_proposal(self):
+        for suffix in ('%252e%252e%252fx.vcf', '%25252e%25252e/x.vcf',
+                       'folder%255cx.vcf', '%25%32%65%25%32%65%25%32%66x.vcf'):
+            with self.subTest(suffix=suffix), self.assertRaises(SafetyError):
+                self.editor.prepare('card',self.collection,[{'operation':'update',
+                    'url':self.collection+suffix,'fields':{'full_name':'After'}}])
+        self.transport.assert_not_called()
+        self.writer.assert_not_called()
+        self.assertEqual(list(self.store.root.glob('*.json')),[])
+
     def test_weak_etag_is_refused_and_long_utf8_lines_are_folded(self):
         self.etag='W/"weak"'
         with self.assertRaises(SafetyError):self.editor.resource('card',self.resource)

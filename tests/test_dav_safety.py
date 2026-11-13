@@ -62,6 +62,55 @@ class DAVSafetyTests(unittest.TestCase):
         with self.assertRaises(SafetyError):reader.contact(collection,collection+'x.vcf')
         self.assertEqual(transport.call_count,1)
 
+    def test_contact_nested_encoded_paths_refused_before_transport(self):
+        reader=DAVReader('synthetic','fake',Mock())
+        reader.known_collection=lambda kind,url:url
+        collection='https://contacts.icloud.com/a/'
+        targets=['%252e%252e%252fx.vcf', '%25252E%25252e/x.vcf',
+                 'folder%255cx.vcf', '%25%32%65%25%32%65%25%32%66x.vcf',
+                 '%'+'25'*32+'2foutside.vcf']
+        for suffix in targets:
+            with self.subTest(suffix=suffix), self.assertRaises(SafetyError):
+                reader.contact(collection,collection+suffix)
+        unsafe_collection=collection+'%252e%252e/'
+        with self.assertRaises(SafetyError):
+            reader.contact(unsafe_collection,unsafe_collection+'x.vcf')
+        reader.transport.assert_not_called()
+
+    def test_contact_nested_encoded_redirect_refused_before_second_transport(self):
+        collection='https://contacts.icloud.com/a/'
+        for suffix in ('%252e%252e%252fx.vcf', 'folder%25255cx.vcf',
+                       '%25%32%65%25%32%65%25%32%66x.vcf'):
+            with self.subTest(suffix=suffix):
+                transport=Mock(return_value=(302,{'location':collection+suffix},b''))
+                reader=DAVReader('synthetic','fake',transport)
+                reader.known_collection=lambda kind,url:url
+                with self.assertRaises(SafetyError):reader.contact(collection,collection+'x.vcf')
+                self.assertEqual(transport.call_count,1)
+
+    def test_contact_discovery_refuses_nested_encoded_resource(self):
+        collection='https://contacts.icloud.com/a/'
+        raw=(b'<d:multistatus xmlns:d="DAV:"><d:response>'
+             b'<d:href>/a/%252e%252e%252fx.vcf</d:href>'
+             b'</d:response></d:multistatus>')
+        transport=Mock(return_value=(207,{},raw))
+        reader=DAVReader('synthetic','fake',transport)
+        reader.known_collection=lambda kind,url:url
+        with self.assertRaises(SafetyError):reader.contact_refs(collection)
+        self.assertEqual(transport.call_count,1)
+        self.assertEqual(transport.call_args.args[:2],('PROPFIND',collection))
+
+    def test_contact_safe_escaped_names_preserve_original_request_url(self):
+        collection='https://contacts.icloud.com/a/'
+        for suffix in ('First%20Last.vcf', 'Ren%C3%A9.vcf', 'discount%25.vcf', 'literal%2520.vcf'):
+            with self.subTest(suffix=suffix):
+                transport=Mock(return_value=(200,{},b'BEGIN:VCARD\r\nEND:VCARD\r\n'))
+                reader=DAVReader('synthetic','fake',transport)
+                reader.known_collection=lambda kind,url:url
+                target=collection+suffix
+                self.assertEqual(reader.contact(collection,target)['url'],target)
+                transport.assert_called_once_with('GET',target,'',0)
+
     def test_contact_child_and_inside_redirect_remain_readable(self):
         collection='https://contacts.icloud.com/a/'
         redirected=collection+'renamed.vcf'

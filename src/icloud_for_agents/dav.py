@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 import http.client
 import re
 import ssl
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import unquote, urljoin, urlsplit
 from xml.etree import ElementTree as ET
 
 from .version import __version__
@@ -81,9 +81,17 @@ def collection_resource_url(collection_url, resource_url, kind):
     collection = urlsplit(apple_url(collection_url, kind))
     resource = urlsplit(apple_url(resource_url, kind))
     for path in (collection.path, resource.path):
-        if ("\\" in path or any(segment in {".", ".."} for segment in path.split("/"))
-                or re.search(r"%2e|%2f|%5c", path, re.I)):
-            raise SafetyError("Resource must remain inside the exact discovered collection")
+        # An upstream proxy and DAV server may decode separate layers. Inspect
+        # every layer without changing the URL sent to Apple. Each successful
+        # percent decoding shortens the already bounded path, so this terminates.
+        while True:
+            if ("\\" in path or any(segment in {".", ".."} for segment in path.split("/"))
+                    or re.search(r"%2e|%2f|%5c", path, re.I)):
+                raise SafetyError("Resource must remain inside the exact discovered collection")
+            decoded = unquote(path, encoding="latin-1")
+            if decoded == path:
+                break
+            path = decoded
     collection_origin = (collection.scheme, collection.hostname, collection.port or 443)
     resource_origin = (resource.scheme, resource.hostname, resource.port or 443)
     collection_path = tuple(collection.path.rstrip("/").split("/"))
